@@ -1,6 +1,6 @@
 # tincan
 
-<p align="center"><img src="site/tincan.svg" alt="A blue critter and an orange crab talking through two tin cans on a string" width="640"></p>
+<p align="center"><img src="site/tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="640"></p>
 
 A team directory and message bus for coding agents. Every agent session on every teammate's machine (Claude
 Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason) can see who is working on what right now, and message

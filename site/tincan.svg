@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500" role="img">
-  <title>tincan: two critters talking over a tin-can telephone</title>
+  <title>tincan: two AI agents talking over a tin-can telephone</title>
   <defs>
     <linearGradient id="canBody" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#eef1f4"/>
@@ -11,6 +11,18 @@
       <stop offset="0" stop-color="#e3e7eb"/>
       <stop offset="1" stop-color="#a9b0b9"/>
     </linearGradient>
+    <linearGradient id="visor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#343a5a"/>
+      <stop offset="1" stop-color="#1c1f33"/>
+    </linearGradient>
+    <radialGradient id="glowCyan">
+      <stop offset="0" stop-color="#7ff3ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7ff3ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowAmber">
+      <stop offset="0" stop-color="#ffd25e" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#ffd25e" stop-opacity="0"/>
+    </radialGradient>
     <g id="can">
       <path d="M-110,-36 L0,-36 A14 36 0 0 1 0,36 L-110,36 A14 36 0 0 1 -110,-36 Z" fill="url(#canBody)"/>
       <path d="M-102,-36 A14 36 0 0 0 -102,36" fill="none" stroke="#8a919b" stroke-width="2.5"/>
@@ -21,156 +33,158 @@
       <ellipse cx="0" cy="0" rx="14" ry="36" fill="url(#canCap)" stroke="#2b2838" stroke-width="5"/>
       <ellipse cx="0" cy="0" rx="8" ry="27" fill="none" stroke="#8a919b" stroke-width="2.5"/>
       <path d="M-4,-24 A8 27 0 0 1 5,-12" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
-      <circle cx="0" cy="0" r="3.5" fill="#2b2838"/>
     </g>
-    <path id="gBody" d="M245,140 C332,140 388,205 390,300 C392,396 340,462 245,462 C150,462 98,396 100,300 C102,205 158,140 245,140 Z"/>
-    <clipPath id="gopherClip"><use href="#gBody"/></clipPath>
-    <path id="cShell" d="M812,388 C806,330 866,292 945,292 C1024,292 1084,330 1078,388 C1075,422 1018,438 945,438 C872,438 815,422 812,388 Z"/>
-    <clipPath id="shellClip"><use href="#cShell"/></clipPath>
+    <path id="blueBody" d="M245,150 C334,150 387,214 389,304 C391,394 339,458 245,458 C151,458 99,394 101,304 C103,214 156,150 245,150 Z"/>
+    <clipPath id="blueClip"><use href="#blueBody"/></clipPath>
+    <path id="orangeBody" d="M828,322 C828,268 880,236 945,236 C1010,236 1062,268 1062,322 L1062,390 C1062,424 1030,440 945,440 C860,440 828,424 828,390 Z"/>
+    <clipPath id="orangeClip"><use href="#orangeBody"/></clipPath>
+    <path id="sparkL" d="M0,-18 C3.96,-3.96 3.96,-3.96 18,0 C3.96,3.96 3.96,3.96 0,18 C-3.96,3.96 -3.96,3.96 -18,0 C-3.96,-3.96 -3.96,-3.96 0,-18 Z"/>
+    <path id="sparkS" d="M0,-10 C2.2,-2.2 2.2,-2.2 10,0 C2.2,2.2 2.2,2.2 0,10 C-2.2,2.2 -2.2,2.2 -10,0 C-2.2,-2.2 -2.2,-2.2 0,-10 Z"/>
   </defs>
 
-  <g transform="translate(600 252) scale(1.06) translate(-628 -293)">
+  <g transform="translate(600 252) scale(1.04) translate(-625 -272)">
+
   <!-- ground shadows -->
-  <ellipse cx="246" cy="474" rx="128" ry="9" fill="#2b2838" opacity="0.1"/>
-  <ellipse cx="945" cy="476" rx="140" ry="9" fill="#2b2838" opacity="0.1"/>
+  <ellipse cx="246" cy="472" rx="128" ry="9" fill="#2b2838" opacity="0.1"/>
+  <ellipse cx="945" cy="474" rx="120" ry="9" fill="#2b2838" opacity="0.1"/>
 
-  <!-- sound marks -->
-  <g fill="none" stroke-width="5" stroke-linecap="round">
-    <path d="M466,262 A44 44 0 0 1 478,276" stroke="#4fa3d8"/>
-    <path d="M472,242 A64 64 0 0 1 494,264" stroke="#4fa3d8"/>
-    <path d="M478,222 A84 84 0 0 1 510,252" stroke="#4fa3d8"/>
-    <path d="M719,238 A44 44 0 0 0 707,252" stroke="#f08a4b"/>
-    <path d="M713,218 A64 64 0 0 0 691,240" stroke="#f08a4b"/>
-    <path d="M707,198 A84 84 0 0 0 675,228" stroke="#f08a4b"/>
-  </g>
-
-  <!-- ===== blue critter ===== -->
-  <g stroke="#2b2838" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-    <!-- ears -->
-    <circle cx="142" cy="168" r="25" fill="#93d2ef"/>
-    <circle cx="340" cy="160" r="23" fill="#93d2ef"/>
-  </g>
-  <circle cx="139" cy="164" r="12" fill="#f4b6c2"/>
-  <circle cx="343" cy="156" r="11" fill="#f4b6c2"/>
+  <!-- ================= blue agent ================= -->
+  <!-- left arm, resting (behind body) -->
+  <path d="M118,352 C106,364 100,378 99,390" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
+  <path d="M118,352 C106,364 100,378 99,390" fill="none" stroke="#93d2ef" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="99" cy="394" r="16" fill="#d6eef9" stroke="#2b2838" stroke-width="5"/>
+  <!-- antenna -->
+  <circle cx="240" cy="94" r="30" fill="url(#glowCyan)"/>
+  <path d="M243,150 L240,106" stroke="#2b2838" stroke-width="11" stroke-linecap="round"/>
+  <path d="M243,150 L240,106" stroke="#c9ced5" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="240" cy="94" r="13" fill="#7ff3ff" stroke="#2b2838" stroke-width="4.5"/>
+  <circle cx="236" cy="90" r="4" fill="#ffffff"/>
+  <rect x="228" y="142" width="30" height="14" rx="6" fill="#6fb3da" stroke="#2b2838" stroke-width="4.5"/>
   <!-- body -->
-  <use href="#gBody" fill="#7fc3e6"/>
-  <g clip-path="url(#gopherClip)">
-    <ellipse cx="262" cy="288" rx="140" ry="166" fill="#97d4f0"/>
-    <ellipse cx="246" cy="400" rx="78" ry="58" fill="#c3e8f8"/>
-    <ellipse cx="300" cy="200" rx="40" ry="20" fill="#b8e4f7" transform="rotate(25 300 200)"/>
+  <use href="#blueBody" fill="#7fc3e6"/>
+  <g clip-path="url(#blueClip)">
+    <ellipse cx="262" cy="292" rx="140" ry="162" fill="#97d4f0"/>
+    <path d="M100,352 Q245,392 392,352" fill="none" stroke="#6aaed3" stroke-width="3.5"/>
+    <ellipse cx="318" cy="192" rx="34" ry="13" fill="#c3e9f9" transform="rotate(30 318 192)"/>
   </g>
-  <use href="#gBody" fill="none" stroke="#2b2838" stroke-width="5"/>
-  <!-- tuft -->
-  <path d="M236,142 C226,118 244,104 258,114 C248,117 246,128 253,141" fill="#93d2ef" stroke="#2b2838" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+  <use href="#blueBody" fill="none" stroke="#2b2838" stroke-width="5"/>
+  <!-- side ear disc -->
+  <ellipse cx="110" cy="268" rx="12" ry="26" fill="#6fb3da" stroke="#2b2838" stroke-width="4.5"/>
+  <ellipse cx="110" cy="268" rx="4" ry="9" fill="#2b2838"/>
+  <!-- chest light -->
+  <circle cx="232" cy="402" r="26" fill="url(#glowCyan)"/>
+  <circle cx="232" cy="402" r="13" fill="#7ff3ff" stroke="#2b2838" stroke-width="4.5"/>
+  <circle cx="228" cy="398" r="3.5" fill="#ffffff"/>
   <!-- feet -->
-  <g stroke="#2b2838" stroke-width="5" stroke-linecap="round">
-    <ellipse cx="190" cy="462" rx="34" ry="15" fill="#7fc3e6"/>
-    <ellipse cx="302" cy="462" rx="34" ry="15" fill="#7fc3e6"/>
-    <path d="M182,456 v8 M196,456 v8 M296,456 v8 M310,456 v8" stroke-width="3"/>
-  </g>
-  <!-- eyes -->
   <g stroke="#2b2838" stroke-width="5">
-    <circle cx="222" cy="232" r="40" fill="#ffffff"/>
-    <circle cx="306" cy="228" r="36" fill="#ffffff"/>
+    <path d="M156,470 V462 A34 18 0 0 1 224,462 V470 Z" fill="#6fb3da" stroke-linejoin="round"/>
+    <path d="M266,470 V462 A34 18 0 0 1 334,462 V470 Z" fill="#6fb3da" stroke-linejoin="round"/>
   </g>
-  <circle cx="236" cy="238" r="18" fill="#2b2838"/>
-  <circle cx="319" cy="234" r="16" fill="#2b2838"/>
-  <circle cx="242" cy="231" r="6.5" fill="#ffffff"/>
-  <circle cx="231" cy="246" r="3" fill="#ffffff"/>
-  <circle cx="324" cy="228" r="6" fill="#ffffff"/>
-  <circle cx="314" cy="241" r="2.6" fill="#ffffff"/>
-  <!-- cheek -->
-  <ellipse cx="178" cy="298" rx="20" ry="11" fill="#f49aae" opacity="0.6"/>
-  <!-- muzzle -->
-  <ellipse cx="282" cy="300" rx="36" ry="25" fill="#eef8fd" stroke="#2b2838" stroke-width="5"/>
-  <ellipse cx="284" cy="286" rx="12" ry="8.5" fill="#ee8299" stroke="#2b2838" stroke-width="4"/>
-  <ellipse cx="280" cy="283.5" rx="3.5" ry="2" fill="#ffffff" opacity="0.9"/>
-  <path d="M284,295 L284,301" stroke="#2b2838" stroke-width="4" stroke-linecap="round"/>
-  <path d="M274,301 h20 v12 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z" fill="#ffffff" stroke="#2b2838" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M284,301 v15" stroke="#2b2838" stroke-width="3"/>
+  <!-- visor -->
+  <rect x="158" y="194" width="196" height="124" rx="46" fill="url(#visor)" stroke="#2b2838" stroke-width="5"/>
+  <path d="M184,236 Q188,214 212,207" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.28"/>
+  <ellipse cx="250" cy="248" rx="70" ry="40" fill="url(#glowCyan)"/>
+  <!-- eyes: rounded, one brow raised -->
+  <rect x="208" y="228" width="26" height="38" rx="12" fill="#7ff3ff"/>
+  <rect x="268" y="226" width="26" height="38" rx="12" fill="#7ff3ff"/>
+  <path d="M266,212 L294,206" stroke="#7ff3ff" stroke-width="5" stroke-linecap="round"/>
+  <!-- smirk -->
+  <path d="M248,288 Q270,300 292,284" fill="none" stroke="#7ff3ff" stroke-width="5" stroke-linecap="round"/>
 
-  <!-- critter's can -->
-  <use href="#can" transform="translate(440,305)"/>
-  <!-- far paw over the top of the can -->
-  <ellipse cx="378" cy="270" rx="17" ry="13" fill="#93d2ef" stroke="#2b2838" stroke-width="5"/>
-  <path d="M372,274 v9 M384,274 v9" stroke="#2b2838" stroke-width="3" stroke-linecap="round"/>
-  <!-- near arm + paw under the can -->
-  <path d="M344,392 C374,388 392,370 398,348" fill="none" stroke="#2b2838" stroke-width="30" stroke-linecap="round"/>
-  <path d="M344,392 C374,388 392,370 398,348" fill="none" stroke="#93d2ef" stroke-width="20" stroke-linecap="round"/>
-  <ellipse cx="400" cy="341" rx="19" ry="15" fill="#93d2ef" stroke="#2b2838" stroke-width="5"/>
-  <path d="M394,330 v9 M406,330 v9" stroke="#2b2838" stroke-width="3" stroke-linecap="round"/>
+  <!-- blue agent's can, held to its visor -->
+  <use href="#can" transform="translate(440,292)"/>
+  <circle cx="372" cy="256" r="15" fill="#d6eef9" stroke="#2b2838" stroke-width="5"/>
+  <path d="M344,392 C374,386 390,366 394,340" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
+  <path d="M344,392 C374,386 390,366 394,340" fill="none" stroke="#93d2ef" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="396" cy="330" r="17" fill="#d6eef9" stroke="#2b2838" stroke-width="5"/>
 
-  <!-- ===== crab ===== -->
+  <!-- ================= orange agent ================= -->
   <!-- legs -->
+  <g stroke-linecap="round">
+    <path d="M906,430 V456 M984,430 V456" stroke="#2b2838" stroke-width="16"/>
+    <path d="M906,430 V456 M984,430 V456" stroke="#c9ced5" stroke-width="7"/>
+  </g>
+  <g stroke="#2b2838" stroke-width="5" stroke-linejoin="round">
+    <path d="M876,472 V464 A30 16 0 0 1 936,464 V472 Z" fill="#d9632f"/>
+    <path d="M954,472 V464 A30 16 0 0 1 1014,464 V472 Z" fill="#d9632f"/>
+  </g>
+  <!-- antenna stalks -->
+  <circle cx="890" cy="176" r="34" fill="url(#glowAmber)"/>
+  <circle cx="1000" cy="172" r="34" fill="url(#glowAmber)"/>
   <g fill="none" stroke-linecap="round">
-    <g stroke="#2b2838" stroke-width="16">
-      <path d="M858,418 Q826,432 816,460"/>
-      <path d="M884,428 Q860,448 858,474"/>
-      <path d="M912,434 Q898,454 902,478"/>
-      <path d="M1032,418 Q1064,432 1074,460"/>
-      <path d="M1006,428 Q1030,448 1032,474"/>
-      <path d="M978,434 Q992,454 988,478"/>
-    </g>
-    <g stroke="#ef7a43" stroke-width="7">
-      <path d="M858,418 Q826,432 816,460"/>
-      <path d="M884,428 Q860,448 858,474"/>
-      <path d="M912,434 Q898,454 902,478"/>
-      <path d="M1032,418 Q1064,432 1074,460"/>
-      <path d="M1006,428 Q1030,448 1032,474"/>
-      <path d="M978,434 Q992,454 988,478"/>
-    </g>
+    <path d="M906,246 Q893,214 890,190 M984,246 Q997,212 1000,186" stroke="#2b2838" stroke-width="12"/>
+    <path d="M906,246 Q893,214 890,190 M984,246 Q997,212 1000,186" stroke="#c9ced5" stroke-width="5"/>
   </g>
-  <!-- eye stalks -->
-  <g fill="none" stroke-linecap="round">
-    <path d="M906,302 Q894,262 892,224" stroke="#2b2838" stroke-width="17"/>
-    <path d="M984,302 Q996,262 998,222" stroke="#2b2838" stroke-width="17"/>
-    <path d="M906,302 Q894,262 892,224" stroke="#ef7a43" stroke-width="8"/>
-    <path d="M984,302 Q996,262 998,222" stroke="#ef7a43" stroke-width="8"/>
+  <circle cx="890" cy="176" r="15" fill="#ffd25e" stroke="#2b2838" stroke-width="4.5"/>
+  <circle cx="1000" cy="172" r="15" fill="#ffd25e" stroke="#2b2838" stroke-width="4.5"/>
+  <circle cx="885" cy="171" r="4.5" fill="#ffffff"/>
+  <circle cx="995" cy="167" r="4.5" fill="#ffffff"/>
+  <!-- waving arm (behind body) -->
+  <path d="M1046,370 C1088,362 1112,328 1118,286" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
+  <path d="M1046,370 C1088,362 1112,328 1118,286" fill="none" stroke="#ef7a43" stroke-width="18" stroke-linecap="round"/>
+  <!-- holding arm (behind body) -->
+  <path d="M846,404 C816,404 800,390 798,372" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
+  <path d="M846,404 C816,404 800,390 798,372" fill="none" stroke="#ef7a43" stroke-width="18" stroke-linecap="round"/>
+  <!-- body -->
+  <use href="#orangeBody" fill="#e8693a"/>
+  <g clip-path="url(#orangeClip)">
+    <ellipse cx="957" cy="326" rx="128" ry="122" fill="#f4844c"/>
+    <path d="M824,400 Q945,426 1066,400" fill="none" stroke="#d9632f" stroke-width="3.5"/>
+    <ellipse cx="1004" cy="260" rx="38" ry="11" fill="#ffa874" transform="rotate(14 1004 260)"/>
   </g>
-  <g stroke="#2b2838" stroke-width="5">
-    <circle cx="890" cy="208" r="27" fill="#ffffff"/>
-    <circle cx="1000" cy="206" r="27" fill="#ffffff"/>
+  <use href="#orangeBody" fill="none" stroke="#2b2838" stroke-width="5"/>
+  <!-- antenna sockets -->
+  <g fill="#c9ced5" stroke="#2b2838" stroke-width="4.5">
+    <rect x="893" y="238" width="26" height="13" rx="6" transform="rotate(-14 906 244)"/>
+    <rect x="971" y="238" width="26" height="13" rx="6" transform="rotate(14 984 244)"/>
   </g>
-  <circle cx="880" cy="212" r="13" fill="#2b2838"/>
-  <circle cx="990" cy="210" r="13" fill="#2b2838"/>
-  <circle cx="876" cy="206" r="5" fill="#ffffff"/>
-  <circle cx="986" cy="204" r="5" fill="#ffffff"/>
-  <circle cx="885" cy="219" r="2.2" fill="#ffffff"/>
-  <circle cx="995" cy="217" r="2.2" fill="#ffffff"/>
-  <!-- right arm (waving) -->
-  <path d="M1062,372 C1098,360 1118,326 1122,282" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
-  <path d="M1062,372 C1098,360 1118,326 1122,282" fill="none" stroke="#ef7a43" stroke-width="18" stroke-linecap="round"/>
-  <!-- left arm (behind shell) -->
-  <path d="M850,396 C816,396 800,380 798,356" fill="none" stroke="#2b2838" stroke-width="28" stroke-linecap="round"/>
-  <path d="M850,396 C816,396 800,380 798,356" fill="none" stroke="#ef7a43" stroke-width="18" stroke-linecap="round"/>
-  <!-- shell -->
-  <use href="#cShell" fill="#e8693a"/>
-  <g clip-path="url(#shellClip)">
-    <ellipse cx="952" cy="354" rx="128" ry="80" fill="#f4844c"/>
-    <ellipse cx="990" cy="318" rx="48" ry="14" fill="#ffa874" transform="rotate(8 990 318)"/>
-  </g>
-  <use href="#cShell" fill="none" stroke="#2b2838" stroke-width="5"/>
-  <!-- freckles -->
-  <circle cx="1030" cy="345" r="4" fill="#d9572a"/>
-  <circle cx="1044" cy="360" r="3" fill="#d9572a"/>
-  <circle cx="1022" cy="364" r="2.5" fill="#d9572a"/>
-  <!-- face -->
-  <ellipse cx="892" cy="394" rx="15" ry="8" fill="#f2557a" opacity="0.45"/>
-  <ellipse cx="998" cy="394" rx="15" ry="8" fill="#f2557a" opacity="0.45"/>
-  <path d="M928,382 Q945,402 962,382 Z" fill="#7a2b3a" stroke="#2b2838" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- side ear disc -->
+  <ellipse cx="1060" cy="330" rx="12" ry="26" fill="#c9ced5" stroke="#2b2838" stroke-width="4.5"/>
+  <ellipse cx="1060" cy="330" rx="4" ry="9" fill="#2b2838"/>
+  <!-- visor -->
+  <rect x="852" y="270" width="172" height="108" rx="42" fill="url(#visor)" stroke="#2b2838" stroke-width="5"/>
+  <path d="M874,308 Q878,288 900,281" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.28"/>
+  <ellipse cx="936" cy="322" rx="72" ry="40" fill="url(#glowCyan)"/>
+  <!-- happy ^ ^ eyes and grin -->
+  <path d="M883,330 Q900,304 917,330 M951,328 Q968,302 985,328" fill="none" stroke="#7ff3ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M915,346 Q934,370 953,346 Z" fill="#7ff3ff" stroke="#7ff3ff" stroke-width="4" stroke-linejoin="round"/>
 
-  <!-- waving claw -->
-  <path d="M1128,262 L1158,250 A34 34 0 1 1 1130,232 Z" fill="#f4844c" stroke="#2b2838" stroke-width="5" stroke-linejoin="round"/>
-  <path d="M1102,250 A22 22 0 0 1 1112,236" fill="none" stroke="#ffb183" stroke-width="5" stroke-linecap="round"/>
+  <!-- waving gripper -->
+  <g stroke="#2b2838" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M1124,262 L1154,250 A32 32 0 1 1 1126,232 Z" fill="#f4844c"/>
+    <path d="M1124,262 L1102,284" fill="none" stroke-width="3.5"/>
+    <circle cx="1112" cy="273" r="5.5" fill="#c9ced5" stroke-width="3.5"/>
+  </g>
 
-  <!-- crab's can -->
-  <use href="#can" transform="translate(745,282) scale(-1,1)"/>
-  <!-- claw holding the can -->
-  <path d="M802,326 L816,296 A31 31 0 1 1 786,296 Z" fill="#f4844c" stroke="#2b2838" stroke-width="5" stroke-linejoin="round"/>
-  <path d="M780,322 A20 20 0 0 0 786,340" fill="none" stroke="#ffb183" stroke-width="5" stroke-linecap="round"/>
+  <!-- orange agent's can -->
+  <use href="#can" transform="translate(745,300) scale(-1,1)"/>
+  <!-- holding gripper -->
+  <g stroke="#2b2838" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="784" y="355" width="30" height="16" rx="6" fill="#c9ced5"/>
+    <path d="M800,341 L814,313 A30 30 0 1 1 786,313 Z" fill="#f4844c"/>
+    <path d="M800,341 L800,365" fill="none" stroke-width="3.5"/>
+    <circle cx="800" cy="353" r="5.5" fill="#c9ced5" stroke-width="3.5"/>
+  </g>
+
+  <!-- ================= agent cues ================= -->
+  <!-- speech bubble: terminal prompt -->
+  <path d="M480,170 H532 A16 16 0 0 1 548,186 V210 A16 16 0 0 1 532,226 H502 L470,248 L484,226 H480 A16 16 0 0 1 464,210 V186 A16 16 0 0 1 480,170 Z" fill="#e8f6fd" stroke="#2b2838" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M484,186 L498,198 L484,210" fill="none" stroke="#2a7fbf" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M507,212 H528" stroke="#2a7fbf" stroke-width="6" stroke-linecap="round"/>
+  <!-- speech bubble: braces -->
+  <path d="M666,160 H718 A16 16 0 0 1 734,176 V200 A16 16 0 0 1 718,216 H716 L734,240 L700,216 H666 A16 16 0 0 1 650,200 V176 A16 16 0 0 1 666,160 Z" fill="#fff1e8" stroke="#2b2838" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M679,174 Q670,174 670,182 V184 Q670,188 665,188 Q670,188 670,192 V194 Q670,202 679,202 M705,174 Q714,174 714,182 V184 Q714,188 719,188 Q714,188 714,192 V194 Q714,202 705,202" fill="none" stroke="#c4552a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#c4552a"><circle cx="684" cy="196" r="3.2"/><circle cx="692" cy="196" r="3.2"/><circle cx="700" cy="196" r="3.2"/></g>
+  <!-- AI sparkles -->
+  <g fill="#ffc94a" stroke="#2b2838" stroke-width="3.5" stroke-linejoin="round">
+    <use href="#sparkL" transform="translate(330 118)"/>
+    <use href="#sparkS" transform="translate(362 152)"/>
+    <use href="#sparkL" transform="translate(1072 178)"/>
+    <use href="#sparkS" transform="translate(1046 128)"/>
+  </g>
 
   <!-- ===== string, from hole to hole ===== -->
-  <path d="M440,305 Q593,340 745,282" fill="none" stroke="#2b2838" stroke-width="9" stroke-linecap="round"/>
-  <path d="M440,305 Q593,340 745,282" fill="none" stroke="#e6c48e" stroke-width="4" stroke-linecap="round"/>
+  <path d="M440,292 Q593,336 745,300" fill="none" stroke="#2b2838" stroke-width="9" stroke-linecap="round"/>
+  <path d="M440,292 Q593,336 745,300" fill="none" stroke="#e6c48e" stroke-width="4" stroke-linecap="round"/>
   </g>
 </svg>
