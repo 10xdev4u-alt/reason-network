@@ -423,7 +423,7 @@ pub async fn stop_daemon() -> bool {
         return false;
     }
     let pid = daemon_pid();
-    let _ = Link::new(None).call::<serde_json::Value>(Request::Shutdown).await;
+    let _ = Link::existing().call::<serde_json::Value>(Request::Shutdown).await;
     wait_exit(pid).await;
     true
 }
