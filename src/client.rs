@@ -1,0 +1,167 @@
+//! Connection to the local daemon, starting it if needed. Long-lived clients (`comms mcp`) reconnect on their
+//! own and re-register their sessions, so a daemon restart is invisible to the agent.
+
+use crate::{paths, proto::*};
+use anyhow::{Result, anyhow, bail};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+use std::{
+    collections::HashMap,
+    os::unix::process::CommandExt,
+    process::{Command, Stdio},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::UnixStream,
+    sync::{mpsc, oneshot},
+};
+
+type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Reply>>>>;
+
+#[derive(Clone)]
+struct Conn {
+    tx: mpsc::UnboundedSender<String>,
+    pending: Pending,
+    alive: Arc<AtomicBool>,
+}
+
+pub struct Link {
+    conn: tokio::sync::Mutex<Option<Conn>>,
+    regs: Mutex<HashMap<String, SessionReg>>,
+    /// Where pushed events go. `None` for one-shot clients, which also don't reconnect.
+    events: Option<mpsc::UnboundedSender<Event>>,
+    next_id: AtomicU64,
+}
+
+impl Link {
+    pub fn new(events: Option<mpsc::UnboundedSender<Event>>) -> Arc<Self> {
+        Arc::new(Link { conn: Default::default(), regs: Default::default(), events, next_id: AtomicU64::new(1) })
+    }
+
+    pub async fn call<T: DeserializeOwned>(self: &Arc<Self>, req: Request) -> Result<T> {
+        let conn = self.connect().await?;
+        let v = self.raw(&conn, &req).await?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    pub async fn register(self: &Arc<Self>, reg: SessionReg) -> Result<Registered> {
+        let r = self.call(Request::Register { session: reg.clone() }).await?;
+        self.regs.lock().unwrap().insert(reg.key.clone(), reg);
+        Ok(r)
+    }
+
+    pub fn is_registered(&self, key: &str) -> bool {
+        self.regs.lock().unwrap().contains_key(key)
+    }
+
+    async fn raw(&self, conn: &Conn, req: &Request) -> Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        conn.pending.lock().unwrap().insert(id, tx);
+        let line = serde_json::to_string(&Frame { id, body: req })?;
+        conn.tx.send(line).map_err(|_| anyhow!("comms daemon connection closed"))?;
+        let reply = rx.await.map_err(|_| anyhow!("comms daemon connection closed"))?;
+        if reply.ok {
+            Ok(reply.result.unwrap_or(Value::Null))
+        } else {
+            bail!(reply.error.unwrap_or_else(|| "unknown error".into()))
+        }
+    }
+
+    async fn connect(self: &Arc<Self>) -> Result<Conn> {
+        let mut slot = self.conn.lock().await;
+        if let Some(c) = slot.as_ref()
+            && c.alive.load(Ordering::Relaxed)
+        {
+            return Ok(c.clone());
+        }
+        let c = self.spawn_io(connect_or_start().await?);
+        let regs: Vec<SessionReg> = self.regs.lock().unwrap().values().cloned().collect();
+        for reg in regs {
+            self.raw(&c, &Request::Register { session: reg }).await?;
+        }
+        *slot = Some(c.clone());
+        Ok(c)
+    }
+
+    fn spawn_io(self: &Arc<Self>, stream: UnixStream) -> Conn {
+        let (rd, mut wr) = stream.into_split();
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        let conn = Conn { tx, pending: Pending::default(), alive: Arc::new(AtomicBool::new(true)) };
+        tokio::spawn(async move {
+            while let Some(mut line) = rx.recv().await {
+                line.push('\n');
+                if wr.write_all(line.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let (pending, alive, events, link) = (conn.pending.clone(), conn.alive.clone(), self.events.clone(), Arc::downgrade(self));
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(rd).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+                if v.get("event").is_some() {
+                    if let (Some(events), Ok(ev)) = (&events, serde_json::from_value::<Event>(v)) {
+                        let _ = events.send(ev);
+                    }
+                } else if let Ok(reply) = serde_json::from_value::<Reply>(v)
+                    && let Some(tx) = pending.lock().unwrap().remove(&reply.id)
+                {
+                    let _ = tx.send(reply);
+                }
+            }
+            alive.store(false, Ordering::Relaxed);
+            pending.lock().unwrap().clear();
+            if events.is_some() {
+                tokio::spawn(reconnect(link));
+            }
+        });
+        conn
+    }
+}
+
+async fn reconnect(link: Weak<Link>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let Some(link) = link.upgrade() else { return };
+        match link.connect().await {
+            Ok(_) => return,
+            Err(e) => eprintln!("comms: reconnecting to daemon: {e:#}"),
+        }
+    }
+}
+
+async fn connect_or_start() -> Result<UnixStream> {
+    let sock = paths::socket();
+    if let Ok(s) = UnixStream::connect(&sock).await {
+        return Ok(s);
+    }
+    start_daemon()?;
+    for _ in 0..60 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Ok(s) = UnixStream::connect(&sock).await {
+            return Ok(s);
+        }
+    }
+    bail!("could not start the comms daemon; see {}", paths::log().display())
+}
+
+/// Starts `comms daemon` detached from this process group, logging to `~/.comms/daemon.log`.
+fn start_daemon() -> Result<()> {
+    paths::ensure_home()?;
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;
+    Command::new(std::env::current_exe()?)
+        .arg("daemon")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .process_group(0)
+        .spawn()?;
+    Ok(())
+}

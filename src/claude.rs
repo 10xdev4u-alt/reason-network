@@ -1,0 +1,29 @@
+//! Claude Code keeps one `~/.claude/sessions/<pid>.json` per live session (name, cwd, busy/idle). Reading them
+//! lists every Claude session on this machine, including ones that don't have comms loaded.
+
+use crate::{paths, util};
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSession {
+    pub pid: u32,
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    pub status: Option<String>,
+    pub status_updated_at: Option<i64>,
+    pub started_at: Option<i64>,
+}
+
+pub fn scan() -> Vec<ClaudeSession> {
+    let Ok(dir) = std::fs::read_dir(paths::claude_sessions()) else {
+        return Vec::new();
+    };
+    dir.flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .filter_map(|p| serde_json::from_str::<ClaudeSession>(&std::fs::read_to_string(p).ok()?).ok())
+        .filter(|s| util::pid_alive(s.pid))
+        .collect()
+}

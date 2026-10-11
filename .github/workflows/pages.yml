@@ -1,0 +1,34 @@
+name: pages
+
+# Publishes site/ plus install.sh to GitHub Pages. To serve it from your domain, set the custom domain in
+# Settings > Pages (or add site/CNAME), then set the repo variable COMMS_INSTALL_URL=https://<domain>/install.sh.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "install.sh", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp install.sh site/install.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

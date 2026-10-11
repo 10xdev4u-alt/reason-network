@@ -1,0 +1,517 @@
+//! Machines talking to each other: one iroh QUIC connection per pair of team machines, dialed by public key
+//! (direct on the LAN or hole-punched over the internet, relayed over HTTPS otherwise). On it, a single stream
+//! of length-prefixed JSON frames carries team state, presence, messages and acks.
+
+use crate::{
+    daemon::Daemon,
+    proto::{Message, SessionInfo},
+    team::{TeamState, Ticket},
+    util,
+};
+use anyhow::{Result, anyhow, bail};
+use iroh::{
+    Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey,
+    endpoint::{Connection, RecvStream, SendStream, presets},
+    protocol::{AcceptError, ProtocolHandler, Router},
+};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
+use tokio::sync::{Notify, mpsc, oneshot};
+
+pub const ALPN: &[u8] = b"company-comms/1";
+pub const JOIN_ALPN: &[u8] = b"company-comms/join/1";
+const PROTO: u32 = 1;
+const MAX_FRAME: usize = 4 << 20;
+const ACK_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum Wire {
+    Hello { team: String, proto: u32 },
+    State { state: Box<TeamState> },
+    Presence { presence: Presence },
+    Msg { msg: Message },
+    Ack { id: String, state: String, note: String },
+}
+
+/// What a machine tells its teammates about itself.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Presence {
+    pub sessions: Vec<SessionInfo>,
+    /// Names of this machine's offline sessions, so mail for them can be queued here.
+    pub known: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JoinRequest {
+    pub team: String,
+    pub secret: String,
+    pub person: String,
+    pub machine: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+enum JoinReply {
+    Ok { state: Box<TeamState> },
+    Err { error: String },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Remote {
+    pub presence: Presence,
+    pub last_seen: i64,
+    #[serde(skip)]
+    pub online: bool,
+}
+
+/// How a teammate's machine is reached right now.
+#[derive(Debug, Clone)]
+pub struct LinkInfo {
+    pub relay: bool,
+    pub rtt_ms: u64,
+}
+
+#[derive(Clone)]
+struct Link {
+    id: u64,
+    tx: mpsc::UnboundedSender<Wire>,
+    conn: Connection,
+    dialer: EndpointId,
+}
+
+pub struct Net {
+    endpoint: Endpoint,
+    router: Mutex<Option<Router>>,
+    me: EndpointId,
+    daemon: Weak<Daemon>,
+    links: Mutex<HashMap<EndpointId, Link>>,
+    remote: Mutex<HashMap<EndpointId, Remote>>,
+    acks: Mutex<HashMap<String, oneshot::Sender<(String, String)>>>,
+    dialing: Mutex<HashSet<EndpointId>>,
+    wake: Notify,
+    next_link: AtomicU64,
+}
+
+pub async fn bind(key: SecretKey, relay: Option<&str>, lan: bool) -> Result<Endpoint> {
+    let mut b = Endpoint::builder(presets::N0).secret_key(key);
+    if lan {
+        b = b.address_lookup(MdnsAddressLookup::builder());
+    }
+    if let Some(url) = relay {
+        // The team's own relay, with n0's public ones as a fallback in case it is down or mistyped.
+        let url: RelayUrl = url.parse().map_err(|e| anyhow!("bad relay url {url}: {e}"))?;
+        let map = RelayMap::from_iter([url]);
+        map.extend(&iroh::defaults::prod::default_relay_map());
+        b = b.relay_mode(RelayMode::Custom(map));
+    }
+    Ok(b.bind().await?)
+}
+
+fn log(msg: &str) {
+    eprintln!("[{}] net: {msg}", util::now_ms());
+}
+
+async fn write_frame<T: Serialize>(send: &mut SendStream, v: &T) -> Result<()> {
+    let data = serde_json::to_vec(v)?;
+    send.write_all(&(data.len() as u32).to_be_bytes()).await?;
+    send.write_all(&data).await?;
+    Ok(())
+}
+
+async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
+    let mut len = [0u8; 4];
+    recv.read_exact(&mut len).await?;
+    let n = u32::from_be_bytes(len) as usize;
+    if n > MAX_FRAME {
+        bail!("frame of {n} bytes is too large");
+    }
+    let mut buf = vec![0; n];
+    recv.read_exact(&mut buf).await?;
+    Ok(serde_json::from_slice(&buf)?)
+}
+
+/// Joins a team: asks the machines in the ticket, in turn, to let us in.
+pub async fn join(endpoint: &Endpoint, ticket: &Ticket, req: &JoinRequest) -> Result<TeamState> {
+    let mut last = anyhow!("the invite lists no machines");
+    for addr in &ticket.peers {
+        let attempt = async {
+            let conn = endpoint.connect(addr.clone(), JOIN_ALPN).await?;
+            let (mut send, mut recv) = conn.open_bi().await?;
+            write_frame(&mut send, req).await?;
+            send.finish()?;
+            let reply: JoinReply = read_frame(&mut recv).await?;
+            conn.close(0u32.into(), b"joined");
+            anyhow::Ok(reply)
+        };
+        match tokio::time::timeout(Duration::from_secs(25), attempt).await {
+            Ok(Ok(JoinReply::Ok { state })) => return Ok(*state),
+            // A refusal is final: another machine would say the same.
+            Ok(Ok(JoinReply::Err { error })) => bail!(error),
+            Ok(Err(e)) => last = e,
+            Err(_) => last = anyhow!("timed out reaching {}", addr.id.fmt_short()),
+        }
+    }
+    Err(last)
+}
+
+#[derive(Debug, Clone)]
+struct PeerProto(Weak<Net>);
+
+#[derive(Debug, Clone)]
+struct JoinProto(Weak<Net>);
+
+impl std::fmt::Debug for Net {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Net").field("me", &self.me.fmt_short().to_string()).finish()
+    }
+}
+
+impl ProtocolHandler for PeerProto {
+    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
+        let Some(net) = self.0.upgrade() else { return Ok(()) };
+        let peer = conn.remote_id();
+        let Some(daemon) = net.daemon.upgrade() else { return Ok(()) };
+        if !daemon.is_member(&peer) {
+            // A machine that was removed while away: show it the state that says so, then hang up. Strangers
+            // learn nothing.
+            if daemon.team_state().is_some_and(|t| t.member(&peer).is_some())
+                && let Some(state) = daemon.team_state()
+                && let Ok(Ok((mut send, _recv))) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await
+            {
+                let _ = write_frame(&mut send, &Wire::State { state: Box::new(state) }).await;
+                let _ = send.finish();
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            conn.close(403u32.into(), b"not a member of this team");
+            return Ok(());
+        }
+        drop(daemon);
+        if let Err(e) = net.run_link(conn, false).await {
+            log(&format!("{}: {e:#}", peer.fmt_short()));
+        }
+        Ok(())
+    }
+}
+
+impl ProtocolHandler for JoinProto {
+    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
+        let Some(net) = self.0.upgrade() else { return Ok(()) };
+        let joiner = conn.remote_id();
+        let res: Result<()> = async {
+            let (mut send, mut recv) = conn.accept_bi().await?;
+            let req: JoinRequest = read_frame(&mut recv).await?;
+            let daemon = net.daemon.upgrade().ok_or_else(|| anyhow!("shutting down"))?;
+            let reply = match daemon.redeem(joiner, &req) {
+                Ok(state) => {
+                    log(&format!("{} joined as {} on {}", joiner.fmt_short(), req.person, req.machine));
+                    JoinReply::Ok { state: Box::new(state) }
+                }
+                Err(e) => JoinReply::Err { error: format!("{e:#}") },
+            };
+            write_frame(&mut send, &reply).await?;
+            send.finish()?;
+            let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            log(&format!("join from {}: {e:#}", joiner.fmt_short()));
+        }
+        Ok(())
+    }
+}
+
+impl Net {
+    pub fn start(daemon: &Arc<Daemon>, endpoint: Endpoint, remote: HashMap<EndpointId, Remote>) -> Arc<Net> {
+        let net = Arc::new_cyclic(|weak: &Weak<Net>| Net {
+            me: endpoint.id(),
+            router: Mutex::new(Some(
+                Router::builder(endpoint.clone())
+                    .accept(ALPN, PeerProto(weak.clone()))
+                    .accept(JOIN_ALPN, JoinProto(weak.clone()))
+                    .spawn(),
+            )),
+            endpoint,
+            daemon: Arc::downgrade(daemon),
+            links: Default::default(),
+            remote: Mutex::new(remote),
+            acks: Default::default(),
+            dialing: Default::default(),
+            wake: Notify::new(),
+            next_link: AtomicU64::new(1),
+        });
+        tokio::spawn(net.clone().dial_loop());
+        tokio::spawn(net.clone().presence_loop());
+        net
+    }
+
+    pub fn id(&self) -> EndpointId {
+        self.me
+    }
+
+    pub fn addr(&self) -> EndpointAddr {
+        self.endpoint.addr()
+    }
+
+    pub async fn shutdown(&self) {
+        let router = self.router.lock().unwrap().take();
+        if let Some(r) = router {
+            let _ = r.shutdown().await;
+        }
+    }
+
+    /// Dial anyone we're not connected to now, instead of at the next tick.
+    pub fn dial_now(&self) {
+        self.wake.notify_one();
+    }
+
+    pub fn broadcast(&self, w: &Wire) {
+        for l in self.links.lock().unwrap().values() {
+            let _ = l.tx.send(w.clone());
+        }
+    }
+
+    /// Drops a removed machine, after a moment so the state telling it so gets there first.
+    pub fn disconnect(self: &Arc<Self>, peer: &EndpointId) {
+        let (this, peer) = (self.clone(), *peer);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            if let Some(l) = this.links.lock().unwrap().remove(&peer) {
+                l.conn.close(403u32.into(), b"removed from the team");
+            }
+        });
+    }
+
+    pub fn is_online(&self, peer: &EndpointId) -> bool {
+        self.links.lock().unwrap().contains_key(peer)
+    }
+
+    pub fn remotes(&self) -> HashMap<EndpointId, Remote> {
+        let online: HashSet<EndpointId> = self.links.lock().unwrap().keys().copied().collect();
+        let mut r = self.remote.lock().unwrap().clone();
+        for (id, rem) in r.iter_mut() {
+            rem.online = online.contains(id);
+        }
+        r
+    }
+
+    pub fn link_info(&self, peer: &EndpointId) -> Option<LinkInfo> {
+        let conn = self.links.lock().unwrap().get(peer)?.conn.clone();
+        let paths = conn.paths();
+        let p = paths.iter().find(|p| p.is_selected())?;
+        Some(LinkInfo { relay: p.is_relay(), rtt_ms: p.rtt().as_millis() as u64 })
+    }
+
+    /// Sends a message and waits briefly for the receiving machine's verdict. `None`: not connected or no
+    /// answer in time; the caller keeps it in the outbox.
+    pub async fn send_msg(&self, target: &EndpointId, msg: &Message) -> Option<(String, String)> {
+        let tx = self.links.lock().unwrap().get(target).map(|l| l.tx.clone())?;
+        let (otx, orx) = oneshot::channel();
+        self.acks.lock().unwrap().insert(msg.id.clone(), otx);
+        if tx.send(Wire::Msg { msg: msg.clone() }).is_err() {
+            self.acks.lock().unwrap().remove(&msg.id);
+            return None;
+        }
+        match tokio::time::timeout(ACK_TIMEOUT, orx).await {
+            Ok(Ok(verdict)) => Some(verdict),
+            _ => {
+                self.acks.lock().unwrap().remove(&msg.id);
+                None
+            }
+        }
+    }
+
+    async fn dial_loop(self: Arc<Self>) {
+        let mut next: HashMap<EndpointId, (Instant, Duration)> = HashMap::new();
+        loop {
+            let Some(daemon) = self.daemon.upgrade() else { return };
+            let connected: HashSet<EndpointId> = self.links.lock().unwrap().keys().copied().collect();
+            next.retain(|id, _| !connected.contains(id));
+            for id in daemon.peer_ids() {
+                if connected.contains(&id) || self.dialing.lock().unwrap().contains(&id) {
+                    continue;
+                }
+                let now = Instant::now();
+                let (at, backoff) = next.get(&id).copied().unwrap_or((now, Duration::from_secs(2)));
+                if now < at {
+                    continue;
+                }
+                next.insert(id, (now + backoff, (backoff * 2).min(Duration::from_secs(60))));
+                self.dialing.lock().unwrap().insert(id);
+                tokio::spawn(self.clone().dial(id));
+            }
+            drop(daemon);
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                _ = self.wake.notified() => {}
+            }
+        }
+    }
+
+    async fn dial(self: Arc<Self>, id: EndpointId) {
+        match tokio::time::timeout(Duration::from_secs(20), self.endpoint.connect(id, ALPN)).await {
+            Ok(Ok(conn)) => {
+                self.dialing.lock().unwrap().remove(&id);
+                if let Err(e) = self.clone().run_link(conn, true).await {
+                    log(&format!("{}: {e:#}", id.fmt_short()));
+                }
+            }
+            Ok(Err(e)) => {
+                self.dialing.lock().unwrap().remove(&id);
+                log(&format!("dialing {}: {e:#}", id.fmt_short()));
+            }
+            Err(_) => {
+                self.dialing.lock().unwrap().remove(&id);
+            }
+        }
+    }
+
+    /// Every 2s: tell teammates if anything here changed (and at least every minute). Every 30s: resend what
+    /// the outbox still holds for connected machines (lost in a reconnect, or deferred by a busy receiver).
+    async fn presence_loop(self: Arc<Self>) {
+        let mut last: Option<Presence> = None;
+        let mut sent = Instant::now();
+        let mut flushed = Instant::now();
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let Some(daemon) = self.daemon.upgrade() else { return };
+            let p = daemon.presence().await;
+            if last.as_ref() != Some(&p) || sent.elapsed() > Duration::from_secs(60) {
+                self.broadcast(&Wire::Presence { presence: p.clone() });
+                last = Some(p);
+                sent = Instant::now();
+            }
+            if flushed.elapsed() > Duration::from_secs(30) {
+                flushed = Instant::now();
+                let stale = util::now_ms() - 20_000;
+                let links: Vec<(EndpointId, mpsc::UnboundedSender<Wire>)> =
+                    self.links.lock().unwrap().iter().map(|(id, l)| (*id, l.tx.clone())).collect();
+                for (id, tx) in links {
+                    for msg in daemon.outbox_for(&id).into_iter().filter(|m| m.sent_at < stale) {
+                        let _ = tx.send(Wire::Msg { msg });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Runs one connection to a teammate until it closes.
+    async fn run_link(self: Arc<Self>, conn: Connection, outgoing: bool) -> Result<()> {
+        let peer = conn.remote_id();
+        let daemon = self.daemon.upgrade().ok_or_else(|| anyhow!("shutting down"))?;
+        let team = daemon.team_id().ok_or_else(|| anyhow!("not in a team"))?;
+        let (mut send, mut recv) = if outgoing { conn.open_bi().await? } else { conn.accept_bi().await? };
+
+        // Both sides may dial at once. Both keep the connection dialed by the smaller id.
+        let dialer = if outgoing { self.me } else { peer };
+        let (tx, mut rx) = mpsc::unbounded_channel::<Wire>();
+        let id = self.next_link.fetch_add(1, Ordering::Relaxed);
+        {
+            let mut links = self.links.lock().unwrap();
+            if let Some(old) = links.get(&peer) {
+                let old_alive = old.conn.close_reason().is_none();
+                if old_alive && dialer != self.me.min(peer) && old.dialer == self.me.min(peer) {
+                    conn.close(0u32.into(), b"duplicate connection");
+                    return Ok(());
+                }
+                old.conn.close(0u32.into(), b"replaced");
+            }
+            links.insert(peer, Link { id, tx: tx.clone(), conn: conn.clone(), dialer });
+        }
+        log(&format!("connected to {} ({})", peer.fmt_short(), if outgoing { "out" } else { "in" }));
+
+        let writer = tokio::spawn(async move {
+            while let Some(w) = rx.recv().await {
+                if write_frame(&mut send, &w).await.is_err() {
+                    break;
+                }
+            }
+            let _ = send.finish();
+        });
+        let _ = tx.send(Wire::Hello { team, proto: PROTO });
+        if let Some(state) = daemon.team_state() {
+            let _ = tx.send(Wire::State { state: Box::new(state) });
+        }
+        let _ = tx.send(Wire::Presence { presence: daemon.presence().await });
+        for msg in daemon.outbox_for(&peer) {
+            let _ = tx.send(Wire::Msg { msg });
+        }
+        drop(daemon);
+
+        let res = loop {
+            match read_frame::<Wire>(&mut recv).await {
+                Ok(w) => {
+                    if let Err(e) = self.on_wire(peer, &tx, w).await {
+                        break Err(e);
+                    }
+                }
+                Err(e) => {
+                    log(&format!("{} disconnected: {e:#}", peer.fmt_short()));
+                    break Ok(());
+                }
+            }
+        };
+        {
+            let mut links = self.links.lock().unwrap();
+            if links.get(&peer).is_some_and(|l| l.id == id) {
+                links.remove(&peer);
+            }
+        }
+        if let Some(r) = self.remote.lock().unwrap().get_mut(&peer) {
+            r.last_seen = util::now_ms();
+        }
+        writer.abort();
+        conn.close(0u32.into(), b"bye");
+        res
+    }
+
+    async fn on_wire(&self, peer: EndpointId, tx: &mpsc::UnboundedSender<Wire>, w: Wire) -> Result<()> {
+        let daemon = self.daemon.upgrade().ok_or_else(|| anyhow!("shutting down"))?;
+        if !daemon.is_member(&peer) {
+            bail!("{} is no longer a member", peer.fmt_short());
+        }
+        match w {
+            Wire::Hello { team, proto } => {
+                if Some(&team) != daemon.team_id().as_ref() {
+                    bail!("peer is in a different team");
+                }
+                if proto != PROTO {
+                    log(&format!("{} speaks protocol {proto}, we speak {PROTO}", peer.fmt_short()));
+                }
+            }
+            Wire::State { state } => daemon.merge_state(&state),
+            Wire::Presence { presence } => {
+                let rem = Remote { presence, last_seen: util::now_ms(), online: true };
+                daemon.save_presence(&peer, &rem);
+                self.remote.lock().unwrap().insert(peer, rem);
+            }
+            Wire::Msg { msg } => {
+                let id = msg.id.clone();
+                let (state, note) = match daemon.receive(peer, msg) {
+                    Ok(v) => v,
+                    Err(e) => ("refused".into(), format!("{e:#}")),
+                };
+                let _ = tx.send(Wire::Ack { id, state, note });
+            }
+            Wire::Ack { id, state, note } => {
+                // "retry": the other side is busy; keep it in the outbox for the next flush.
+                if state != "retry" {
+                    daemon.outbox_done(&id);
+                }
+                if let Some(waiter) = self.acks.lock().unwrap().remove(&id) {
+                    let _ = waiter.send((state, note));
+                }
+            }
+        }
+        Ok(())
+    }
+}

@@ -1,0 +1,367 @@
+mod agent;
+mod claude;
+mod client;
+mod config;
+mod daemon;
+mod git;
+mod hook;
+mod mcp;
+mod net;
+mod paths;
+mod proto;
+mod render;
+mod setup;
+mod store;
+mod team;
+mod util;
+
+use anyhow::{Result, bail};
+use clap::{Parser, Subcommand};
+use client::Link;
+use proto::*;
+use std::{io::Read, time::Duration};
+
+/// Where `install.sh` is served; invites print a one-line install-and-join command with it. Release builds set
+/// `COMMS_INSTALL_URL` to the project's domain.
+pub const INSTALL_URL: &str = match option_env!("COMMS_INSTALL_URL") {
+    Some(u) if !u.is_empty() => u,
+    _ => "https://raw.githubusercontent.com/asdf9384/company-comms/main/install.sh",
+};
+
+#[derive(Parser)]
+#[command(name = "comms", version, about = "Team directory and message bus for coding agents")]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Show who is working on what, across the team
+    Who {
+        /// Only sessions matching this text
+        filter: Option<String>,
+        /// Include offline sessions and machines
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Send a message to a session (`person/session`), a person, `repo:<name>` or `*`
+    Send {
+        to: String,
+        /// The message; read from stdin when omitted or `-`
+        message: Vec<String>,
+        #[arg(long)]
+        reply_to: Option<String>,
+        /// Don't wake the recipient; it reads this at its next natural pause
+        #[arg(long)]
+        fyi: bool,
+    },
+    /// Read your messages (or, inside an agent's shell, that session's)
+    Inbox {
+        /// Wait up to this many seconds for a message
+        #[arg(long, default_value_t = 0)]
+        wait: u64,
+        /// Show without marking as read
+        #[arg(long)]
+        peek: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set what the current agent session is doing (run from inside the agent's shell)
+    Status {
+        doing: Vec<String>,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Create a team, with you as its first member
+    Init {
+        team: String,
+        /// Your name in the team (default: $USER)
+        #[arg(long = "as")]
+        person: Option<String>,
+        /// Don't configure agents or install the background service
+        #[arg(long)]
+        no_setup: bool,
+    },
+    /// Print an invite for a teammate (or, with --me, for another machine of yours)
+    Invite {
+        #[arg(long)]
+        me: bool,
+        /// Hours until it expires
+        #[arg(long, default_value_t = 24)]
+        hours: u64,
+    },
+    /// Join a team with an invite
+    Join {
+        invite: String,
+        /// Your name in the team (default: $USER)
+        #[arg(long = "as")]
+        person: Option<String>,
+        #[arg(long)]
+        no_setup: bool,
+    },
+    /// Show the team's people and machines, and how each is reached
+    Team,
+    /// Remove a person (all their machines) or one machine from the team
+    Remove { who: String },
+    /// Leave the team on this machine
+    Leave {
+        /// Leave even if no teammate is online to hear it
+        #[arg(long)]
+        force: bool,
+    },
+    /// Use your own iroh relay for the team (or `default` for n0's public ones)
+    Relay { url: String },
+    /// List messages waiting for your approval (when `inbound` is `hold`)
+    Held,
+    /// Deliver held messages
+    Approve {
+        ids: Vec<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Drop held messages
+    Reject {
+        ids: Vec<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Wire comms into the agents on this machine and install the background service
+    Setup {
+        /// Show what would change without changing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// Undo: remove comms from every agent and remove the service
+        #[arg(long)]
+        remove: bool,
+        /// Don't install the background service
+        #[arg(long)]
+        no_service: bool,
+    },
+    /// Check that everything is working
+    Doctor,
+    /// Install the latest release over this one
+    Upgrade,
+    /// Called by agents' hooks
+    #[command(hide = true)]
+    Hook {
+        agent: String,
+        event: String,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        state: Option<String>,
+    },
+    /// Run the daemon in the foreground (normally started on demand or by the service)
+    Daemon {
+        /// Wait for a running daemon to exit instead of quitting (for service managers)
+        #[arg(long)]
+        service: bool,
+    },
+    /// Restart the daemon
+    Stop,
+    /// Run the MCP server on stdio (what agents launch)
+    Mcp,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    match Cli::parse().cmd {
+        Cmd::Daemon { service } => daemon::run(service).await,
+        Cmd::Mcp => mcp::run().await,
+        Cmd::Hook { agent, event, session, state } => {
+            hook::run(&agent, &event, session, state).await;
+            // Don't wait on anything left behind (a stuck stdin read): the agent is waiting on us.
+            std::process::exit(0)
+        }
+        cmd => cli(cmd).await,
+    }
+}
+
+/// The agent session this shell belongs to, if it runs inside one.
+fn current_session() -> Option<String> {
+    let agent = agent::detect_env()?;
+    Some(format!("{agent}:{}", agent::env_session_id(agent)?))
+}
+
+fn default_person(p: Option<String>) -> String {
+    p.unwrap_or_else(|| config::Config::load().person())
+}
+
+async fn cli(cmd: Cmd) -> Result<()> {
+    let link = Link::new(None);
+    match cmd {
+        Cmd::Who { filter, all, json } => {
+            let d: Directory = link.call(Request::Who { me: current_session(), filter, all }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&d)?);
+            } else {
+                print!("{}", render::directory(&d));
+            }
+        }
+        Cmd::Send { to, message, reply_to, fyi } => {
+            let mut body = message.join(" ");
+            if body.is_empty() || body == "-" {
+                body.clear();
+                std::io::stdin().read_to_string(&mut body)?;
+            }
+            let req = Request::Send { from: current_session(), to, body, reply_to, wake: !fyi };
+            let r: SendResult = link.call(req).await?;
+            print!("{}", render::send_result(&r));
+        }
+        Cmd::Inbox { wait, peek, json } => {
+            let key = current_session();
+            let i: Inbox = link.call(Request::Inbox { key: key.clone(), wait_secs: wait, peek: true }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&i.messages)?);
+            } else if i.messages.is_empty() {
+                println!("No messages.");
+            } else {
+                print!("{}", render::for_human(&i.messages));
+            }
+            // Marked read only once shown.
+            if !peek && !i.messages.is_empty() {
+                let ids = i.messages.iter().map(|m| m.id.clone()).collect();
+                link.call::<serde_json::Value>(Request::Delivered { key: key.unwrap_or_default(), ids }).await?;
+            }
+        }
+        Cmd::Status { doing, name } => {
+            let Some(key) = current_session() else {
+                bail!("run this from inside an agent session's shell (or use the set_status tool)");
+            };
+            let doing = (!doing.is_empty()).then(|| doing.join(" "));
+            let r: Registered = link.call(Request::SetStatus { key, doing, name }).await?;
+            println!("You are {}.", r.address);
+        }
+        Cmd::Init { team, person, no_setup } => {
+            let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person) }).await?;
+            wait_exit(daemon_pid()).await;
+            println!("Created team {}. You are {} on {}.", t.name, t.person, t.machine);
+            if !no_setup {
+                println!();
+                setup::run(false, false, false).await?;
+            }
+            println!("\nNext: `comms invite` prints an invite for each teammate.");
+        }
+        Cmd::Join { invite, person, no_setup } => {
+            let t: TeamInfo = link.call(Request::Join { ticket: invite, person: default_person(person) }).await?;
+            wait_exit(daemon_pid()).await;
+            println!("Joined team {} as {} on {}.", t.name, t.person, t.machine);
+            if !no_setup {
+                println!();
+                setup::run(false, false, false).await?;
+            }
+            // Give the new daemon a moment to reach teammates, then show them.
+            let fresh = Link::new(None);
+            for _ in 0..20 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if let Ok(t) = fresh.call::<TeamInfo>(Request::Team).await
+                    && t.machines.iter().any(|m| !m.is_me && m.online)
+                {
+                    break;
+                }
+            }
+            if let Ok(t) = fresh.call::<TeamInfo>(Request::Team).await {
+                print!("\n{}", render::team(&t));
+            }
+        }
+        Cmd::Invite { me, hours } => {
+            let hours = hours.clamp(1, 24 * 30);
+            let ticket: String = link.call(Request::Invite { me, hours }).await?;
+            let who = if me { "another machine of yours" } else { "a teammate" };
+            println!("Invite for {who} (single use, expires in {hours}h):\n");
+            let as_flag = if me { format!(" --as {}", config::Config::load().person()) } else { String::new() };
+            println!("  comms join {ticket}{as_flag}\n");
+            println!("Without comms installed yet, this installs and joins in one go:\n");
+            println!("  curl -fsSL {INSTALL_URL} | sh -s -- {ticket}");
+        }
+        Cmd::Team => {
+            let t: TeamInfo = link.call(Request::Team).await?;
+            print!("{}", render::team(&t));
+        }
+        Cmd::Remove { who } => println!("{}", link.call::<String>(Request::Remove { who }).await?),
+        Cmd::Leave { force } => {
+            println!("{}", link.call::<String>(Request::Leave { force }).await?);
+            wait_exit(daemon_pid()).await;
+        }
+        Cmd::Relay { url } => {
+            let url = (url != "default").then_some(url);
+            println!("{}", link.call::<String>(Request::SetRelay { url }).await?);
+            wait_exit(daemon_pid()).await;
+        }
+        Cmd::Held => {
+            let msgs: Vec<Message> = link.call(Request::Held).await?;
+            if msgs.is_empty() {
+                println!("Nothing held.");
+            } else {
+                print!("{}", render::for_human(&msgs));
+                println!("`comms approve <id>` delivers, `comms reject <id>` drops (or --all).");
+            }
+        }
+        Cmd::Approve { ids, all } | Cmd::Reject { ids, all }
+            if ids.is_empty() && !all =>
+        {
+            bail!("give message ids, or --all")
+        }
+        Cmd::Approve { ids, .. } => {
+            let n: usize = link.call(Request::Settle { ids, release: true }).await?;
+            println!("Delivered {n}.");
+        }
+        Cmd::Reject { ids, .. } => {
+            let n: usize = link.call(Request::Settle { ids, release: false }).await?;
+            println!("Dropped {n}.");
+        }
+        Cmd::Setup { dry_run, remove, no_service } => setup::run(dry_run, remove, no_service).await?,
+        Cmd::Doctor => setup::doctor().await?,
+        Cmd::Upgrade => {
+            let dir = std::env::current_exe()?.parent().map(|d| d.display().to_string()).unwrap_or_default();
+            let status = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("curl -fsSL {INSTALL_URL} | sh"))
+                .env("COMMS_BIN_DIR", dir)
+                .status()?;
+            if !status.success() {
+                bail!("upgrade failed");
+            }
+            stop_daemon().await;
+            println!("The daemon restarted on the new version. Restart agent sessions to update their comms tools.");
+        }
+        Cmd::Stop => {
+            if !stop_daemon().await {
+                println!("The daemon is not running.");
+            }
+        }
+        Cmd::Daemon { .. } | Cmd::Mcp | Cmd::Hook { .. } => unreachable!(),
+    }
+    Ok(())
+}
+
+/// The running daemon's pid, from its lock file.
+fn daemon_pid() -> Option<u32> {
+    std::fs::read_to_string(paths::lock()).ok()?.trim().parse().ok().filter(|p| util::pid_alive(*p))
+}
+
+/// Waits (briefly) for a daemon that is restarting to exit, so the next request reaches the new one. Call it
+/// right after the reply: the daemon exits a moment later.
+async fn wait_exit(pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    for _ in 0..50 {
+        if !util::pid_alive(pid) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Asks a running daemon to exit and waits until it has. False if none was running.
+pub async fn stop_daemon() -> bool {
+    if tokio::net::UnixStream::connect(paths::socket()).await.is_err() {
+        return false;
+    }
+    let pid = daemon_pid();
+    let _ = Link::new(None).call::<serde_json::Value>(Request::Shutdown).await;
+    wait_exit(pid).await;
+    true
+}

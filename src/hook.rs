@@ -1,0 +1,127 @@
+//! `comms hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
+//! or idle), and prints whatever makes the agent show incoming mail. It never fails loudly: a broken comms must
+//! not break the agent.
+
+use crate::{agent, client::Link, proto::*};
+use serde_json::{Value, json};
+use std::{
+    io::{Read, Write},
+    time::Duration,
+};
+
+pub async fn run(agent_name: &str, event: &str, session: Option<String>, state: Option<String>) {
+    let input = if session.is_none() { read_stdin(Duration::from_secs(3)) } else { String::new() };
+    let link = Link::new(None);
+    let Ok(Some((out, key, ids))) =
+        tokio::time::timeout(Duration::from_secs(8), handle(&link, agent_name, event, &input, session, state)).await
+    else {
+        return;
+    };
+    let mut stdout = std::io::stdout();
+    if writeln!(stdout, "{out}").and_then(|_| stdout.flush()).is_ok() && !ids.is_empty() {
+        // Printed, so the agent has it: now it counts as read.
+        let _ = tokio::time::timeout(Duration::from_secs(3), link.call::<Value>(Request::Delivered { key, ids })).await;
+    }
+}
+
+/// The hook payload, without hanging if the agent never closes our stdin.
+fn read_stdin(limit: Duration) -> String {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::stdin().read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    rx.recv_timeout(limit).unwrap_or_default()
+}
+
+/// Returns what to print, the session key, and the ids of the messages in it.
+async fn handle(
+    link: &std::sync::Arc<Link>,
+    agent_name: &str,
+    event: &str,
+    input: &str,
+    session: Option<String>,
+    state: Option<String>,
+) -> Option<(String, String, Vec<String>)> {
+    let v: Value = serde_json::from_str(input).unwrap_or(Value::Null);
+    let agent = agent::from_client_name(agent_name).unwrap_or(agent_name);
+    let str_at = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+
+    let session_id = session.or_else(|| str_at("session_id")).or_else(|| str_at("conversation_id")).or_else(|| str_at("sessionId"))?;
+    let cwd = str_at("cwd")
+        .or_else(|| v["workspace_roots"][0].as_str().map(str::to_string))
+        .or_else(|| ["CURSOR_PROJECT_DIR", "GEMINI_CWD", "CLAUDE_PROJECT_DIR"].iter().find_map(|k| std::env::var(k).ok()))
+        .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string()));
+    let ev = match (event, state.as_deref()) {
+        ("session-start", _) => "start",
+        ("user-prompt-submit", _) => "prompt",
+        ("post-tool-use", _) => "tool",
+        ("stop" | "poll", _) => "stop",
+        ("session-end", _) => "end",
+        ("status", Some("busy" | "retry")) => "prompt",
+        ("status", _) => "stop",
+        _ => return None,
+    };
+    // Prompt-submit hooks in Cursor and Copilot can't add context, and opencode's status call shows nothing.
+    let mail = !matches!((agent, event), ("cursor" | "copilot", "user-prompt-submit") | (_, "status"));
+
+    let key = format!("{agent}:{session_id}");
+    let req = Request::Hook {
+        agent: agent.to_string(),
+        event: ev.to_string(),
+        session_id,
+        cwd,
+        pid: agent::hook_agent_pid(),
+        mail,
+    };
+    let reply: HookReply = link.call(req).await.ok()?;
+    let ids = reply.ids;
+    let text = match (reply.text, ev, reply.address) {
+        (Some(t), ..) => t,
+        // Say who it is on comms once, at session start.
+        (None, "start", Some(addr)) => format!(
+            "company-comms: you are {addr}. Teammates' agents can message you; use list_team and send_message to \
+             reach them, and set_status to say what you are working on."
+        ),
+        _ => return None,
+    };
+    Some((format_for(agent, event, ev, &text), key, ids))
+}
+
+/// The JSON (or text) each agent expects from this hook to put `text` in front of the model.
+fn format_for(agent: &str, event: &str, ev: &str, text: &str) -> String {
+    let specific = |name: &str| json!({ "hookSpecificOutput": { "hookEventName": name, "additionalContext": text } });
+    let block = || json!({ "decision": "block", "reason": text });
+    match (agent, ev) {
+        ("opencode", _) if event == "poll" => return text.to_string(),
+        ("codex", "start") => specific("SessionStart"),
+        ("codex", "prompt") => specific("UserPromptSubmit"),
+        ("codex", "tool") => specific("PostToolUse"),
+        ("gemini", "start") => specific("SessionStart"),
+        ("gemini", "prompt") => specific("BeforeAgent"),
+        ("gemini", "tool") => specific("AfterTool"),
+        ("codex" | "gemini" | "copilot", "stop") => block(),
+        ("cursor", "stop") => json!({ "followup_message": text }),
+        ("cursor", _) => json!({ "additional_context": text }),
+        ("copilot", _) => json!({ "additionalContext": text }),
+        _ => return text.to_string(),
+    }
+    .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_for;
+
+    #[test]
+    fn formats() {
+        assert!(format_for("codex", "post-tool-use", "tool", "hi").contains("\"PostToolUse\""));
+        assert_eq!(format_for("codex", "stop", "stop", "hi"), r#"{"decision":"block","reason":"hi"}"#);
+        assert_eq!(format_for("cursor", "stop", "stop", "hi"), r#"{"followup_message":"hi"}"#);
+        assert_eq!(format_for("cursor", "post-tool-use", "tool", "hi"), r#"{"additional_context":"hi"}"#);
+        assert_eq!(format_for("copilot", "session-start", "start", "hi"), r#"{"additionalContext":"hi"}"#);
+        assert!(format_for("gemini", "user-prompt-submit", "prompt", "hi").contains("BeforeAgent"));
+        assert_eq!(format_for("opencode", "poll", "stop", "hi"), "hi");
+    }
+}

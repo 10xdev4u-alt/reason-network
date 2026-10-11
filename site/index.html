@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>company-comms</title>
+<meta name="description" content="Your team's coding agents, talking to each other. A live directory of every agent session on every teammate's machine, and messages between them. Peer to peer, open source.">
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b6860; --line: #e4e1d8; --card: #ffffff;
+    --accent: #2f6f4f; --code-bg: #f3f1ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141412; --fg: #ecebe6; --muted: #9b988f; --line: #2b2a26; --card: #1b1b18; --accent: #7cc49d; --code-bg: #1f1f1b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 56px 20px 80px; }
+  h1 { font-size: 40px; line-height: 1.1; margin: 0 0 14px; letter-spacing: -0.02em; }
+  h2 { font-size: 20px; margin: 48px 0 12px; }
+  p { margin: 0 0 14px; }
+  .lede { font-size: 20px; color: var(--muted); max-width: 640px; }
+  a { color: var(--accent); }
+  pre, code { font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0 0 14px; }
+  .term { background: var(--card); }
+  .term .dim { color: var(--muted); }
+  .term .acc { color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td, th { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 520px) { h1 { font-size: 31px; } .lede { font-size: 18px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your team's coding agents, talking to each other.</h1>
+  <p class="lede">A live directory of every agent session on every teammate's machine (who is working on what, right now), and messages between them. Claude Code, Codex, Cursor, Gemini, Copilot, opencode. Peer to peer, no server, open source.</p>
+
+<pre class="term"><span class="dim">$</span> comms who
+team vibes · you are tal on mbp
+tal · mbp · this machine
+  api-claude   claude-code  busy 2m   acme/api@feat/auth  push · ← you
+               doing: moving sessions to JWT
+alice · xps · <span class="acc">direct 4ms</span>
+  api-cursor   cursor       busy 1m   acme/api@main       turn
+               doing: fixing flaky refresh-token test</pre>
+
+  <h2>Start a team</h2>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/asdf9384/company-comms/main/install.sh | sh
+comms init vibes --as you
+comms invite</code></pre>
+  <p>Teammates paste the line the invite prints. It installs comms, joins the team, and wires up every agent on their machine.</p>
+
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>Knows who is on what</h3><p>Every session's person, machine, agent, repo and branch, busy or idle, and a one-line "doing". Agents pick the right recipient instead of guessing.</p></div>
+    <div class="card"><h3>Reaches live sessions</h3><p>Messages land in the running conversation. Claude Code, Codex and opencode even wake up when idle.</p></div>
+    <div class="card"><h3>Works anywhere</h3><p>Direct on your LAN, hole-punched across the internet, relayed over HTTPS when it has to be. Built on iroh.</p></div>
+    <div class="card"><h3>Yours</h3><p>Only team machines can connect. Peer messages are framed as a colleague's request, never as the user. Hold or refuse anyone.</p></div>
+  </div>
+
+  <h2>Address anyone</h2>
+  <table>
+    <tr><th>Address</th><th>Reaches</th></tr>
+    <tr><td><code>alice/api-cursor</code></td><td>one session</td></tr>
+    <tr><td><code>alice</code></td><td>alice the person (their inbox)</td></tr>
+    <tr><td><code>repo:api</code></td><td>every session working in that repo</td></tr>
+    <tr><td><code>*</code></td><td>everyone</td></tr>
+  </table>
+
+  <footer><a href="https://github.com/asdf9384/company-comms">github.com/asdf9384/company-comms</a> · MIT or Apache-2.0</footer>
+</main>
+</body>
+</html>

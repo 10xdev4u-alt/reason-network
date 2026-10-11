@@ -1,0 +1,368 @@
+//! Team membership and the network: create, join, invite, remove, leave; and what the network layer asks of us.
+
+use super::{Daemon, Inner, log};
+use crate::{
+    config::Config,
+    net::{self, JoinRequest, Net, Remote, Wire},
+    proto::*,
+    team::{TeamState, Ticket},
+    util,
+};
+use anyhow::{Result, anyhow, bail};
+use iroh::{EndpointAddr, EndpointId};
+use std::{collections::HashMap, collections::HashSet, sync::Arc, time::Duration};
+
+impl Daemon {
+    pub fn team_state(&self) -> Option<TeamState> {
+        self.inner.lock().unwrap().team.clone()
+    }
+
+    pub fn team_id(&self) -> Option<String> {
+        self.inner.lock().unwrap().team.as_ref().map(|t| t.id.clone())
+    }
+
+    pub fn is_member(&self, id: &EndpointId) -> bool {
+        self.inner.lock().unwrap().team.as_ref().is_some_and(|t| t.is_active(id))
+    }
+
+    /// Teammates' machines to stay connected to.
+    pub fn peer_ids(&self) -> Vec<EndpointId> {
+        let me = self.key.public();
+        let g = self.inner.lock().unwrap();
+        g.team.as_ref().map(|t| t.active().map(|m| m.endpoint).filter(|e| *e != me).collect()).unwrap_or_default()
+    }
+
+    fn save_team(&self, g: &Inner) -> Result<()> {
+        match &g.team {
+            Some(t) => g.store.set("team", &serde_json::to_string(t)?),
+            None => g.store.delete_prefix("team"),
+        }
+    }
+
+    pub(super) async fn start_net(self: &Arc<Self>) -> Result<()> {
+        let team = self.team_state().ok_or_else(|| anyhow!("not in a team"))?;
+        let endpoint = net::bind(self.key.clone(), team.meta.body.relay.as_deref(), self.cfg.lan()).await?;
+        // Last known presence of each machine, so `who --all` shows offline teammates after a restart.
+        let mut remote = HashMap::new();
+        {
+            let g = self.inner.lock().unwrap();
+            for m in team.active() {
+                if let Some(rem) = g.store.get(&format!("presence:{}", m.endpoint))?.and_then(|s| serde_json::from_str::<Remote>(&s).ok()) {
+                    remote.insert(m.endpoint, rem);
+                }
+            }
+        }
+        let net = Net::start(self, endpoint, remote);
+        log(&format!("team {} · machine {}", team.name(), net.id().fmt_short()));
+        *self.net.write().unwrap() = Some(net);
+        Ok(())
+    }
+
+    pub fn save_presence(&self, id: &EndpointId, rem: &Remote) {
+        if let Ok(s) = serde_json::to_string(rem) {
+            let _ = self.inner.lock().unwrap().store.set(&format!("presence:{id}"), &s);
+        }
+    }
+
+    pub fn outbox_for(&self, id: &EndpointId) -> Vec<Message> {
+        self.inner.lock().unwrap().store.outbox_for(&id.to_string(), util::now_ms()).unwrap_or_default()
+    }
+
+    pub fn outbox_done(&self, id: &str) {
+        let _ = self.inner.lock().unwrap().store.outbox_done(id);
+    }
+
+    /// Takes in a teammate's copy of the team state, passing it on if it taught us something.
+    pub fn merge_state(self: &Arc<Self>, other: &TeamState) {
+        let me = self.key.public();
+        let (state, removed, gone, relay_changed) = {
+            let mut g = self.inner.lock().unwrap();
+            let Some(team) = g.team.as_mut() else { return };
+            let relay = team.meta.body.relay.clone();
+            let before: HashSet<EndpointId> = team.active().map(|m| m.endpoint).collect();
+            match team.merge(other) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(e) => return log(&format!("ignoring team state: {e:#}")),
+            }
+            let after: HashSet<EndpointId> = team.active().map(|m| m.endpoint).collect();
+            let state = team.clone();
+            let relay_changed = state.meta.body.relay != relay;
+            let _ = self.save_team(&g);
+            (state, before.difference(&after).copied().collect::<Vec<_>>(), !after.contains(&me), relay_changed)
+        };
+        if let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state) });
+            for id in &removed {
+                net.disconnect(id);
+            }
+            net.dial_now();
+        }
+        if gone {
+            log("this machine was removed from the team");
+            let mut g = self.inner.lock().unwrap();
+            g.team = None;
+            let _ = self.save_team(&g);
+            let _ = g.store.delete_prefix("presence:");
+            drop(g);
+            self.restart_soon();
+        } else if relay_changed {
+            log("the team's relay changed; restarting to use it");
+            self.restart_soon();
+        }
+    }
+
+    /// Someone presented an invite (on the join protocol).
+    pub fn redeem(self: &Arc<Self>, joiner: EndpointId, req: &JoinRequest) -> Result<TeamState> {
+        let person = util::slug(&req.person);
+        let machine = util::slug(&req.machine);
+        if person.is_empty() || machine.is_empty() {
+            bail!("a name needs letters or digits");
+        }
+        let state = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("this machine is not in a team any more"))?;
+            if req.team != team.id {
+                bail!("this invite is for a different team");
+            }
+            team.redeem(&self.key, &req.secret, &person, joiner)?;
+            team.put_member(&self.key, joiner, &person, &machine, true);
+            let state = team.clone();
+            self.save_team(&g)?;
+            state
+        };
+        if let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state.clone()) });
+            net.dial_now();
+        }
+        Ok(state)
+    }
+
+    pub(super) async fn create_team(self: &Arc<Self>, name: &str, person: &str) -> Result<TeamInfo> {
+        if let Some(t) = self.team_state() {
+            bail!("already in team '{}'; run `comms leave` first", t.name());
+        }
+        let (name, person) = (name.trim(), util::slug(person));
+        if name.is_empty() || person.is_empty() {
+            bail!("the team and your name need letters or digits");
+        }
+        let state = TeamState::found(name, &person, &self.machine, &self.key);
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.team = Some(state);
+            self.save_team(&g)?;
+        }
+        self.become_person(&person)?;
+        self.restart_soon();
+        Ok(TeamInfo { name: name.into(), relay: None, person, machine: self.machine.clone(), machines: Vec::new() })
+    }
+
+    pub(super) async fn join_team(self: &Arc<Self>, ticket: &str, person: &str) -> Result<TeamInfo> {
+        if let Some(t) = self.team_state() {
+            bail!("already in team '{}'; run `comms leave` first", t.name());
+        }
+        let ticket = Ticket::decode(ticket)?;
+        let person = util::slug(person);
+        if person.is_empty() {
+            bail!("your name needs letters or digits");
+        }
+        let endpoint = net::bind(self.key.clone(), ticket.relay.as_deref(), self.cfg.lan()).await?;
+        let req = JoinRequest {
+            team: ticket.team.clone(),
+            secret: ticket.secret.clone(),
+            person: person.clone(),
+            machine: self.machine.clone(),
+        };
+        let res = net::join(&endpoint, &ticket, &req).await;
+        endpoint.close().await;
+        let state = TeamState::verified(&res?)?;
+        if state.id != ticket.team || !state.is_active(&self.key.public()) {
+            bail!("the team did not add this machine");
+        }
+        let info = TeamInfo {
+            name: state.name().into(),
+            relay: state.meta.body.relay.clone(),
+            person: person.clone(),
+            machine: self.machine.clone(),
+            machines: Vec::new(),
+        };
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.team = Some(state);
+            self.save_team(&g)?;
+        }
+        self.become_person(&person)?;
+        self.restart_soon();
+        Ok(info)
+    }
+
+    fn become_person(&self, person: &str) -> Result<()> {
+        let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
+        cfg.person = Some(person.to_string());
+        cfg.save()
+    }
+
+    pub(super) fn invite(&self, me: bool, hours: u64) -> Result<String> {
+        let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `comms init` or `comms join`)"))?;
+        let mut g = self.inner.lock().unwrap();
+        let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
+        team.prune_invites();
+        let secret = team.invite(&self.key, hours.clamp(1, 24 * 30), me.then(|| self.person.clone()));
+        // This machine with its addresses, plus a few teammates (found by key) in case this one is offline.
+        let mut peers = vec![net.addr()];
+        peers.extend(team.active().map(|m| m.endpoint).filter(|e| *e != self.key.public()).take(3).map(EndpointAddr::new));
+        let ticket = Ticket {
+            team: team.id.clone(),
+            name: team.name().into(),
+            secret,
+            relay: team.meta.body.relay.clone(),
+            peers,
+        };
+        let state = team.clone();
+        self.save_team(&g)?;
+        drop(g);
+        net.broadcast(&Wire::State { state: Box::new(state) });
+        Ok(ticket.encode())
+    }
+
+    pub(super) fn team_info(&self) -> Result<TeamInfo> {
+        let team = self.team_state().ok_or_else(|| anyhow!("not in a team yet: `comms init <team>` or `comms join <invite>`"))?;
+        Ok(TeamInfo {
+            name: team.name().into(),
+            relay: team.meta.body.relay.clone(),
+            person: self.person.clone(),
+            machine: self.machine.clone(),
+            machines: self.machines(),
+        })
+    }
+
+    /// Every team machine with how it is reached; just this one when not in a team.
+    pub(super) fn machines(&self) -> Vec<MachineInfo> {
+        let me = self.key.public();
+        let here = MachineInfo {
+            person: self.person.clone(),
+            machine: self.machine.clone(),
+            endpoint: me.to_string(),
+            is_me: true,
+            online: true,
+            link: None,
+            rtt_ms: None,
+            last_seen: None,
+        };
+        let (Some(team), net) = (self.team_state(), self.net()) else { return vec![here] };
+        let remotes = net.as_ref().map(|n| n.remotes()).unwrap_or_default();
+        let mut out = vec![here];
+        for m in team.active().filter(|m| m.endpoint != me) {
+            let link = net.as_ref().and_then(|n| n.link_info(&m.endpoint));
+            out.push(MachineInfo {
+                person: m.person.clone(),
+                machine: m.machine.clone(),
+                endpoint: m.endpoint.to_string(),
+                is_me: false,
+                online: net.as_ref().is_some_and(|n| n.is_online(&m.endpoint)),
+                link: link.as_ref().map(|l| if l.relay { "relay" } else { "direct" }.to_string()),
+                rtt_ms: link.map(|l| l.rtt_ms),
+                last_seen: remotes.get(&m.endpoint).map(|r| r.last_seen).filter(|t| *t > 0),
+            });
+        }
+        out[1..].sort_by(|a, b| (&a.person, &a.machine).cmp(&(&b.person, &b.machine)));
+        out
+    }
+
+    pub(super) fn remove(self: &Arc<Self>, who: &str) -> Result<String> {
+        let me = self.key.public();
+        let (state, removed) = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
+            // `person`, `person/machine`, a machine name, or the start of a machine's key.
+            let hits: Vec<(EndpointId, String, String)> = team
+                .active()
+                .filter(|m| match who.split_once('/') {
+                    Some((p, mach)) => m.person == p && m.machine == mach,
+                    None => m.person == who || m.machine == who || (who.len() >= 6 && m.endpoint.to_string().starts_with(who)),
+                })
+                .map(|m| (m.endpoint, m.person.clone(), m.machine.clone()))
+                .collect();
+            if hits.is_empty() {
+                bail!("no person or machine called '{who}' in the team");
+            }
+            let people: HashSet<&String> = hits.iter().map(|h| &h.1).collect();
+            if people.len() > 1 && !team.people().iter().any(|p| p == who) {
+                let opts: Vec<String> = hits.iter().map(|h| format!("{}/{}", h.1, h.2)).collect();
+                bail!("'{who}' matches machines of several people; say which: {}", opts.join(", "));
+            }
+            if hits.iter().any(|h| h.0 == me) {
+                bail!("that includes this machine; use `comms leave` instead");
+            }
+            for (id, person, machine) in &hits {
+                team.put_member(&self.key, *id, person, machine, false);
+            }
+            let state = team.clone();
+            self.save_team(&g)?;
+            (state, hits)
+        };
+        if let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state) });
+            for (id, ..) in &removed {
+                net.disconnect(id);
+            }
+        }
+        let names: Vec<String> = removed.iter().map(|(_, p, m)| format!("{p} on {m}")).collect();
+        Ok(format!("Removed {}.", names.join(", ")))
+    }
+
+    pub(super) async fn leave(self: &Arc<Self>, force: bool) -> Result<String> {
+        let me = self.key.public();
+        let anyone = self.net().is_some_and(|n| self.peer_ids().iter().any(|p| n.is_online(p)));
+        if !anyone && !self.peer_ids().is_empty() && !force {
+            bail!(
+                "no teammate is online to hear that this machine left. Try again when one is, or use --force (they'll \
+                 need to `comms remove` it then)"
+            );
+        }
+        let state = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
+            team.put_member(&self.key, me, &self.person, &self.machine, false);
+            team.clone()
+        };
+        if let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state.clone()) });
+            // Give the news a moment to reach teammates.
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        }
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.team = None;
+            self.save_team(&g)?;
+            g.store.delete_prefix("presence:")?;
+        }
+        self.restart_soon();
+        Ok(format!("Left team {}.", state.name()))
+    }
+
+    pub(super) async fn set_relay(self: &Arc<Self>, url: Option<String>) -> Result<String> {
+        if let Some(u) = &url
+            && u.parse::<iroh::RelayUrl>().is_err()
+        {
+            bail!("not a relay url: {u} (expected e.g. https://relay.example.com)");
+        }
+        let state = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
+            team.set_relay(&self.key, url.clone());
+            let state = team.clone();
+            self.save_team(&g)?;
+            state
+        };
+        if let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state) });
+            tokio::time::sleep(Duration::from_millis(800)).await;
+        }
+        self.restart_soon();
+        Ok(match url {
+            Some(u) => format!("The team now uses relay {u}."),
+            None => "The team now uses n0's public relays.".into(),
+        })
+    }
+}
