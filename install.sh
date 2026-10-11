@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs comms (company-comms) for macOS or Linux.
 #
-#   curl -fsSL <this url> | sh                      install
-#   curl -fsSL <this url> | sh -s -- <invite>       install, then join a team (add --as <name> to pick your name)
+#   curl -fsSL <this url> | sh                      install, then set up (start or join a team)
+#   curl -fsSL <this url> | sh -s -- <invite code>  install, then join that team
 #
 # Environment: COMMS_BIN_DIR (default ~/.local/bin), COMMS_VERSION (default latest), COMMS_REPO,
 # COMMS_DOWNLOAD_BASE (a mirror serving the release files).
@@ -60,13 +60,17 @@ case ":$PATH:" in
      say "  export PATH=\"$bin_dir:\$PATH\"" ;;
 esac
 
-if [ $# -gt 0 ]; then
-  case "$1" in
-    comms1*) exec "$bin_dir/comms" join "$@" ;;
-    *) exec "$bin_dir/comms" "$@" ;;
+# Hand over to comms: it asks a few questions (name, invite code, which agents) in your terminal. Under
+# `curl | sh` our stdin is the script, so read answers from the terminal itself when there is one.
+if { : </dev/tty; } 2>/dev/null; then
+  case "${1:-}" in
+    "") exec "$bin_dir/comms" </dev/tty ;;
+    -*) exec "$bin_dir/comms" "$@" </dev/tty ;;
+    *) exec "$bin_dir/comms" join "$@" </dev/tty ;;
   esac
 fi
-say ""
-say "Next:"
-say "  comms init <team> --as <your-name>     start a team"
-say "  comms join <invite> --as <your-name>   or join one"
+case "${1:-}" in
+  "") say ""; say "Next, in a terminal: comms" ;;
+  -*) exec "$bin_dir/comms" "$@" ;;
+  *) exec "$bin_dir/comms" join "$@" ;;
+esac

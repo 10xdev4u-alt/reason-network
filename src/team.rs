@@ -170,15 +170,15 @@ impl TeamState {
         self.meta = Signed::new(body, key, &self.id, "meta");
     }
 
-    /// Creates an invite and returns its secret.
-    pub fn invite(&mut self, key: &SecretKey, hours: u64, person: Option<String>) -> String {
-        let mut secret = [0u8; 16];
-        getrandom::fill(&mut secret).expect("system randomness");
-        let secret = HEXLOWER.encode(&secret);
+    /// Creates an invite for `secret` (an invite code's, or random for a ticket).
+    pub fn invite(&mut self, key: &SecretKey, secret: &str, hours: u64, person: Option<String>) {
         let now = util::now_ms();
-        let body = Invite { hash: hash(&secret), expires: now + hours as i64 * 3_600_000, person, used_by: None, ts: now };
+        let body = Invite { hash: hash(secret), expires: now + hours as i64 * 3_600_000, person, used_by: None, ts: now };
         self.invites.insert(body.hash.clone(), Signed::new(body, key, &self.id, "invite"));
-        secret
+    }
+
+    pub fn invite_unused(&self, secret: &str) -> bool {
+        self.invites.get(&hash(secret)).is_some_and(|i| i.body.used_by.is_none() && i.body.expires > util::now_ms())
     }
 
     /// Checks that `secret` admits `person`, and marks the invite used by `joiner`.
@@ -345,11 +345,16 @@ mod tests {
         SecretKey::generate()
     }
 
+    fn random_secret() -> String {
+        crate::invite::secret(&crate::invite::generate())
+    }
+
     #[test]
     fn found_invite_join_merge() {
         let (a, b, c) = (key(), key(), key());
         let mut sa = TeamState::found("vibes", "tal", "mbp", &a);
-        let secret = sa.invite(&a, 24, None);
+        let secret = random_secret();
+        sa.invite(&a, &secret, 24, None);
 
         // b joins through a: a redeems and adds b; b verifies what it receives.
         sa.redeem(&a, &secret, "alice", b.public()).unwrap();
@@ -360,7 +365,8 @@ mod tests {
         assert!(sa.redeem(&a, &secret, "eve", c.public()).is_err(), "invites are single use");
 
         // b invites c; a learns about c by merging b's copy.
-        let s2 = sb.invite(&b, 1, None);
+        let s2 = random_secret();
+        sb.invite(&b, &s2, 1, None);
         sb.redeem(&b, &s2, "sam", c.public()).unwrap();
         sb.put_member(&b, c.public(), "sam", "nuc", true);
         assert!(sa.merge(&sb).unwrap());
@@ -409,7 +415,8 @@ mod tests {
         let mut s = TeamState::found("vibes", "tal", "mbp", &f);
         s.put_member(&f, b.public(), "alice", "xps", true);
         s.put_member(&f, f.public(), "tal", "mbp", false); // founder leaves
-        let secret = s.invite(&b, 24, None);
+        let secret = random_secret();
+        s.invite(&b, &secret, 24, None);
         s.redeem(&b, &secret, "sam", d.public()).unwrap();
         s.put_member(&b, d.public(), "sam", "nuc", true);
         let sd = TeamState::verified(&s).unwrap();
@@ -433,7 +440,8 @@ mod tests {
         assert_eq!(x, y);
         assert!(x.is_active(&c.public()) && !x.is_active(&b.public()));
         // A newcomer sees the same, including c (admitted by b, who is gone now).
-        let secret = x.invite(&f, 24, None);
+        let secret = random_secret();
+        x.invite(&f, &secret, 24, None);
         x.redeem(&f, &secret, "dee", d.public()).unwrap();
         x.put_member(&f, d.public(), "dee", "pi", true);
         let z = TeamState::verified(&x).unwrap();
@@ -444,11 +452,13 @@ mod tests {
     fn invites_die_with_their_maker_and_cant_readmit() {
         let (a, b, c) = (key(), key(), key());
         let mut s = TeamState::found("vibes", "tal", "mbp", &a);
-        let first = s.invite(&a, 24, None);
+        let first = random_secret();
+        s.invite(&a, &first, 24, None);
         s.redeem(&a, &first, "alice", b.public()).unwrap();
         s.put_member(&a, b.public(), "alice", "xps", true);
         assert!(s.redeem(&a, &first, "alice", b.public()).is_ok(), "a retry by the same machine is fine");
-        let from_b = s.invite(&b, 720, None);
+        let from_b = random_secret();
+        s.invite(&b, &from_b, 720, None);
         s.put_member(&a, b.public(), "alice", "xps", false);
         assert!(s.redeem(&a, &first, "alice", b.public()).is_err(), "removed: the old invite doesn't readmit");
         assert!(s.redeem(&a, &from_b, "sam", c.public()).is_err(), "invites by a removed machine are dead");
@@ -471,9 +481,11 @@ mod tests {
     fn names_are_unique_unless_invited_for_self() {
         let (a, b) = (key(), key());
         let mut s = TeamState::found("vibes", "tal", "mbp", &a);
-        let open = s.invite(&a, 24, None);
+        let open = random_secret();
+        s.invite(&a, &open, 24, None);
         assert!(s.redeem(&a, &open, "tal", b.public()).is_err());
-        let mine = s.invite(&a, 24, Some("tal".into()));
+        let mine = random_secret();
+        s.invite(&a, &mine, 24, Some("tal".into()));
         assert!(s.redeem(&a, &mine, "alice", b.public()).is_err());
         s.redeem(&a, &mine, "tal", b.public()).unwrap();
     }

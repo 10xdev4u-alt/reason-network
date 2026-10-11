@@ -260,6 +260,15 @@ pub struct TeamInfo {
     pub machines: Vec<MachineInfo>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InviteInfo {
+    /// Four words, like `plum-tiger-lake-orbit`.
+    pub code: String,
+    /// The same invite as a long `comms1…` string, for when the inviting machine will be offline.
+    pub ticket: String,
+    pub hours: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HookReply {
     pub address: Option<String>,

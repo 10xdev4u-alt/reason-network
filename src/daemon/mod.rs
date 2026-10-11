@@ -220,7 +220,7 @@ impl Daemon {
             Request::Attach { agent, cwd } => json!(self.attach(&agent, &cwd)),
             Request::CreateTeam { name, person } => json!(self.create_team(&name, &person).await?),
             Request::Join { ticket, person } => json!(self.join_team(&ticket, &person).await?),
-            Request::Invite { me, hours } => json!(self.invite(me, hours)?),
+            Request::Invite { me, hours } => json!(self.invite(me, hours).await?),
             Request::Team => json!(self.team_info()?),
             Request::Remove { who } => json!(self.remove(&who)?),
             Request::Leave { force } => json!(self.leave(force).await?),

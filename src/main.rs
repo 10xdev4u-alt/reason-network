@@ -5,6 +5,7 @@ mod config;
 mod daemon;
 mod git;
 mod hook;
+mod invite;
 mod mcp;
 mod net;
 mod paths;
@@ -14,6 +15,7 @@ mod setup;
 mod store;
 mod team;
 mod util;
+mod wizard;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -25,14 +27,19 @@ use std::{io::Read, time::Duration};
 /// `COMMS_INSTALL_URL` to the project's domain.
 pub const INSTALL_URL: &str = match option_env!("COMMS_INSTALL_URL") {
     Some(u) if !u.is_empty() => u,
-    _ => "https://raw.githubusercontent.com/asdf9384/company-comms/main/install.sh",
+    _ => "https://asdf9384.github.io/company-comms/install.sh",
 };
 
 #[derive(Parser)]
-#[command(name = "comms", version, about = "Team directory and message bus for coding agents")]
+#[command(
+    name = "comms",
+    version,
+    about = "Your team's coding agents, talking to each other",
+    after_help = "Run `comms` on its own to get set up, then to see who's working on what."
+)]
 struct Cli {
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand)]
@@ -75,9 +82,9 @@ enum Cmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Create a team, with you as its first member
+    /// Start a team, with you as its first member
     Init {
-        team: String,
+        team: Option<String>,
         /// Your name in the team (default: $USER)
         #[arg(long = "as")]
         person: Option<String>,
@@ -85,7 +92,7 @@ enum Cmd {
         #[arg(long)]
         no_setup: bool,
     },
-    /// Print an invite for a teammate (or, with --me, for another machine of yours)
+    /// Invite a teammate (or another machine of yours)
     Invite {
         #[arg(long)]
         me: bool,
@@ -93,9 +100,9 @@ enum Cmd {
         #[arg(long, default_value_t = 24)]
         hours: u64,
     },
-    /// Join a team with an invite
+    /// Join a team with an invite code
     Join {
-        invite: String,
+        invite: Option<String>,
         /// Your name in the team (default: $USER)
         #[arg(long = "as")]
         person: Option<String>,
@@ -169,14 +176,26 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().cmd {
-        Cmd::Daemon { service } => daemon::run(service).await,
-        Cmd::Mcp => mcp::run().await,
-        Cmd::Hook { agent, event, session, state } => {
+        Some(Cmd::Daemon { service }) => daemon::run(service).await,
+        Some(Cmd::Mcp) => mcp::run().await,
+        Some(Cmd::Hook { agent, event, session, state }) => {
             hook::run(&agent, &event, session, state).await;
             // Don't wait on anything left behind (a stuck stdin read): the agent is waiting on us.
             std::process::exit(0)
         }
-        cmd => cli(cmd).await,
+        Some(cmd) => cli(cmd).await,
+        // `comms` alone: get set up if needed, else show who's around.
+        None => {
+            let in_team = Link::new(None).call::<TeamInfo>(Request::Team).await.is_ok();
+            if !in_team && wizard::interactive() {
+                return wizard::guided(wizard::onboard(None, None, None, None)).await;
+            }
+            if !in_team {
+                println!("Not in a team yet. Run `comms` in a terminal to get set up (or `comms init <team>` / `comms join <code>`).");
+                return Ok(());
+            }
+            cli(Cmd::Who { filter: None, all: false, json: false }).await
+        }
     }
 }
 
@@ -235,7 +254,18 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let r: Registered = link.call(Request::SetStatus { key, doing, name }).await?;
             println!("You are {}.", r.address);
         }
+        Cmd::Init { team, person, no_setup } if !no_setup && wizard::interactive() => {
+            wizard::guided(wizard::onboard(Some(true), team, None, person)).await?
+        }
+        Cmd::Join { invite, person, no_setup } if !no_setup && wizard::interactive() => {
+            wizard::guided(wizard::onboard(Some(false), None, invite, person)).await?
+        }
+        Cmd::Invite { me: false, hours } if wizard::interactive() => wizard::guided(wizard::invite(hours.clamp(1, 24 * 30))).await?,
+        Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
+            wizard::guided(wizard::setup_agents()).await?
+        }
         Cmd::Init { team, person, no_setup } => {
+            let Some(team) = team else { bail!("name the team: `comms init <team>` (or run it in a terminal to be asked)") };
             let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Created team {}. You are {} on {}.", t.name, t.person, t.machine);
@@ -246,6 +276,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             println!("\nNext: `comms invite` prints an invite for each teammate.");
         }
         Cmd::Join { invite, person, no_setup } => {
+            let Some(invite) = invite else { bail!("give the invite code: `comms join <code>`") };
             let t: TeamInfo = link.call(Request::Join { ticket: invite, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Joined team {} as {} on {}.", t.name, t.person, t.machine);
@@ -268,14 +299,13 @@ async fn cli(cmd: Cmd) -> Result<()> {
             }
         }
         Cmd::Invite { me, hours } => {
-            let hours = hours.clamp(1, 24 * 30);
-            let ticket: String = link.call(Request::Invite { me, hours }).await?;
+            let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
-            println!("Invite for {who} (single use, expires in {hours}h):\n");
-            let as_flag = if me { format!(" --as {}", config::Config::load().person()) } else { String::new() };
-            println!("  comms join {ticket}{as_flag}\n");
-            println!("Without comms installed yet, this installs and joins in one go:\n");
-            println!("  curl -fsSL {INSTALL_URL} | sh -s -- {ticket}");
+            println!("Invite code for {who}: {}\n", i.code);
+            println!("They run this, which installs comms and joins the team:\n");
+            println!("  curl -fsSL {INSTALL_URL} | sh -s -- {}\n", i.code);
+            println!("(or `comms join {}` if they have comms). Works once, within {}h, while this machine is online.", i.code, i.hours);
+            println!("If this machine will be offline, use the long form instead: comms join {}", i.ticket);
         }
         Cmd::Team => {
             let t: TeamInfo = link.call(Request::Team).await?;
@@ -333,7 +363,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("The daemon is not running.");
             }
         }
-        Cmd::Daemon { .. } | Cmd::Mcp | Cmd::Hook { .. } => unreachable!(),
+        Cmd::Daemon { .. } | Cmd::Mcp | Cmd::Hook { .. } => unreachable!("handled in main"),
     }
     Ok(())
 }

@@ -5,7 +5,7 @@
 use crate::{
     daemon::Daemon,
     proto::{Message, SessionInfo},
-    team::{TeamState, Ticket},
+    team::TeamState,
     util,
 };
 use anyhow::{Result, anyhow, bail};
@@ -91,6 +91,8 @@ struct Link {
 pub struct Net {
     endpoint: Endpoint,
     router: Mutex<Option<Router>>,
+    /// Endpoints listening for joins on behalf of invite codes, by their (code-derived) id.
+    invites: Mutex<HashMap<EndpointId, Router>>,
     me: EndpointId,
     daemon: Weak<Daemon>,
     links: Mutex<HashMap<EndpointId, Link>>,
@@ -139,10 +141,10 @@ async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
     Ok(serde_json::from_slice(&buf)?)
 }
 
-/// Joins a team: asks the machines in the ticket, in turn, to let us in.
-pub async fn join(endpoint: &Endpoint, ticket: &Ticket, req: &JoinRequest) -> Result<TeamState> {
+/// Joins a team: asks each machine in turn (the ticket's, or the one an invite code points at) to let us in.
+pub async fn join(endpoint: &Endpoint, peers: &[EndpointAddr], req: &JoinRequest) -> Result<TeamState> {
     let mut last = anyhow!("the invite lists no machines");
-    for addr in &ticket.peers {
+    for addr in peers {
         let attempt = async {
             let conn = endpoint.connect(addr.clone(), JOIN_ALPN).await?;
             let (mut send, mut recv) = conn.open_bi().await?;
@@ -157,7 +159,7 @@ pub async fn join(endpoint: &Endpoint, ticket: &Ticket, req: &JoinRequest) -> Re
             // A refusal is final: another machine would say the same.
             Ok(Ok(JoinReply::Err { error })) => bail!(error),
             Ok(Err(e)) => last = e,
-            Err(_) => last = anyhow!("timed out reaching {}", addr.id.fmt_short()),
+            Err(_) => last = anyhow!("couldn't reach the machine that made the invite (is it online?)"),
         }
     }
     Err(last)
@@ -166,8 +168,10 @@ pub async fn join(endpoint: &Endpoint, ticket: &Ticket, req: &JoinRequest) -> Re
 #[derive(Debug, Clone)]
 struct PeerProto(Weak<Net>);
 
+/// The join protocol, on the main endpoint (tickets) or on an invite code's own endpoint (`Some(its id)`, closed
+/// once the code is used).
 #[derive(Debug, Clone)]
-struct JoinProto(Weak<Net>);
+struct JoinProto(Weak<Net>, Option<EndpointId>);
 
 impl std::fmt::Debug for Net {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -210,16 +214,19 @@ impl ProtocolHandler for JoinProto {
             let (mut send, mut recv) = conn.accept_bi().await?;
             let req: JoinRequest = read_frame(&mut recv).await?;
             let daemon = net.daemon.upgrade().ok_or_else(|| anyhow!("shutting down"))?;
-            let reply = match daemon.redeem(joiner, &req) {
+            let (reply, joined) = match daemon.redeem(joiner, &req) {
                 Ok(state) => {
                     log(&format!("{} joined as {} on {}", joiner.fmt_short(), req.person, req.machine));
-                    JoinReply::Ok { state: Box::new(state) }
+                    (JoinReply::Ok { state: Box::new(state) }, true)
                 }
-                Err(e) => JoinReply::Err { error: format!("{e:#}") },
+                Err(e) => (JoinReply::Err { error: format!("{e:#}") }, false),
             };
             write_frame(&mut send, &reply).await?;
             send.finish()?;
             let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+            if joined && let Some(code) = self.1 {
+                net.close_invite(&code);
+            }
             Ok(())
         }
         .await;
@@ -237,9 +244,10 @@ impl Net {
             router: Mutex::new(Some(
                 Router::builder(endpoint.clone())
                     .accept(ALPN, PeerProto(weak.clone()))
-                    .accept(JOIN_ALPN, JoinProto(weak.clone()))
+                    .accept(JOIN_ALPN, JoinProto(weak.clone(), None))
                     .spawn(),
             )),
+            invites: Default::default(),
             endpoint,
             daemon: Arc::downgrade(daemon),
             links: Default::default(),
@@ -266,6 +274,34 @@ impl Net {
         let router = self.router.lock().unwrap().take();
         if let Some(r) = router {
             let _ = r.shutdown().await;
+        }
+        let invites: Vec<Router> = self.invites.lock().unwrap().drain().map(|(_, r)| r).collect();
+        for r in invites {
+            let _ = r.shutdown().await;
+        }
+    }
+
+    /// Listens for a joiner on an invite code's own key until `expires` (ms) or until it is used.
+    pub async fn listen_invite(self: &Arc<Self>, key: SecretKey, expires: i64, relay: Option<&str>, lan: bool) -> Result<()> {
+        let endpoint = bind(key, relay, lan).await?;
+        let id = endpoint.id();
+        let router = Router::builder(endpoint).accept(JOIN_ALPN, JoinProto(Arc::downgrade(self), Some(id))).spawn();
+        self.invites.lock().unwrap().insert(id, router);
+        let (net, left) = (Arc::downgrade(self), (expires - util::now_ms()).max(0) as u64);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(left)).await;
+            if let Some(net) = net.upgrade() {
+                net.close_invite(&id);
+            }
+        });
+        Ok(())
+    }
+
+    pub fn close_invite(&self, id: &EndpointId) {
+        if let Some(r) = self.invites.lock().unwrap().remove(id) {
+            tokio::spawn(async move {
+                let _ = r.shutdown().await;
+            });
         }
     }
 

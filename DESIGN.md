@@ -100,10 +100,12 @@ machine can no longer connect, but it is not made cryptographically powerless: t
 **Gate.** Incoming connections on the team protocol are dropped unless the peer is an active member. A machine
 that was removed while away is first sent the state that says so; strangers learn nothing.
 
-**Invites.** `comms invite` writes an `Invite` op (only the hash of the secret) and prints a ticket:
-`comms join cm1…` = team id + a few member `EndpointAddr`s + secret + expiry. Any online member can redeem it:
-the joiner connects on `comms/join/1`, proves the secret, gets added (`AddMachine`) and receives the roster.
-Single use, 24h expiry. `comms invite --me` lets you add your own second machine under your person.
+**Invites.** `comms invite` makes a four-word code (`goal-hug-kilt-coil`, ~41 bits from the EFF short
+wordlist). The code derives both a temporary iroh key, which the inviting machine listens on, and the invite
+secret, whose hash goes into the team state. The joiner derives the same key from the code, dials it (found
+via n0's DNS or mDNS), proves the secret and gets the roster. No server; single use; 24h; the inviting machine
+must be online. A long `comms1…` ticket (team id, secret, a few members' addresses) is the fallback for when it
+won't be: any member can redeem that one.
 
 **Presence and directory.** Daemons keep a connection to every online member (full mesh; fine to ~50
 machines). On connect they exchange roster heads (anti-entropy) and full presence. On any local change a

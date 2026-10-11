@@ -19,7 +19,7 @@ struct Report {
     notes: Vec<String>,
 }
 
-fn exe() -> Result<PathBuf> {
+pub fn exe() -> Result<PathBuf> {
     Ok(std::env::current_exe()?.canonicalize()?)
 }
 
@@ -388,6 +388,10 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 // ---- background service ----
 
+pub fn service_installed() -> bool {
+    service_path().exists()
+}
+
 fn service_path() -> PathBuf {
     if cfg!(target_os = "macos") {
         home().join(format!("Library/LaunchAgents/{SERVICE}.plist"))
@@ -485,38 +489,147 @@ fn xml(s: &str) -> String {
 }
 
 type AgentFn = fn(&Path, bool, bool) -> Result<Option<Report>>;
-const AGENTS: [(&str, AgentFn); 6] =
-    [("Claude Code", claude), ("Codex", codex), ("Cursor", cursor), ("Gemini CLI", gemini), ("Copilot CLI", copilot), ("opencode", opencode)];
 
-pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
-    let exe = exe()?;
-    let verb = if dry { "Would change" } else if remove { "Removing comms" } else { "Setting up comms" };
-    println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
-    let mut notes = Vec::new();
-    let mut found = 0;
-    for (name, f) in AGENTS {
-        match f(&exe, remove, dry) {
+struct Agent {
+    id: &'static str,
+    name: &'static str,
+    /// How quickly it sees messages, and anything to know.
+    hint: &'static str,
+    installed: fn() -> bool,
+    wired: fn(&Path) -> bool,
+    apply: AgentFn,
+}
+
+fn has(path: PathBuf, needle: &str) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|s| s.contains(needle))
+}
+
+fn me(exe: &Path) -> String {
+    exe.display().to_string()
+}
+
+const AGENTS: [Agent; 6] = [
+    Agent {
+        id: "claude",
+        name: "Claude Code",
+        hint: "messages arrive instantly",
+        installed: || agent::find_bin("claude").is_some(),
+        wired: |_| {
+            agent::find_bin("claude")
+                .is_some_and(|b| Command::new(b).args(["mcp", "get", "comms"]).output().is_ok_and(|o| o.status.success()))
+        },
+        apply: claude,
+    },
+    Agent {
+        id: "codex",
+        name: "Codex",
+        hint: "instant; asks once to trust the hooks",
+        installed: || agent::find_bin("codex").is_some() || codex_home().exists(),
+        wired: |exe| has(codex_home().join("config.toml"), &me(exe)) && has(codex_home().join("hooks.json"), "hook codex"),
+        apply: codex,
+    },
+    Agent {
+        id: "cursor",
+        name: "Cursor",
+        hint: "sees messages at its next step",
+        installed: || home().join(".cursor").exists() || agent::find_bin("cursor-agent").is_some(),
+        wired: |exe| has(home().join(".cursor/mcp.json"), &me(exe)),
+        apply: cursor,
+    },
+    Agent {
+        id: "gemini",
+        name: "Gemini CLI",
+        hint: "at its next step; trusted folders only",
+        installed: || gemini_home().exists() || agent::find_bin("gemini").is_some(),
+        wired: |exe| has(gemini_home().join("settings.json"), &me(exe)),
+        apply: gemini,
+    },
+    Agent {
+        id: "copilot",
+        name: "Copilot CLI",
+        hint: "sees messages at its next step",
+        installed: || home().join(".copilot").exists() || agent::find_bin("copilot").is_some(),
+        wired: |exe| has(home().join(".copilot/mcp-config.json"), &me(exe)),
+        apply: copilot,
+    },
+    Agent {
+        id: "opencode",
+        name: "opencode",
+        hint: "messages arrive within seconds",
+        installed: || opencode_home().exists() || agent::find_bin("opencode").is_some(),
+        wired: |_| opencode_home().join("plugins/comms.ts").exists(),
+        apply: opencode,
+    },
+];
+
+/// An agent found on this machine.
+pub struct Found {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub hint: &'static str,
+    pub wired: bool,
+}
+
+pub fn detect(exe: &Path) -> Vec<Found> {
+    AGENTS
+        .iter()
+        .filter(|a| (a.installed)())
+        .map(|a| Found { id: a.id, name: a.name, hint: a.hint, wired: (a.wired)(exe) })
+        .collect()
+}
+
+/// What `apply` did: a line per agent (and the service), and things the user should know.
+#[derive(Default)]
+pub struct Applied {
+    pub lines: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// Wires comms into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
+/// (`Some(false)`) the login service.
+pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Option<bool>, dry: bool) -> Applied {
+    let mut out = Applied::default();
+    for a in &AGENTS {
+        let removing = remove.contains(&a.id);
+        if !removing && !install.contains(&a.id) {
+            continue;
+        }
+        match (a.apply)(exe, removing, dry) {
             Ok(Some(r)) => {
-                found += 1;
-                println!("  {}: {}", r.agent, r.lines.join("; "));
-                notes.extend(r.notes);
+                out.lines.push(format!("{}: {}", r.agent, r.lines.join("; ")));
+                out.notes.extend(r.notes);
             }
             Ok(None) => {}
-            Err(e) => println!("  {name}: skipped ({e:#})"),
+            Err(e) => out.lines.push(format!("{}: skipped ({e:#})", a.name)),
         }
     }
-    if found == 0 && !remove {
+    if let Some(on) = service {
+        match self::service(exe, !on, dry).await {
+            Ok(s) => out.lines.push(format!("service: {s}")),
+            Err(e) => out.lines.push(format!("service: not installed ({e:#}); the daemon still starts on demand")),
+        }
+    }
+    out
+}
+
+/// Non-interactive setup: every agent found (or, with `remove`, every agent wired).
+pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
+    let exe = exe()?;
+    let found = detect(&exe);
+    let verb = if dry { "Would change" } else if remove { "Removing comms" } else { "Setting up comms" };
+    println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
+    if found.is_empty() && !remove {
         println!("  no supported agents found (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode)");
     }
-    if !no_service {
-        match service(&exe, remove, dry).await {
-            Ok(s) => println!("  service: {s}"),
-            Err(e) => println!("  service: not installed ({e:#}); the daemon still starts on demand"),
-        }
+    let ids: Vec<&str> = found.iter().map(|f| f.id).collect();
+    let (install, removing): (&[&str], &[&str]) = if remove { (&[], &ids) } else { (&ids, &[]) };
+    let out = apply(&exe, install, removing, (!no_service).then_some(!remove), dry).await;
+    for l in &out.lines {
+        println!("  {l}");
     }
-    if !notes.is_empty() {
+    if !out.notes.is_empty() {
         println!();
-        for n in notes {
+        for n in &out.notes {
             println!("- {n}");
         }
     }
@@ -540,7 +653,7 @@ pub async fn doctor() -> Result<()> {
         }
         Err(e) if e.to_string().contains("not in a team") => {
             println!("✓ daemon running");
-            println!("- not in a team yet: `comms init <team>` or `comms join <invite>`");
+            println!("- not in a team yet: run `comms`");
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
@@ -550,23 +663,11 @@ pub async fn doctor() -> Result<()> {
         if svc.exists() { "✓" } else { "-" },
         if svc.exists() { "installed" } else { "not installed (`comms setup`)" }
     );
-    let me = exe.display().to_string();
-    let has = |p: PathBuf, needle: &str| std::fs::read_to_string(p).is_ok_and(|s| s.contains(needle));
-    let checks: [(&str, bool, bool); 6] = [
-        ("Claude Code", agent::find_bin("claude").is_some(), agent::find_bin("claude").is_some_and(|b| {
-            Command::new(b).args(["mcp", "get", "comms"]).output().is_ok_and(|o| o.status.success())
-        })),
-        ("Codex", codex_home().exists(), has(codex_home().join("config.toml"), &me) && has(codex_home().join("hooks.json"), "hook codex")),
-        ("Cursor", home().join(".cursor").exists(), has(home().join(".cursor/mcp.json"), &me)),
-        ("Gemini CLI", gemini_home().exists(), has(gemini_home().join("settings.json"), &me)),
-        ("Copilot CLI", home().join(".copilot").exists(), has(home().join(".copilot/mcp-config.json"), &me)),
-        ("opencode", opencode_home().exists(), opencode_home().join("plugins/comms.ts").exists()),
-    ];
-    for (name, installed, wired) in checks {
-        match (installed, wired) {
-            (false, _) => {}
-            (true, true) => println!("✓ {name}: wired up"),
-            (true, false) => println!("✗ {name}: installed but not wired up (`comms setup`)"),
+    for f in detect(&exe) {
+        if f.wired {
+            println!("✓ {}: wired up", f.name);
+        } else {
+            println!("- {}: installed, not on comms (`comms setup`)", f.name);
         }
     }
     Ok(())

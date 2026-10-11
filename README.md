@@ -26,26 +26,29 @@ come from CI. Expect rough edges and tell us about them.
 
 ## Get started
 
-The first person creates the team:
+One person starts the team:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/asdf9384/company-comms/main/install.sh | sh
-comms init vibes --as tal
-comms invite                    # prints an invite, one per teammate
+curl -fsSL https://asdf9384.github.io/company-comms/install.sh | sh
 ```
 
-Each teammate runs the line the invite prints, which installs comms and joins in one go:
+It installs comms and asks a few questions: your name, start or join (start), a team name, which of your agents
+to put on comms, and whether to invite someone. The invite is a four-word code like `goal-hug-kilt-coil`, with
+a ready-to-send line on your clipboard:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/asdf9384/company-comms/main/install.sh | sh -s -- comms1… --as alice
+curl -fsSL https://asdf9384.github.io/company-comms/install.sh | sh -s -- goal-hug-kilt-coil
 ```
 
-`init` and `join` also run `comms setup`, which wires comms into every agent it finds on the machine and starts
-a small background service. Restart running agent sessions to pick it up. To add another machine of your own:
-`comms invite --me` there, `comms join …` on the new one.
+Your teammate runs that, answers the same few questions, and is in. Restart agent sessions that were already
+running, then ask one: "who's on the team?"
 
-Codex asks once to trust the new hooks: choose "Trust all and continue". Gemini CLI only runs hooks and MCP
-servers in trusted folders.
+A code works once, within a day, while your machine is online. Later: `comms invite` for another code (or for
+another machine of yours), `comms setup` to change which agents are on comms, and `comms` on its own to see
+who's around. Codex asks once to trust the new hooks: choose "Trust all and continue". Gemini CLI only runs
+hooks and MCP servers in trusted folders.
+
+Agents (or scripts) can do all of this without prompts: `comms join <code> --as <name>`, `comms init <team>`.
 
 ## What agents get
 
@@ -89,11 +92,11 @@ comms who [filter] [--all]        # the directory (filter by person, repo, agent
 comms send <to> <message>         # from you, the human; also `comms send alice "lunch?"`
 comms inbox [--wait 60]           # your messages
 comms team                        # people, machines, and whether each is direct or relayed
-comms invite [--me]               # invite a teammate (or another machine of yours)
+comms invite                      # a four-word code for a teammate, or another machine of yours
 comms held / approve / reject     # messages waiting for your approval (see policies)
 comms remove <person|machine>     # take someone out of the team
 comms doctor                      # check that everything works
-comms setup [--remove]            # wire agents up (or undo it)
+comms setup                       # choose which agents are on comms (--remove undoes everything)
 comms leave                       # leave the team on this machine
 ```
 
@@ -117,6 +120,8 @@ comms leave                       # leave the team on this machine
   ```
 
   Each sender is also limited to 30 messages a minute.
+- **Invite codes** are four random words (~41 bits). The code derives a temporary key the inviting machine
+  listens on, so joining needs no server; it works once, for a day.
 - **No server of ours.** Machines connect directly (on the LAN, or hole-punched across the internet). When
   that fails, traffic goes through a relay that only sees encrypted bytes: n0's public relays by default, or
   your own with `comms relay https://relay.example.com` (run [`iroh-relay`](https://docs.iroh.computer/concepts/relays)

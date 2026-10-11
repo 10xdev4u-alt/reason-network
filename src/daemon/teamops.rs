@@ -5,6 +5,7 @@ use crate::{
     config::Config,
     net::{self, JoinRequest, Net, Remote, Wire},
     proto::*,
+    invite,
     team::{TeamState, Ticket},
     util,
 };
@@ -54,7 +55,19 @@ impl Daemon {
         }
         let net = Net::start(self, endpoint, remote);
         log(&format!("team {} · machine {}", team.name(), net.id().fmt_short()));
-        *self.net.write().unwrap() = Some(net);
+        *self.net.write().unwrap() = Some(net.clone());
+        // Invite codes made here that are still good: listen for them again.
+        let codes: Vec<(String, i64)> = {
+            let g = self.inner.lock().unwrap();
+            g.store.prefixed("code:")?.into_iter().filter_map(|(k, v)| Some((k.strip_prefix("code:")?.to_string(), v.parse().ok()?))).collect()
+        };
+        for (code, expires) in codes {
+            if team.invite_unused(&invite::secret(&code)) {
+                net.listen_invite(invite::key(&code), expires, team.meta.body.relay.as_deref(), self.cfg.lan()).await?;
+            } else {
+                self.inner.lock().unwrap().store.delete_prefix(&format!("code:{code}"))?;
+            }
+        }
         Ok(())
     }
 
@@ -122,7 +135,7 @@ impl Daemon {
         let state = {
             let mut g = self.inner.lock().unwrap();
             let team = g.team.as_mut().ok_or_else(|| anyhow!("this machine is not in a team any more"))?;
-            if req.team != team.id {
+            if !req.team.is_empty() && req.team != team.id {
                 bail!("this invite is for a different team");
             }
             team.redeem(&self.key, &req.secret, &person, joiner)?;
@@ -157,26 +170,30 @@ impl Daemon {
         Ok(TeamInfo { name: name.into(), relay: None, person, machine: self.machine.clone(), machines: Vec::new() })
     }
 
-    pub(super) async fn join_team(self: &Arc<Self>, ticket: &str, person: &str) -> Result<TeamInfo> {
+    /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `comms1…` ticket.
+    pub(super) async fn join_team(self: &Arc<Self>, invite_text: &str, person: &str) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
             bail!("already in team '{}'; run `comms leave` first", t.name());
         }
-        let ticket = Ticket::decode(ticket)?;
         let person = util::slug(person);
         if person.is_empty() {
             bail!("your name needs letters or digits");
         }
-        let endpoint = net::bind(self.key.clone(), ticket.relay.as_deref(), self.cfg.lan()).await?;
-        let req = JoinRequest {
-            team: ticket.team.clone(),
-            secret: ticket.secret.clone(),
-            person: person.clone(),
-            machine: self.machine.clone(),
+        // A code points at the key the inviting machine listens on for it; a ticket lists machines.
+        let (team, secret, relay, peers) = match invite::normalize(invite_text) {
+            Some(code) => (String::new(), invite::secret(&code), None, vec![EndpointAddr::new(invite::key(&code).public())]),
+            None if invite_text.trim().starts_with("comms1") => {
+                let t = Ticket::decode(invite_text)?;
+                (t.team, t.secret, t.relay, t.peers)
+            }
+            None => bail!("that's not an invite code (four words, like plum-tiger-lake-orbit)"),
         };
-        let res = net::join(&endpoint, &ticket, &req).await;
+        let endpoint = net::bind(self.key.clone(), relay.as_deref(), self.cfg.lan()).await?;
+        let req = JoinRequest { team: team.clone(), secret, person: person.clone(), machine: self.machine.clone() };
+        let res = net::join(&endpoint, &peers, &req).await;
         endpoint.close().await;
         let state = TeamState::verified(&res?)?;
-        if state.id != ticket.team || !state.is_active(&self.key.public()) {
+        if (!team.is_empty() && state.id != team) || !state.is_active(&self.key.public()) {
             bail!("the team did not add this machine");
         }
         let info = TeamInfo {
@@ -202,27 +219,32 @@ impl Daemon {
         cfg.save()
     }
 
-    pub(super) fn invite(&self, me: bool, hours: u64) -> Result<String> {
+    /// Makes an invite: a code (this machine listens for it until it is used or expires) and the equivalent
+    /// long ticket (which any teammate's machine can redeem).
+    pub(super) async fn invite(&self, me: bool, hours: u64) -> Result<InviteInfo> {
         let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `comms init` or `comms join`)"))?;
-        let mut g = self.inner.lock().unwrap();
-        let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
-        team.prune_invites();
-        let secret = team.invite(&self.key, hours.clamp(1, 24 * 30), me.then(|| self.person.clone()));
-        // This machine with its addresses, plus a few teammates (found by key) in case this one is offline.
-        let mut peers = vec![net.addr()];
-        peers.extend(team.active().map(|m| m.endpoint).filter(|e| *e != self.key.public()).take(3).map(EndpointAddr::new));
-        let ticket = Ticket {
-            team: team.id.clone(),
-            name: team.name().into(),
-            secret,
-            relay: team.meta.body.relay.clone(),
-            peers,
+        let hours = hours.clamp(1, 24 * 30);
+        let code = invite::generate();
+        let secret = invite::secret(&code);
+        let expires = util::now_ms() + hours as i64 * 3_600_000;
+        let (state, ticket) = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
+            team.prune_invites();
+            team.invite(&self.key, &secret, hours, me.then(|| self.person.clone()));
+            // This machine with its addresses, plus a few teammates (found by key) in case this one is offline.
+            let mut peers = vec![net.addr()];
+            peers.extend(team.active().map(|m| m.endpoint).filter(|e| *e != self.key.public()).take(3).map(EndpointAddr::new));
+            let ticket = Ticket { team: team.id.clone(), name: team.name().into(), secret, relay: team.meta.body.relay.clone(), peers };
+            let state = team.clone();
+            self.save_team(&g)?;
+            g.store.set(&format!("code:{code}"), &expires.to_string())?;
+            (state, ticket)
         };
-        let state = team.clone();
-        self.save_team(&g)?;
-        drop(g);
+        let relay = state.meta.body.relay.clone();
         net.broadcast(&Wire::State { state: Box::new(state) });
-        Ok(ticket.encode())
+        net.listen_invite(invite::key(&code), expires, relay.as_deref(), self.cfg.lan()).await?;
+        Ok(InviteInfo { code, ticket: ticket.encode(), hours })
     }
 
     pub(super) fn team_info(&self) -> Result<TeamInfo> {

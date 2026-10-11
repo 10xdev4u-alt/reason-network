@@ -155,6 +155,12 @@ impl Store {
         Ok(())
     }
 
+    pub fn prefixed(&self, prefix: &str) -> Result<Vec<(String, String)>> {
+        let mut st = self.db.prepare_cached("SELECT key, value FROM kv WHERE key >= ?1 AND key < ?1 || x'ff'")?;
+        let rows = st.query_map([prefix], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn delete_prefix(&self, prefix: &str) -> Result<()> {
         self.db.execute("DELETE FROM kv WHERE key >= ?1 AND key < ?1 || x'ff'", [prefix])?;
         Ok(())
