@@ -177,7 +177,7 @@ codex.close()
 cli("alice", "stop")
 time.sleep(1)
 out = cli("tal", "send", "alice", "sent while you were offline")
-check("message to an offline machine is queued", "offline" in out or "no answer" in out, out)
+check("message to an offline machine is queued", "not connected" in out or "no answer" in out, out)
 cli("alice", "team")  # restarts alice's daemon
 time.sleep(8)
 out = cli("alice", "inbox")

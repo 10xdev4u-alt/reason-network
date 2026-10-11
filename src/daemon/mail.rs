@@ -131,7 +131,7 @@ impl Daemon {
                     Target::Remote { machine, machine_name, online, .. } => {
                         g.store.outbox_add(&machine.to_string(), &msg)?;
                         remote_jobs.push((res.recipients.len(), machine, machine_name.clone(), online, msg.clone()));
-                        ("queued".into(), format!("queued: {machine_name} is offline; it gets this when it is back"))
+                        ("queued".into(), format!("queued: not connected to {machine_name} right now; it goes out as soon as it is"))
                     }
                 };
                 res.recipients.push(Recipient { address: msg.to.clone(), state, note });
