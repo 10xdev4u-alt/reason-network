@@ -101,7 +101,8 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, code: Option<Str
                     if !confirm("Try again?").initial_value(true).interact()? {
                         return Err(anyhow!("not joined"));
                     }
-                    code = Some(c).filter(|_| e.to_string().contains("reach"));
+                    // Unreachable: the same code may work in a moment. Anything else: ask for a new one.
+                    code = e.to_string().contains("reach").then_some(c);
                 }
             }
         }
