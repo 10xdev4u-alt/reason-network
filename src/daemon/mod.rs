@@ -222,6 +222,7 @@ impl Daemon {
             Request::Join { ticket, person } => json!(self.join_team(&ticket, &person).await?),
             Request::Invite { me, hours } => json!(self.invite(me, hours).await?),
             Request::Team => json!(self.team_info()?),
+            Request::Link { new } => json!(self.link(new).await?),
             Request::Remove { who } => json!(self.remove(&who)?),
             Request::Leave { force } => json!(self.leave(force).await?),
             Request::SetRelay { url } => json!(self.set_relay(url).await?),

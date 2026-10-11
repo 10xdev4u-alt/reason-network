@@ -13,6 +13,13 @@ use anyhow::{Result, anyhow, bail};
 use iroh::{EndpointAddr, EndpointId};
 use std::{collections::HashMap, collections::HashSet, sync::Arc, time::Duration};
 
+fn is_private(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
 impl Daemon {
     pub fn team_state(&self) -> Option<TeamState> {
         self.inner.lock().unwrap().team.clone()
@@ -182,9 +189,10 @@ impl Daemon {
         // A code points at the key the inviting machine listens on for it; a ticket lists machines.
         let (team, secret, relay, peers) = match invite::normalize(invite_text) {
             Some(code) => (String::new(), invite::secret(&code), None, vec![EndpointAddr::new(invite::key(&code).public())]),
-            None if invite_text.trim().starts_with("comms1") => {
+            None if invite_text.contains("comms1") => {
                 let t = Ticket::decode(invite_text)?;
-                (t.team, t.secret, t.relay, t.peers)
+                let addrs = t.addrs();
+                (t.team, t.secret, t.relay, addrs)
             }
             None => bail!("that's not an invite code (four words, like plum-tiger-lake-orbit)"),
         };
@@ -223,6 +231,7 @@ impl Daemon {
     /// long ticket (which any teammate's machine can redeem).
     pub(super) async fn invite(&self, me: bool, hours: u64) -> Result<InviteInfo> {
         let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `comms init` or `comms join`)"))?;
+        net.online(Duration::from_secs(5)).await;
         let hours = hours.clamp(1, 24 * 30);
         let code = invite::generate();
         let secret = invite::secret(&code);
@@ -232,10 +241,7 @@ impl Daemon {
             let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team"))?;
             team.prune_invites();
             team.invite(&self.key, &secret, hours, me.then(|| self.person.clone()));
-            // This machine with its addresses, plus a few teammates (found by key) in case this one is offline.
-            let mut peers = vec![net.addr()];
-            peers.extend(team.active().map(|m| m.endpoint).filter(|e| *e != self.key.public()).take(3).map(EndpointAddr::new));
-            let ticket = Ticket { team: team.id.clone(), name: team.name().into(), secret, relay: team.meta.body.relay.clone(), peers };
+            let ticket = self.ticket(team, secret);
             let state = team.clone();
             self.save_team(&g)?;
             g.store.set(&format!("code:{code}"), &expires.to_string())?;
@@ -245,6 +251,49 @@ impl Daemon {
         net.broadcast(&Wire::State { state: Box::new(state) });
         net.listen_invite(invite::key(&code), expires, relay.as_deref(), self.cfg.lan()).await?;
         Ok(InviteInfo { code, ticket: ticket.encode(), hours })
+    }
+
+    /// A ticket for `secret`: this machine first, then a few teammates, so whoever is online can let them in.
+    fn ticket(&self, team: &TeamState, secret: String) -> Ticket {
+        let me = self.key.public();
+        let online = |id: &EndpointId| self.net().is_some_and(|n| n.is_online(id));
+        let mut others: Vec<EndpointId> = team.active().map(|m| m.endpoint).filter(|e| *e != me).collect();
+        others.sort_by_key(|id| !online(id));
+        let peers = std::iter::once(me).chain(others.into_iter().take(5)).collect();
+        let here = self.net().map(|n| n.addr());
+        Ticket {
+            team: team.id.clone(),
+            name: team.name().into(),
+            secret,
+            relay: team.meta.body.relay.clone(),
+            hint_relay: here.as_ref().and_then(|a| a.relay_urls().next().map(|u| u.to_string())),
+            // Private addresses are what helps (same LAN, no internet); public ones are found anyway.
+            hint_ips: here.map(|a| a.ip_addrs().filter(|s| is_private(s.ip())).copied().collect()).unwrap_or_default(),
+            peers,
+        }
+    }
+
+    /// The team link (`new`: replace it first, so the old one stops working).
+    pub(super) async fn link(self: &Arc<Self>, new: bool) -> Result<LinkInfo> {
+        if let Some(net) = self.net() {
+            net.online(Duration::from_secs(5)).await;
+        }
+        let state = {
+            let mut g = self.inner.lock().unwrap();
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team yet: run `comms`"))?;
+            if new || team.link_secret().is_none() {
+                team.new_link(&self.key);
+            }
+            let state = team.clone();
+            self.save_team(&g)?;
+            state
+        };
+        if new && let Some(net) = self.net() {
+            net.broadcast(&Wire::State { state: Box::new(state.clone()) });
+        }
+        let secret = state.link_secret().expect("just made").to_string();
+        let ticket = self.ticket(&state, secret).encode();
+        Ok(LinkInfo { team: state.name().into(), url: crate::join_url(&ticket), ticket })
     }
 
     pub(super) fn team_info(&self) -> Result<TeamInfo> {
@@ -319,6 +368,8 @@ impl Daemon {
             for (id, person, machine) in &hits {
                 team.put_member(&self.key, *id, person, machine, false);
             }
+            // They knew the team link; make a new one.
+            team.new_link(&self.key);
             let state = team.clone();
             self.save_team(&g)?;
             (state, hits)
@@ -330,7 +381,7 @@ impl Daemon {
             }
         }
         let names: Vec<String> = removed.iter().map(|(_, p, m)| format!("{p} on {m}")).collect();
-        Ok(format!("Removed {}.", names.join(", ")))
+        Ok(format!("Removed {}. The team link changed too (`comms link` shows the new one).", names.join(", ")))
     }
 
     pub(super) async fn leave(self: &Arc<Self>, force: bool) -> Result<String> {

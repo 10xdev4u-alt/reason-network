@@ -4,7 +4,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-/// Short machine name: `Tals-MacBook-Pro.local` -> `tals-macbook-pro`. `COMMS_MACHINE` overrides it.
+/// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `COMMS_MACHINE` overrides it.
 pub fn hostname() -> String {
     if let Some(name) = std::env::var("COMMS_MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
         return name;
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn slugs() {
-        assert_eq!(slug("Tals-MacBook-Pro"), "tals-macbook-pro");
+        assert_eq!(slug("Sams-MacBook-Pro"), "sams-macbook-pro");
         assert_eq!(slug("  my repo (v2)!"), "my-repo-v2");
         assert_eq!(slug("--"), "");
     }

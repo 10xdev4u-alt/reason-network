@@ -10,8 +10,8 @@ import json, os, re, subprocess, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "comms")
 D = tempfile.mkdtemp(prefix="comms-e2e-")
-H = {"tal": os.path.join(D, "tal"), "alice": os.path.join(D, "alice")}
-MACHINE = {"tal": "laptop", "alice": "desktop"}
+H = {"alex": os.path.join(D, "alex"), "alice": os.path.join(D, "alice")}
+MACHINE = {"alex": "laptop", "alice": "desktop"}
 FAKE_CODEX = os.path.join(D, "fake-codex.sh")
 QUEUE_LOG = os.path.join(D, "codex-queue.log")
 IN_CLAUDE = "CLAUDE_CODE_MESSAGING_SOCKET" in os.environ
@@ -24,7 +24,7 @@ def check(name, ok, detail=""):
 
 
 def env(who, strip_claude=True):
-    e = dict(os.environ, COMMS_HOME=H[who], COMMS_MACHINE=MACHINE[who], COMMS_NO_MDNS="1", COMMS_CODEX_BIN=FAKE_CODEX)
+    e = dict(os.environ, COMMS_HOME=H[who], COMMS_MACHINE=MACHINE[who], COMMS_NO_MDNS="1", COMMS_NO_SERVICE="1", COMMS_CODEX_BIN=FAKE_CODEX)
     if strip_claude:
         for k in list(e):
             if k.startswith("CLAUDE"):
@@ -77,26 +77,36 @@ os.chmod(FAKE_CODEX, 0o755)
 os.makedirs(os.path.join(D, "work"), exist_ok=True)
 
 # --- team formation ---
-out = cli("tal", "init", "vibes", "--as", "tal", "--no-setup")
-check("init creates team", "Created team vibes. You are tal on laptop." in out, out)
-out = cli("tal", "invite")
-code = re.search(r"Invite code for a teammate: ([a-z]+(?:-[a-z]+){3})", out)
-ticket = re.search(r"comms join (comms1\S+)", out)
-check("invite prints a four-word code (and a long fallback)", bool(code) and bool(ticket), out)
-out = cli("alice", "join", code.group(1).replace("-", " ").upper(), "--as", "alice", "--no-setup")
-check("join with just the code succeeds", "Joined team vibes as alice on desktop." in out, out)
-check("joiner sees tal connected", re.search(r"tal\s+laptop\s+(direct|relay)", out) is not None, out)
-out = cli("tal", "team")
+out = cli("alex", "init", "vibes", "--as", "alex", "--no-setup")
+check("init creates team", "Created team vibes. You are alex on laptop." in out, out)
+out = cli("alex", "invite")
+link = re.search(r"(https://\S+/join/#comms1\S+)", out)
+check("invite prints the team link", bool(link), out)
+out = cli("alice", "join", link.group(1), "--as", "alice", "--no-setup")
+check("join with the team link succeeds", "Joined team vibes as alice on desktop." in out, out)
+check("joiner sees alex connected", re.search(r"alex\s+laptop\s+(direct|relay)", out) is not None, out)
+out = cli("alex", "team")
 check("founder sees alice connected", re.search(r"alice\s+desktop\s+(direct|relay)", out) is not None, out)
-out = cli("alice", "join", ticket.group(1), "--as", "bob", "--no-setup")
+out = cli("alice", "join", link.group(1), "--as", "bob", "--no-setup")
 check("second join is refused (already in a team)", "already in team" in out, out)
 os.makedirs(os.path.join(D, "bob"), exist_ok=True)
 bob = dict(env("alice"), COMMS_HOME=os.path.join(D, "bob"), COMMS_MACHINE="nuc")
-r = subprocess.run([BIN, "join", code.group(1), "--as", "bob", "--no-setup"], env=bob, capture_output=True, text=True, timeout=90)
+out = cli("alex", "invite", "--code")
+code = re.search(r"Invite code for a teammate: ([a-z]+(?:-[a-z]+){3})", out)
+check("invite --code prints a four-word code", bool(code), out)
+r = subprocess.run([BIN, "join", code.group(1).replace("-", " ").upper(), "--as", "bob", "--no-setup"], env=bob,
+                   capture_output=True, text=True, timeout=90)
+check("joining with just the code works", "Joined team vibes as bob on nuc." in r.stdout, r.stdout + r.stderr)
+r = subprocess.run([BIN, "join", code.group(1), "--as", "bob2", "--no-setup"], env=dict(bob, COMMS_HOME=os.path.join(D, "bob2")),
+                   capture_output=True, text=True, timeout=90)
 check("a used code doesn't work twice", "Joined" not in r.stdout + r.stderr, r.stdout + r.stderr)
+subprocess.run([BIN, "stop"], env=dict(bob, COMMS_HOME=os.path.join(D, "bob2")), capture_output=True)
+out = subprocess.run([BIN, "link"], env=bob, capture_output=True, text=True, timeout=30).stdout
+check("any member can show the same team link", link.group(1).split("#")[1][:40] in out.replace("\n", ""), out)
+subprocess.run([BIN, "stop"], env=bob, capture_output=True)
 
 # --- sessions on both machines ---
-claude = Mcp("tal", "claude-code", strip_claude=False, cwd=ROOT)
+claude = Mcp("alex", "claude-code", strip_claude=False, cwd=ROOT)
 codex = Mcp("alice", "codex-mcp-client", strip_claude=True, cwd=os.path.join(D, "work"))
 meta = {"sessionId": "11111111-aaaa", "threadId": "11111111-aaaa"}
 time.sleep(4)
@@ -104,30 +114,30 @@ codex.tool("set_status", {"doing": "testing cross-machine comms"}, meta)
 time.sleep(3)  # presence propagates every 2s
 out = codex.tool("list_team", {}, meta)
 claude_name = os.path.basename(ROOT).lower() + "-claude"
-check("alice's agent sees tal's session across machines", claude_name in out and "tal · laptop" in out, out)
-out = cli("tal", "who")
-check("tal sees alice's codex and its status", "work-codex" in out and "testing cross-machine comms" in out, out)
+check("alice's agent sees alex's session across machines", claude_name in out and "alex · laptop" in out, out)
+out = cli("alex", "who")
+check("alex sees alice's codex and its status", "work-codex" in out and "testing cross-machine comms" in out, out)
 
 # --- messages across machines ---
-out = codex.tool("send_message", {"to": f"tal/{claude_name}", "message": "comms e2e (cross-machine push): ignore this."}, meta)
+out = codex.tool("send_message", {"to": f"alex/{claude_name}", "message": "comms e2e (cross-machine push): ignore this."}, meta)
 want = "delivered into the session" if IN_CLAUDE else "only sees it when it checks"
 check("cross-machine send reaches the Claude session", want in out, out)
-out = cli("tal", "send", "alice/work-codex", "hello from tal's terminal")
+out = cli("alex", "send", "alice/work-codex", "hello from alex's terminal")
 check("human → remote pull session is queued there", "only sees it when it checks its inbox" in out, out)
 out = codex.tool("check_inbox", {}, meta)
-check("remote message arrives in codex inbox", 'from="tal"' in out and "hello from tal's terminal" in out, out)
+check("remote message arrives in codex inbox", 'from="alex"' in out and "hello from alex's terminal" in out, out)
 out = codex.tool("check_inbox", {}, meta)
 check("…and is gone once read", out.startswith("No messages."), out)
-out = cli("alice", "send", "tal", "dinner at 8?")
-check("human → human across machines", "in tal's inbox" in out, out)
-out = cli("tal", "inbox")
-check("tal's inbox has alice's note", "dinner at 8?" in out and "── alice" in out, out)
-out = cli("tal", "inbox")
+out = cli("alice", "send", "alex", "dinner at 8?")
+check("human → human across machines", "in alex's inbox" in out, out)
+out = cli("alex", "inbox")
+check("alex's inbox has alice's note", "dinner at 8?" in out and "── alice" in out, out)
+out = cli("alex", "inbox")
 check("…read once", "No messages." in out, out)
-out = cli("tal", "send", "*", "broadcast from tal (e2e test, ignore)")
+out = cli("alex", "send", "*", "broadcast from alex (e2e test, ignore)")
 check("broadcast reaches alice's session", "alice/work-codex" in out, out)
 codex.tool("check_inbox", {}, meta)
-out = cli("tal", "send", "nobody", "x")
+out = cli("alex", "send", "nobody", "x")
 check("unknown name fails helpfully", "no session called 'nobody'" in out, out)
 
 # --- a session waiting in check_inbox gets the reply there, once ---
@@ -136,7 +146,7 @@ waited = {}
 t = threading.Thread(target=lambda: waited.setdefault("out", codex.tool("check_inbox", {"wait_secs": 15}, meta)))
 t.start()
 time.sleep(2)
-out = cli("tal", "send", "alice/work-codex", "reply while you wait")
+out = cli("alex", "send", "alice/work-codex", "reply while you wait")
 t.join()
 check("long-poll returns the message that arrives", "reply while you wait" in waited.get("out", ""), waited)
 
@@ -145,7 +155,7 @@ start = hook("alice", "codex", "session-start", {"session_id": "22222222-bbbb", 
 codex_name = os.path.basename(ROOT).lower() + "-codex"
 check("codex SessionStart hook introduces the session", "SessionStart" in start and f"alice/{codex_name}" in start, start)
 time.sleep(3)
-out = cli("tal", "send", f"alice/{codex_name}", "please rebase on main")
+out = cli("alex", "send", f"alice/{codex_name}", "please rebase on main")
 check("message to a hooked codex session goes to codex queue", "queued into the Codex session" in out, out)
 time.sleep(1.5)
 log = open(QUEUE_LOG).read() if os.path.exists(QUEUE_LOG) else ""
@@ -156,13 +166,13 @@ check("a message delivered by codex queue isn't injected again by the hook", out
 # --- hold policy ---
 cfg = os.path.join(H["alice"], "config.toml")
 text = open(cfg).read()
-text = text.replace("[inbound.people]", '[inbound.people]\ntal = "hold"', 1) if "[inbound.people]" in text else text + '\n[inbound.people]\ntal = "hold"\n'
+text = text.replace("[inbound.people]", '[inbound.people]\nalex = "hold"', 1) if "[inbound.people]" in text else text + '\n[inbound.people]\nalex = "hold"\n'
 open(cfg, "w").write(text)
 cli("alice", "stop")
 time.sleep(3)
 cli("alice", "team")
 time.sleep(5)
-out = cli("tal", "send", "alice/work-codex", "held message")
+out = cli("alex", "send", "alice/work-codex", "held message")
 check("message to alice is held by her policy", "held until alice approves" in out, out)
 out = codex.tool("check_inbox", {}, meta)
 check("held message is not delivered", "held message" not in out, out)
@@ -176,7 +186,7 @@ check("approved message is delivered", "held message" in out, out)
 codex.close()
 cli("alice", "stop")
 time.sleep(1)
-out = cli("tal", "send", "alice", "sent while you were offline")
+out = cli("alex", "send", "alice", "sent while you were offline")
 check("message to an offline machine is queued", "not connected" in out or "no answer" in out, out)
 cli("alice", "team")  # restarts alice's daemon
 time.sleep(8)
@@ -185,15 +195,18 @@ check("outbox delivers when the machine is back", "sent while you were offline" 
 
 # --- removal while away ---
 cli("alice", "stop")
-out = cli("tal", "remove", "alice")
+out = cli("alex", "remove", "alice")
 check("remove alice (while her machine is off)", "Removed alice on desktop" in out, out)
-cli("alice", "team")  # alice's machine comes back and dials tal
+check("removing someone replaces the team link", "team link changed" in out, out)
+out = cli("alex", "link")
+check("the new link differs from the old one", link.group(1) not in out, out)
+cli("alice", "team")  # alice's machine comes back and dials alex
 time.sleep(10)
 out = cli("alice", "team")
 check("alice's machine learns it was removed when it reconnects", "not in a team" in out, out)
 
 claude.close()
-cli("tal", "stop")
+cli("alex", "stop")
 cli("alice", "stop")
 print(f"\n{sum(results)}/{len(results)} checks passed  (state in {D})")
 raise SystemExit(0 if all(results) else 1)

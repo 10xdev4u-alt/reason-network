@@ -10,7 +10,14 @@ use std::{
     process::Command,
 };
 
-const SERVICE: &str = "dev.company-comms.daemon";
+/// The service's name. A non-default `COMMS_HOME` gets its own, so a second instance (or a test) can never
+/// replace the real one.
+fn service_name() -> String {
+    match std::env::var("COMMS_HOME") {
+        Ok(h) => format!("dev.company-comms.daemon.{}", &blake3::hash(h.as_bytes()).to_hex()[..8]),
+        Err(_) => "dev.company-comms.daemon".into(),
+    }
+}
 
 /// What happened to one agent.
 struct Report {
@@ -394,9 +401,9 @@ pub fn service_installed() -> bool {
 
 fn service_path() -> PathBuf {
     if cfg!(target_os = "macos") {
-        home().join(format!("Library/LaunchAgents/{SERVICE}.plist"))
+        home().join(format!("Library/LaunchAgents/{}.plist", service_name()))
     } else {
-        home().join(".config/systemd/user/comms.service")
+        home().join(format!(".config/systemd/user/{}.service", service_name()))
     }
 }
 
@@ -411,7 +418,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     let uid = unsafe { libc::getuid() };
     let comms_home = std::env::var("COMMS_HOME").ok();
     if cfg!(target_os = "macos") {
-        let target = format!("gui/{uid}/{SERVICE}");
+        let target = format!("gui/{uid}/{}", service_name());
         if remove {
             if !dry {
                 let _ = Command::new("launchctl").args(["bootout", &target]).output();
@@ -425,7 +432,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>{SERVICE}</string>
+  <key>Label</key><string>{}</string>
   <key>ProgramArguments</key>
   <array><string>{}</string><string>daemon</string><string>--service</string></array>
   <key>RunAtLoad</key><true/>
@@ -438,6 +445,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
 </dict>
 </plist>
 "#,
+            xml(&service_name()),
             xml(&exe.display().to_string()),
             xml(&paths::log().display().to_string()),
             xml(&service_path_env()),
@@ -456,7 +464,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     } else {
         if remove {
             if !dry {
-                let _ = Command::new("systemctl").args(["--user", "disable", "--now", "comms.service"]).output();
+                let _ = Command::new("systemctl").args(["--user", "disable", "--now", &format!("{}.service", service_name())]).output();
                 let _ = std::fs::remove_file(&path);
             }
             return Ok("removed the login service".into());
@@ -471,7 +479,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         if !dry {
             crate::stop_daemon().await;
             Command::new("systemctl").args(["--user", "daemon-reload"]).output()?;
-            let out = Command::new("systemctl").args(["--user", "enable", "--now", "comms.service"]).output()?;
+            let out = Command::new("systemctl").args(["--user", "enable", "--now", &format!("{}.service", service_name())]).output()?;
             if !out.status.success() {
                 return Err(anyhow!("systemctl: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
@@ -604,6 +612,10 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
         }
     }
     if let Some(on) = service {
+        if std::env::var_os("COMMS_NO_SERVICE").is_some() {
+            out.lines.push("service: skipped (COMMS_NO_SERVICE is set)".into());
+            return out;
+        }
         match self::service(exe, !on, dry).await {
             Ok(s) => out.lines.push(format!("service: {s}")),
             Err(e) => out.lines.push(format!("service: not installed ({e:#}); the daemon still starts on demand")),

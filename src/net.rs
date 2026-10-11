@@ -191,7 +191,7 @@ impl ProtocolHandler for PeerProto {
                 && let Some(state) = daemon.team_state()
                 && let Ok(Ok((mut send, _recv))) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await
             {
-                let _ = write_frame(&mut send, &Wire::State { state: Box::new(state) }).await;
+                let _ = write_frame(&mut send, &Wire::State { state: Box::new(state.without_link()) }).await;
                 let _ = send.finish();
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
@@ -268,6 +268,11 @@ impl Net {
 
     pub fn addr(&self) -> EndpointAddr {
         self.endpoint.addr()
+    }
+
+    /// Waits (up to `limit`) until this machine has a home relay, so addresses handed out include it.
+    pub async fn online(&self, limit: Duration) {
+        let _ = tokio::time::timeout(limit, self.endpoint.online()).await;
     }
 
     pub async fn shutdown(&self) {

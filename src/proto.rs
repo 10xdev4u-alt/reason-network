@@ -140,6 +140,11 @@ pub enum Request {
         hours: u64,
     },
     Team,
+    /// The team link, which anyone can use to join; `new` replaces it.
+    Link {
+        #[serde(default)]
+        new: bool,
+    },
     /// Remove a person (all their machines) or one machine from the team.
     Remove {
         who: String,
@@ -214,7 +219,7 @@ pub struct Message {
     pub from_repo: Option<String>,
     /// The resolved recipient address.
     pub to: String,
-    /// The address as the sender typed it, when it was a group (`*`, `repo:api`, `tal/*`).
+    /// The address as the sender typed it, when it was a group (`*`, `repo:api`, `alex/*`).
     pub via: Option<String>,
     pub reply_to: Option<String>,
     pub body: String,
@@ -258,6 +263,14 @@ pub struct TeamInfo {
     pub person: String,
     pub machine: String,
     pub machines: Vec<MachineInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkInfo {
+    pub team: String,
+    /// A page with the one command to run (the ticket rides in the `#fragment`, which never reaches the server).
+    pub url: String,
+    pub ticket: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

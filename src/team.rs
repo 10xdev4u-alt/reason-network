@@ -7,7 +7,10 @@ use anyhow::{Result, anyhow, bail};
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
 use iroh::{EndpointAddr, EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    net::{IpAddr, SocketAddr},
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Signed<T> {
@@ -62,6 +65,16 @@ pub struct Invite {
     pub person: Option<String>,
     pub used_by: Option<EndpointId>,
     pub ts: i64,
+    /// The team link's invite: anyone with it can join, any number of times, until it is replaced.
+    #[serde(default)]
+    pub reusable: bool,
+}
+
+/// The team link's secret, known to every member so any of them can show the link (`comms link`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Link {
+    pub secret: String,
+    pub ts: i64,
 }
 
 /// The replicated team state. `admissions` records how each machine got in and is kept forever, so who may
@@ -77,6 +90,8 @@ pub struct TeamState {
     pub admissions: BTreeMap<String, Signed<Member>>,
     pub members: BTreeMap<String, Signed<Member>>,
     pub invites: BTreeMap<String, Signed<Invite>>,
+    #[serde(default)]
+    pub link: Option<Signed<Link>>,
 }
 
 /// Entries stamped further ahead than this are refused (a broken clock, or worse).
@@ -109,9 +124,39 @@ impl TeamState {
             admissions: BTreeMap::new(),
             members: BTreeMap::new(),
             invites: BTreeMap::new(),
+            link: None,
         };
         state.put_member(key, key.public(), person, machine, true);
+        state.new_link(key);
         state
+    }
+
+    /// The team link's secret, if the team has one.
+    pub fn link_secret(&self) -> Option<&str> {
+        self.link.as_ref().map(|l| l.body.secret.as_str())
+    }
+
+    /// Replaces the team link: the old one stops working.
+    pub fn new_link(&mut self, key: &SecretKey) {
+        let now = util::now_ms();
+        if let Some(old) = self.link_secret().map(hash)
+            && let Some(inv) = self.invites.get(&old).map(|i| i.body.clone())
+        {
+            let expired = Invite { expires: now, ts: next_ts(inv.ts), ..inv };
+            self.invites.insert(old, Signed::new(expired, key, &self.id, "invite"));
+        }
+        let mut raw = [0u8; 16];
+        getrandom::fill(&mut raw).expect("system randomness");
+        let secret = HEXLOWER.encode(&raw);
+        let body = Invite { hash: hash(&secret), expires: i64::MAX / 4, person: None, used_by: None, ts: now, reusable: true };
+        self.invites.insert(body.hash.clone(), Signed::new(body, key, &self.id, "invite"));
+        let ts = next_ts(self.link.as_ref().map_or(0, |l| l.body.ts));
+        self.link = Some(Signed::new(Link { secret, ts }, key, &self.id, "link"));
+    }
+
+    /// A copy without the team link, for a machine that was removed.
+    pub fn without_link(&self) -> TeamState {
+        TeamState { link: None, ..self.clone() }
     }
 
     pub fn name(&self) -> &str {
@@ -173,7 +218,8 @@ impl TeamState {
     /// Creates an invite for `secret` (an invite code's, or random for a ticket).
     pub fn invite(&mut self, key: &SecretKey, secret: &str, hours: u64, person: Option<String>) {
         let now = util::now_ms();
-        let body = Invite { hash: hash(secret), expires: now + hours as i64 * 3_600_000, person, used_by: None, ts: now };
+        let body =
+            Invite { hash: hash(secret), expires: now + hours as i64 * 3_600_000, person, used_by: None, ts: now, reusable: false };
         self.invites.insert(body.hash.clone(), Signed::new(body, key, &self.id, "invite"));
     }
 
@@ -196,7 +242,7 @@ impl TeamState {
             None => {}
         }
         if inv.expires < util::now_ms() {
-            bail!("this invite expired; ask for a new one");
+            bail!(if inv.reusable { "this team link was replaced; ask for the new one" } else { "this invite expired; ask for a new one" });
         }
         match &inv.person {
             Some(p) if p != person => bail!("this invite is for {p}'s own machines"),
@@ -206,8 +252,10 @@ impl TeamState {
             }
             None => {}
         }
-        let used = Invite { used_by: Some(joiner), ts: next_ts(inv.ts), ..inv };
-        self.invites.insert(h, Signed::new(used, key, &self.id, "invite"));
+        if !inv.reusable {
+            let used = Invite { used_by: Some(joiner), ts: next_ts(inv.ts), ..inv };
+            self.invites.insert(h, Signed::new(used, key, &self.id, "invite"));
+        }
         Ok(())
     }
 
@@ -265,6 +313,15 @@ impl TeamState {
             self.meta = m.clone();
             changed = true;
         }
+        if let Some(l) = &other.link
+            && newer(l.body.ts, &l.sig, self.link.as_ref().map(|c| (c.body.ts, c.sig.as_str())))
+            && plausible(l.body.ts)
+            && admitted.contains(&l.by)
+            && l.verify(&self.id, "link")
+        {
+            self.link = Some(l.clone());
+            changed = true;
+        }
         for (h, inv) in &other.invites {
             let cur = self.invites.get(h);
             if &inv.body.hash == h
@@ -289,6 +346,7 @@ impl TeamState {
             admissions: BTreeMap::new(),
             members: BTreeMap::new(),
             invites: BTreeMap::new(),
+            link: None,
         };
         s.merge(other)?;
         let admitted = s.admitted();
@@ -312,28 +370,116 @@ pub fn hash(secret: &str) -> String {
     blake3::hash(secret.as_bytes()).to_hex().to_string()
 }
 
-/// Everything a new machine needs to join: printed by `comms invite`, pasted into `comms join`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Everything a new machine needs to join: the team, an invite secret, and some members to ask (by key; their
+/// addresses are looked up). Packed small, since it ends up in a link.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ticket {
     pub team: String,
     pub name: String,
     pub secret: String,
     pub relay: Option<String>,
-    pub peers: Vec<EndpointAddr>,
+    /// How the first peer (the machine that made the ticket) was reachable then: its home relay and addresses.
+    /// Hints for a fast start; the keys are looked up for current addresses anyway.
+    pub hint_relay: Option<String>,
+    pub hint_ips: Vec<SocketAddr>,
+    pub peers: Vec<EndpointId>,
 }
 
 const TICKET_PREFIX: &str = "comms1";
 
 impl Ticket {
+    /// `comms1` + base64url of: team id (16 bytes), secret (16), name, team relay, first peer's relay hint (each
+    /// length-prefixed, 0 for none), its address hints (count, then family 4/6, address, port), then 32 bytes per
+    /// member key.
     pub fn encode(&self) -> String {
-        format!("{TICKET_PREFIX}{}", BASE64URL_NOPAD.encode(&serde_json::to_vec(self).expect("ticket serializes")))
+        let mut b = Vec::new();
+        b.extend(HEXLOWER.decode(self.team.as_bytes()).expect("team ids are hex"));
+        b.extend(HEXLOWER.decode(self.secret.as_bytes()).expect("secrets are hex"));
+        let name: String = self.name.chars().take(60).collect();
+        for field in [name.as_str(), self.relay.as_deref().unwrap_or(""), self.hint_relay.as_deref().unwrap_or("")] {
+            let n = field.len().min(255);
+            b.push(n as u8);
+            b.extend(&field.as_bytes()[..n]);
+        }
+        let ips: Vec<&SocketAddr> = self.hint_ips.iter().take(4).collect();
+        b.push(ips.len() as u8);
+        for a in ips {
+            match a.ip() {
+                IpAddr::V4(ip) => {
+                    b.push(4);
+                    b.extend(ip.octets());
+                }
+                IpAddr::V6(ip) => {
+                    b.push(6);
+                    b.extend(ip.octets());
+                }
+            }
+            b.extend(a.port().to_be_bytes());
+        }
+        for p in &self.peers {
+            b.extend(p.as_bytes());
+        }
+        format!("{TICKET_PREFIX}{}", BASE64URL_NOPAD.encode(&b))
     }
 
     pub fn decode(s: &str) -> Result<Self> {
-        let s = s.trim();
-        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a comms invite (should start with {TICKET_PREFIX})"))?;
-        let bytes = BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("invite is damaged (was it cut off?)"))?;
-        Ok(serde_json::from_slice(&bytes)?)
+        let s = s.trim().rsplit('#').next().unwrap_or_default();
+        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a comms invite"))?;
+        let b = BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("this invite is damaged (was it cut off?)"))?;
+        let damaged = || anyhow!("this invite is damaged (was it cut off?)");
+        let mut at = 0;
+        let mut take = |n: usize| -> Result<&[u8]> {
+            let part = b.get(at..at + n).ok_or_else(damaged)?;
+            at += n;
+            Ok(part)
+        };
+        let team = HEXLOWER.encode(take(16)?);
+        let secret = HEXLOWER.encode(take(16)?);
+        let mut text = || -> Result<String> {
+            let n = take(1)?[0] as usize;
+            Ok(String::from_utf8_lossy(take(n)?).into_owned())
+        };
+        let name = text()?;
+        let relay = Some(text()?).filter(|r| !r.is_empty());
+        let hint_relay = Some(text()?).filter(|r| !r.is_empty());
+        let mut hint_ips = Vec::new();
+        for _ in 0..take(1)?[0] {
+            let ip = match take(1)?[0] {
+                4 => IpAddr::from(<[u8; 4]>::try_from(take(4)?).expect("4 bytes")),
+                6 => IpAddr::from(<[u8; 16]>::try_from(take(16)?).expect("16 bytes")),
+                _ => return Err(damaged()),
+            };
+            let port = u16::from_be_bytes(take(2)?.try_into().expect("2 bytes"));
+            hint_ips.push(SocketAddr::new(ip, port));
+        }
+        let mut peers = Vec::new();
+        while let Ok(k) = take(32) {
+            peers.push(EndpointId::from_bytes(k.try_into().expect("32 bytes")).map_err(|_| damaged())?);
+        }
+        if peers.is_empty() {
+            return Err(damaged());
+        }
+        Ok(Ticket { team, name, secret, relay, hint_relay, hint_ips, peers })
+    }
+
+    /// The peers to dial, the first with its hints.
+    pub fn addrs(&self) -> Vec<EndpointAddr> {
+        self.peers
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let mut a = EndpointAddr::new(*id);
+                if i == 0 {
+                    if let Some(url) = self.hint_relay.as_deref().and_then(|u| u.parse().ok()) {
+                        a = a.with_relay_url(url);
+                    }
+                    for ip in &self.hint_ips {
+                        a = a.with_ip_addr(*ip);
+                    }
+                }
+                a
+            })
+            .collect()
     }
 }
 
@@ -352,7 +498,7 @@ mod tests {
     #[test]
     fn found_invite_join_merge() {
         let (a, b, c) = (key(), key(), key());
-        let mut sa = TeamState::found("vibes", "tal", "mbp", &a);
+        let mut sa = TeamState::found("vibes", "alex", "mbp", &a);
         let secret = random_secret();
         sa.invite(&a, &secret, 24, None);
 
@@ -372,13 +518,13 @@ mod tests {
         assert!(sa.merge(&sb).unwrap());
         assert!(sa.is_active(&c.public()));
         assert!(!sa.merge(&sb).unwrap(), "merging again changes nothing");
-        assert_eq!(sa.people(), vec!["alice", "sam", "tal"]);
+        assert_eq!(sa.people(), vec!["alex", "alice", "sam"]);
     }
 
     #[test]
     fn rejects_forgery_and_self_readd() {
         let (a, b, mallory) = (key(), key(), key());
-        let mut sa = TeamState::found("vibes", "tal", "mbp", &a);
+        let mut sa = TeamState::found("vibes", "alex", "mbp", &a);
         sa.put_member(&a, b.public(), "alice", "xps", true);
 
         // A stranger cannot add itself.
@@ -412,9 +558,9 @@ mod tests {
     #[test]
     fn founder_leaving_doesnt_lock_the_team() {
         let (f, b, d) = (key(), key(), key());
-        let mut s = TeamState::found("vibes", "tal", "mbp", &f);
+        let mut s = TeamState::found("vibes", "alex", "mbp", &f);
         s.put_member(&f, b.public(), "alice", "xps", true);
-        s.put_member(&f, f.public(), "tal", "mbp", false); // founder leaves
+        s.put_member(&f, f.public(), "alex", "mbp", false); // founder leaves
         let secret = random_secret();
         s.invite(&b, &secret, 24, None);
         s.redeem(&b, &secret, "sam", d.public()).unwrap();
@@ -426,7 +572,7 @@ mod tests {
     #[test]
     fn merges_converge_whatever_the_order() {
         let (f, b, c, d) = (key(), key(), key(), key());
-        let mut base = TeamState::found("vibes", "tal", "mbp", &f);
+        let mut base = TeamState::found("vibes", "alex", "mbp", &f);
         base.put_member(&f, b.public(), "alice", "xps", true);
         // Concurrently: f removes b while b adds c.
         let mut at_f = base.clone();
@@ -451,7 +597,7 @@ mod tests {
     #[test]
     fn invites_die_with_their_maker_and_cant_readmit() {
         let (a, b, c) = (key(), key(), key());
-        let mut s = TeamState::found("vibes", "tal", "mbp", &a);
+        let mut s = TeamState::found("vibes", "alex", "mbp", &a);
         let first = random_secret();
         s.invite(&a, &first, 24, None);
         s.redeem(&a, &first, "alice", b.public()).unwrap();
@@ -467,7 +613,7 @@ mod tests {
     #[test]
     fn refuses_far_future_entries() {
         let (a, b) = (key(), key());
-        let mut s = TeamState::found("vibes", "tal", "mbp", &a);
+        let mut s = TeamState::found("vibes", "alex", "mbp", &a);
         let mut evil = s.clone();
         let body = Member { endpoint: b.public(), person: "x".into(), machine: "y".into(), active: true, ts: i64::MAX };
         let e = Signed::new(body, &a, &evil.id, "member");
@@ -480,29 +626,55 @@ mod tests {
     #[test]
     fn names_are_unique_unless_invited_for_self() {
         let (a, b) = (key(), key());
-        let mut s = TeamState::found("vibes", "tal", "mbp", &a);
+        let mut s = TeamState::found("vibes", "alex", "mbp", &a);
         let open = random_secret();
         s.invite(&a, &open, 24, None);
-        assert!(s.redeem(&a, &open, "tal", b.public()).is_err());
+        assert!(s.redeem(&a, &open, "alex", b.public()).is_err());
         let mine = random_secret();
-        s.invite(&a, &mine, 24, Some("tal".into()));
+        s.invite(&a, &mine, 24, Some("alex".into()));
         assert!(s.redeem(&a, &mine, "alice", b.public()).is_err());
-        s.redeem(&a, &mine, "tal", b.public()).unwrap();
+        s.redeem(&a, &mine, "alex", b.public()).unwrap();
     }
 
     #[test]
     fn ticket_roundtrip() {
-        let a = key();
+        let (a, b) = (key(), key());
         let t = Ticket {
-            team: "abc".into(),
-            name: "vibes".into(),
-            secret: "s3cret".into(),
-            relay: None,
-            peers: vec![EndpointAddr::new(a.public())],
+            team: "00112233445566778899aabbccddeeff".into(),
+            name: "the boys".into(),
+            secret: random_secret(),
+            relay: Some("https://relay.example.com".into()),
+            hint_relay: Some("https://euc1-1.relay.n0.iroh.link./".into()),
+            hint_ips: vec!["192.168.1.20:51234".parse().unwrap(), "[fe80::1]:51234".parse().unwrap()],
+            peers: vec![a.public(), b.public()],
         };
-        let back = Ticket::decode(&format!("  {}\n", t.encode())).unwrap();
-        assert_eq!(back.peers[0].id, a.public());
+        let enc = t.encode();
+        assert!(enc.len() < 300, "short enough for a link: {}", enc.len());
+        assert_eq!(t.addrs()[0].ip_addrs().count(), 2);
+        assert_eq!(Ticket::decode(&format!("  {enc}\n")).unwrap(), t);
+        assert_eq!(Ticket::decode(&format!("https://example.com/join/#{enc}")).unwrap(), t, "a whole link works too");
+        assert!(Ticket::decode(&enc[..enc.len() - 10]).is_err());
         assert!(Ticket::decode("comms1!!!").is_err());
         assert!(Ticket::decode("hello").is_err());
+    }
+
+    #[test]
+    fn team_link_is_reusable_until_replaced() {
+        let (a, b, c, d) = (key(), key(), key(), key());
+        let mut s = TeamState::found("vibes", "alex", "mbp", &a);
+        let link = s.link_secret().unwrap().to_string();
+        s.redeem(&a, &link, "alice", b.public()).unwrap();
+        s.put_member(&a, b.public(), "alice", "xps", true);
+        s.redeem(&a, &link, "sam", c.public()).unwrap();
+        s.put_member(&a, c.public(), "sam", "nuc", true);
+        assert!(s.redeem(&a, &link, "alice", d.public()).is_err(), "names stay unique");
+        // A joiner learns the link, and can show it too.
+        let joined = TeamState::verified(&s).unwrap();
+        assert_eq!(joined.link_secret(), Some(link.as_str()));
+        assert_eq!(s.without_link().link, None);
+        s.new_link(&b);
+        assert!(s.redeem(&a, &link, "dee", d.public()).is_err(), "the old link stops working");
+        let fresh = s.link_secret().unwrap().to_string();
+        s.redeem(&a, &fresh, "dee", d.public()).unwrap();
     }
 }

@@ -23,12 +23,21 @@ use client::Link;
 use proto::*;
 use std::{io::Read, time::Duration};
 
-/// Where `install.sh` is served; invites print a one-line install-and-join command with it. Release builds set
-/// `COMMS_INSTALL_URL` to the project's domain.
-pub const INSTALL_URL: &str = match option_env!("COMMS_INSTALL_URL") {
+/// The project's site, which serves `install.sh` and the join page. Release builds set `COMMS_SITE_URL` to the
+/// project's domain.
+pub const SITE_URL: &str = match option_env!("COMMS_SITE_URL") {
     Some(u) if !u.is_empty() => u,
-    _ => "https://asdf9384.github.io/company-comms/install.sh",
+    _ => "https://asdf9384.github.io/company-comms",
 };
+
+pub fn install_url() -> String {
+    format!("{SITE_URL}/install.sh")
+}
+
+/// The team link: a page showing the one command that installs comms and joins with `ticket`.
+pub fn join_url(ticket: &str) -> String {
+    format!("{SITE_URL}/join/#{ticket}")
+}
 
 #[derive(Parser)]
 #[command(
@@ -92,15 +101,25 @@ enum Cmd {
         #[arg(long)]
         no_setup: bool,
     },
-    /// Invite a teammate (or another machine of yours)
+    /// Show the team link to send friends (or, with --me / --code, a one-time code)
     Invite {
+        /// A one-time code for another machine of yours
         #[arg(long)]
         me: bool,
+        /// A one-time four-word code instead of the link
+        #[arg(long)]
+        code: bool,
         /// Hours until it expires
         #[arg(long, default_value_t = 24)]
         hours: u64,
     },
-    /// Join a team with an invite code
+    /// Show the team link (anyone with it can join)
+    Link {
+        /// Replace it: the old link stops working
+        #[arg(long)]
+        new: bool,
+    },
+    /// Join a team with a team link (or an invite code)
     Join {
         invite: Option<String>,
         /// Your name in the team (default: $USER)
@@ -260,7 +279,14 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Join { invite, person, no_setup } if !no_setup && wizard::interactive() => {
             wizard::guided(wizard::onboard(Some(false), None, invite, person)).await?
         }
-        Cmd::Invite { me: false, hours } if wizard::interactive() => wizard::guided(wizard::invite(hours.clamp(1, 24 * 30))).await?,
+        Cmd::Invite { me: false, code: false, .. } if wizard::interactive() => wizard::guided(wizard::invite()).await?,
+        Cmd::Link { new } => {
+            let l: LinkInfo = link.call(Request::Link { new }).await?;
+            let copied = wizard::interactive() && wizard::copy(&l.url);
+            println!("Team link for {}{}:\n\n{}\n", l.team, if copied { " (on your clipboard)" } else { "" }, l.url);
+            println!("Anyone with it can join: it opens a page with one command. `comms link --new` replaces it.");
+        }
+        Cmd::Invite { me: false, code: false, .. } => Box::pin(cli(Cmd::Link { new: false })).await?,
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
             wizard::guided(wizard::setup_agents()).await?
         }
@@ -298,12 +324,12 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 print!("\n{}", render::team(&t));
             }
         }
-        Cmd::Invite { me, hours } => {
+        Cmd::Invite { me, hours, .. } => {
             let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
             println!("They run this, which installs comms and joins the team:\n");
-            println!("  curl -fsSL {INSTALL_URL} | sh -s -- {}\n", i.code);
+            println!("  curl -fsSL {} | sh -s -- {}\n", install_url(), i.code);
             println!("(or `comms join {}` if they have comms). Works once, within {}h, while this machine is online.", i.code, i.hours);
             println!("If this machine will be offline, use the long form instead: comms join {}", i.ticket);
         }
@@ -349,7 +375,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let dir = std::env::current_exe()?.parent().map(|d| d.display().to_string()).unwrap_or_default();
             let status = std::process::Command::new("sh")
                 .arg("-c")
-                .arg(format!("curl -fsSL {INSTALL_URL} | sh"))
+                .arg(format!("curl -fsSL {} | sh", install_url()))
                 .env("COMMS_BIN_DIR", dir)
                 .status()?;
             if !status.success() {

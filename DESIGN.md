@@ -25,7 +25,7 @@ and hoping. That is the core of this project; messaging is the easy part.
 
 ```
 team ──< person ──< machine ──< session
-vibes    tal        tal-mbp     api-claude   (claude-code, acme/api@feat/auth, busy 2m, "JWT middleware")
+vibes    alex        alex-mbp     api-claude   (claude-code, acme/api@feat/auth, busy 2m, "JWT middleware")
                                 web-codex    (codex, acme/web@main, idle 14m)
          alice      alice-xps   api-cursor   ...
 ```
@@ -55,7 +55,7 @@ unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
 ## Architecture
 
 ```
-┌─ machine: tal-mbp ───────────────────────────────────────────┐
+┌─ machine: alex-mbp ───────────────────────────────────────────┐
 │ claude ── comms mcp ──┐                                       │
 │ codex  ── comms mcp ──┤  unix socket       ┌──────────────┐   │      iroh QUIC (ed25519-authenticated)
 │ cursor ── comms mcp ──┼──────────────────▶ │ comms daemon │◀──┼──▶   direct on LAN (mDNS)
@@ -100,12 +100,13 @@ machine can no longer connect, but it is not made cryptographically powerless: t
 **Gate.** Incoming connections on the team protocol are dropped unless the peer is an active member. A machine
 that was removed while away is first sent the state that says so; strangers learn nothing.
 
-**Invites.** `comms invite` makes a four-word code (`goal-hug-kilt-coil`, ~41 bits from the EFF short
-wordlist). The code derives both a temporary iroh key, which the inviting machine listens on, and the invite
-secret, whose hash goes into the team state. The joiner derives the same key from the code, dials it (found
-via n0's DNS or mDNS), proves the secret and gets the roster. No server; single use; 24h; the inviting machine
-must be online. A long `comms1…` ticket (team id, secret, a few members' addresses) is the fallback for when it
-won't be: any member can redeem that one.
+**Invites.** The main way in is the **team link**: `https://<site>/join/#<ticket>`, where the ticket packs the
+team id, the team link's secret, the inviting machine's relay and LAN address hints, and up to six members' keys.
+The link secret is a reusable invite in the team state (any member can show the link and any online member can
+redeem it), replaced with `comms link --new` and whenever someone is removed; removed machines are never sent it.
+The page shows one command (`curl … install.sh | sh -s -- <ticket>`); the joiner only types a name. Four-word
+one-time codes (`comms invite --code`, ~41 bits) derive a temporary iroh key the inviting machine listens on, for
+reading out loud or adding your own machines.
 
 **Presence and directory.** Daemons keep a connection to every online member (full mesh; fine to ~50
 machines). On connect they exchange roster heads (anti-entropy) and full presence. On any local change a
@@ -203,7 +204,7 @@ peer's request that your own user would not approve.
 
 ```sh
 curl -fsSL https://…/install.sh | sh      # dist-built static binary; also Homebrew
-comms init vibes --as tal                  # first person: creates the team
+comms init vibes --as alex                  # first person: creates the team
 comms invite                               # prints: comms join cm1…
 comms join cm1… --as alice                 # friends: joins, installs service, wires up agents
 ```

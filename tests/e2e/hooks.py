@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 BIN = os.path.join(ROOT, "target", "debug", "comms")
 D = tempfile.mkdtemp(prefix="comms-hooks-")
 env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-env.update(COMMS_HOME=os.path.join(D, "home"), COMMS_NO_MDNS="1", COMMS_MACHINE="box")
+env.update(COMMS_HOME=os.path.join(D, "home"), COMMS_NO_MDNS="1", COMMS_NO_SERVICE="1", COMMS_MACHINE="box")
 results = []
 
 
@@ -28,12 +28,12 @@ def hook(agent, event, payload):
 
 proj = os.path.join(D, "proj")
 os.makedirs(proj)
-run("init", "hooks", "--as", "tal", "--no-setup")
+run("init", "hooks", "--as", "alex", "--no-setup")
 
 # Cursor: conversation_id + workspace_roots; prompt-submit can't show context.
 cur = {"conversation_id": "c-1", "workspace_roots": [proj], "hook_event_name": "sessionStart"}
 out = hook("cursor", "session-start", cur)
-check("cursor start → additional_context intro", '"additional_context"' in out and "tal/proj-cursor" in out, out)
+check("cursor start → additional_context intro", '"additional_context"' in out and "alex/proj-cursor" in out, out)
 run("send", "proj-cursor", "cursor, please look at PR 12")
 out = hook("cursor", "user-prompt-submit", cur)
 check("cursor prompt-submit prints nothing and keeps the mail", out == "", out)

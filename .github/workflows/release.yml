@@ -21,8 +21,8 @@ jobs:
           - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
     runs-on: ${{ matrix.os }}
     env:
-      # Where invites point new teammates to install from; set the repo variable once the domain is live.
-      COMMS_INSTALL_URL: ${{ vars.COMMS_INSTALL_URL }}
+      # The site team links and the installer point at; set the repo variable once the domain is live.
+      COMMS_SITE_URL: ${{ vars.COMMS_SITE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

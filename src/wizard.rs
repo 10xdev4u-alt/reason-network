@@ -2,10 +2,9 @@
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
-    INSTALL_URL,
     client::Link,
     config::{Config, Policy},
-    invite,
+    install_url, invite,
     proto::*,
     render, setup, util,
 };
@@ -32,27 +31,35 @@ fn name_ok(s: &str) -> Result<(), &'static str> {
     if util::slug(s).is_empty() { Err("letters or digits, please") } else { Ok(()) }
 }
 
-/// Start or join a team, then set up agents. `start`: `Some(true)` from `comms init`, `Some(false)` from
-/// `comms join`, `None` to ask.
-pub async fn onboard(start: Option<bool>, team: Option<String>, code: Option<String>, person: Option<String>) -> Result<()> {
+fn invite_ok(s: &str) -> Result<(), &'static str> {
+    if s.contains("comms1") || invite::normalize(s).is_some() { Ok(()) } else { Err("paste the team link your friend sent") }
+}
+
+fn ask_name() -> Result<String> {
+    let name: String =
+        input("What should teammates call you?").default_input(&Config::load().person()).validate(|s: &String| name_ok(s)).interact()?;
+    Ok(util::slug(&name))
+}
+
+/// Start or join a team. With an invite (a team link, from the installer), it only asks for your name.
+/// `start`: `Some(true)` from `comms init`, `Some(false)` from `comms join`, `None` to ask.
+pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<String>, person: Option<String>) -> Result<()> {
     intro(" comms ")?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
-        outro("`comms` shows who's around; `comms invite` adds someone; `comms setup` changes your agents.")?;
+        outro("`comms` shows who's around; `comms invite` gives you the team link.")?;
         return Ok(());
     }
     let mut person = match person {
         Some(p) => util::slug(&p),
-        None => util::slug(
-            &input("What should teammates call you?").default_input(&Config::load().person()).validate(|s: &String| name_ok(s)).interact::<String>()?,
-        ),
+        None => ask_name()?,
     };
-    let start = match (start, &code) {
+    let start = match (start, &invite) {
         (Some(s), _) => s,
         (None, Some(_)) => false,
         (None, None) => select("Start a new team, or join one?")
-            .item(false, "Join a team", "I have an invite code")
+            .item(false, "Join a team", "a friend sent me a link")
             .item(true, "Start a new team", "")
             .interact()?,
     };
@@ -60,7 +67,7 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, code: Option<Str
     if start {
         let name: String = match team {
             Some(t) => t,
-            None => input("Name your team").placeholder("vibes").validate(|s: &String| name_ok(s)).interact()?,
+            None => input("Name your team").placeholder("the boys").validate(|s: &String| name_ok(s)).interact()?,
         };
         let sp = spinner();
         sp.start("Creating the team...");
@@ -68,24 +75,15 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, code: Option<Str
         crate::wait_exit(crate::daemon_pid()).await;
         sp.stop(format!("Created team {}. You are {} on {}.", t.name, t.person, t.machine));
     } else {
-        let mut code = code;
+        let mut invite = invite;
         loop {
-            let c: String = match code.take() {
-                Some(c) => c,
-                None => input("Invite code")
-                    .placeholder("plum-tiger-lake-orbit")
-                    .validate(|s: &String| {
-                        if invite::normalize(s).is_some() || s.trim().starts_with("comms1") {
-                            Ok(())
-                        } else {
-                            Err("four words, like plum-tiger-lake-orbit")
-                        }
-                    })
-                    .interact()?,
+            let text: String = match invite.take() {
+                Some(t) => t,
+                None => input("Paste the team link").placeholder("https://…/join/#comms1…").validate(|s: &String| invite_ok(s)).interact()?,
             };
             let sp = spinner();
-            sp.start("Finding the team...");
-            match link.call::<TeamInfo>(Request::Join { ticket: c.clone(), person: person.clone() }).await {
+            sp.start("Joining...");
+            match link.call::<TeamInfo>(Request::Join { ticket: text.clone(), person: person.clone() }).await {
                 Ok(t) => {
                     crate::wait_exit(crate::daemon_pid()).await;
                     sp.stop(format!("Joined team {} as {} on {}.", t.name, t.person, t.machine));
@@ -94,42 +92,65 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, code: Option<Str
                 Err(e) if e.to_string().contains("already in this team") => {
                     sp.error(format!("Someone in the team is already called {person}."));
                     person = util::slug(&input("Pick another name").validate(|s: &String| name_ok(s)).interact::<String>()?);
-                    code = Some(c);
+                    invite = Some(text);
                 }
                 Err(e) => {
                     sp.error(format!("{e:#}"));
                     if !confirm("Try again?").initial_value(true).interact()? {
                         return Err(anyhow!("not joined"));
                     }
-                    // Unreachable: the same code may work in a moment. Anything else: ask for a new one.
-                    code = e.to_string().contains("reach").then_some(c);
+                    // Nobody reachable: the same link may work in a moment. Anything else: ask for it again.
+                    invite = e.to_string().contains("reach").then_some(text);
                 }
             }
         }
     }
 
-    agents_and_preferences(true).await?;
+    set_up_agents_with_defaults().await?;
 
     if start {
-        if confirm("Invite a teammate now?").initial_value(true).interact()? {
-            show_invite(false, 24).await?;
+        let url = show_link(false).await?;
+        outro("Then restart agent sessions that were already running and ask one: \"who's on the team?\"")?;
+        // Outside the frame, so the terminal copies it whole.
+        println!("\n{url}\n");
+    } else {
+        if let Ok(t) = Link::new(None).call::<TeamInfo>(Request::Team).await {
+            note("Your team", render::team(&t).trim_end())?;
         }
-    } else if let Ok(t) = Link::new(None).call::<TeamInfo>(Request::Team).await {
-        note("Your team", render::team(&t).trim_end())?;
+        outro("You're in. Restart agent sessions that were already running, then ask one: \"who's on the team?\"")?;
     }
-    outro("All set. Restart agent sessions that were already running, then ask one: \"who's on the team?\"")?;
+    Ok(())
+}
+
+/// Every agent found, the background service, the default preferences; then says what it did.
+async fn set_up_agents_with_defaults() -> Result<()> {
+    let exe = setup::exe()?;
+    let found = setup::detect(&exe);
+    let ids: Vec<&str> = found.iter().map(|f| f.id).collect();
+    let sp = spinner();
+    sp.start("Setting up your agents...");
+    crate::stop_daemon().await;
+    let out = setup::apply(&exe, &ids, &[], Some(true), false).await;
+    sp.stop(if found.is_empty() { "No coding agents found on this machine (yet)" } else { "Set up your agents" });
+    for l in &out.lines {
+        log::success(l)?;
+    }
+    for n in &out.notes {
+        log::warning(n)?;
+    }
+    log::remark("Change any of this with `comms setup`.")?;
     Ok(())
 }
 
 /// Which agents are on comms, the background service, and how teammates' messages are handled.
-pub async fn agents_and_preferences(first: bool) -> Result<()> {
+pub async fn agents_and_preferences() -> Result<()> {
     let exe = setup::exe()?;
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
         log::warning("No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode). Install one, then run `comms setup`.")?;
         Vec::new()
     } else {
-        let initial: Vec<&str> = found.iter().filter(|f| first || f.wired).map(|f| f.id).collect();
+        let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
         let mut pick = multiselect("Which agents should be on comms?  (space to toggle, enter to confirm)").required(false).initial_values(initial);
         for f in &found {
             pick = pick.item(f.id, f.name, f.hint);
@@ -165,17 +186,31 @@ pub async fn agents_and_preferences(first: bool) -> Result<()> {
     Ok(())
 }
 
-/// Makes an invite and shows it, ready to send.
-pub async fn show_invite(me: bool, hours: u64) -> Result<()> {
-    let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours }).await?;
-    let one_liner = format!("curl -fsSL {INSTALL_URL} | sh -s -- {}", i.code);
-    let copied = copy(&one_liner);
+/// Explains the team link and puts it on the clipboard; returns it for the caller to print after the frame
+/// (inside it, the terminal would wrap it with borders). `new` replaces it first.
+pub async fn show_link(new: bool) -> Result<String> {
+    let l: LinkInfo = Link::new(None).call(Request::Link { new }).await?;
+    let copied = copy(&l.url);
+    note(
+        format!("Team link for {}", l.team),
+        format!(
+            "{}Send your friends the link below. It opens a page with one command: they\npaste it, type their name, and they're in. It keeps working for everyone\nuntil you run `comms link --new`.",
+            if copied { "It's on your clipboard. " } else { "" },
+        ),
+    )?;
+    Ok(l.url)
+}
+
+/// A one-time code (for reading out loud, or for another machine of yours).
+pub async fn show_code(me: bool) -> Result<()> {
+    let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours: 24 }).await?;
     let who = if me { "your other machine" } else { "your teammate" };
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "Send {who} this line, which installs comms and joins the team:\n\n  {one_liner}\n\n{}Already have comms? `comms join {}`\nWorks once, within {}h, while this machine is online.",
-            if copied { "(It's on your clipboard.)\n" } else { "" },
+            "On {who}: curl -fsSL {} | sh -s -- {}\n(or `comms join {}` if comms is there already)\nWorks once, within {}h, while this machine is online.",
+            install_url(),
+            i.code,
             i.code,
             i.hours
         ),
@@ -184,7 +219,7 @@ pub async fn show_invite(me: bool, hours: u64) -> Result<()> {
 }
 
 /// Puts text on the clipboard, if there's a clipboard tool. True if it worked.
-fn copy(text: &str) -> bool {
+pub fn copy(text: &str) -> bool {
     use std::io::Write;
     let tools: [(&str, &[&str]); 3] = [("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])];
     tools.iter().any(|(bin, args)| {
@@ -202,19 +237,28 @@ fn copy(text: &str) -> bool {
     })
 }
 
-/// `comms invite` in a terminal: ask who it's for.
-pub async fn invite(hours: u64) -> Result<()> {
+/// `comms invite` in a terminal: the team link, or a one-time code for another machine of yours.
+pub async fn invite() -> Result<()> {
     intro(" comms invite ")?;
-    let me = select("Who's this invite for?").item(false, "A teammate", "").item(true, "Another machine of mine", "").interact()?;
-    show_invite(me, hours).await?;
-    outro("They'll show up in `comms` once they've joined.")?;
+    let what = select("Who's joining?")
+        .item(0, "Friends", "the team link, works for everyone")
+        .item(1, "Another machine of mine", "a one-time code")
+        .interact()?;
+    if what == 0 {
+        let url = show_link(false).await?;
+        outro("They'll show up in `comms` once they've joined.")?;
+        println!("\n{url}\n");
+    } else {
+        show_code(true).await?;
+        outro("It'll show up in `comms` once it has joined.")?;
+    }
     Ok(())
 }
 
 /// `comms setup` in a terminal.
 pub async fn setup_agents() -> Result<()> {
     intro(" comms setup ")?;
-    agents_and_preferences(false).await?;
+    agents_and_preferences().await?;
     outro("Restart agent sessions that were already running to pick up changes.")?;
     Ok(())
 }

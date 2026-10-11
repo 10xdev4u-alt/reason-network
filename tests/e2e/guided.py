@@ -1,5 +1,5 @@
-"""The guided setup, driven through a pseudo-terminal like a person would: start a team on one 'machine', join it
-on another with the four-word code.
+"""The guided setup, driven through a pseudo-terminal like a person would: start a team on one 'machine', then
+two friends join it with the team link, typing only their names.
 
     cargo build && python3 tests/e2e/guided.py
 
@@ -25,7 +25,7 @@ def env(who):
     os.makedirs(os.path.join(home, ".codex"), exist_ok=True)  # a "Codex" to set up
     e = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     e.update(HOME=home, COMMS_HOME=os.path.join(D, who, "comms"), COMMS_MACHINE=who + "-box", COMMS_NO_MDNS="1",
-             COMMS_CLAUDE_BIN="/nonexistent", TERM="xterm-256color")
+             COMMS_CLAUDE_BIN="/nonexistent", COMMS_NO_SERVICE="1", TERM="xterm-256color")
     return e
 
 
@@ -68,91 +68,77 @@ def stop(who):
     subprocess.run([BIN, "stop"], env=env(who), capture_output=True)
 
 
-code = None
+link = None
 try:
-    t = Term([], env("tal"))
+    t = Term([], env("alex"))
     t.expect(r"What should teammates call you\?")
-    t.send("tal" + ENTER)
+    t.send("alex" + ENTER)
     t.expect(r"Start a new team, or join one\?")
     t.send(DOWN + ENTER)
     t.expect(r"Name your team")
-    t.send("vibes" + ENTER)
-    t.expect(r"Created team vibes\. You are tal on tal-box\.")
-    t.expect(r"Which agents should be on comms\?")
-    t.expect(r"Codex")
-    t.send(ENTER)
-    t.expect(r"Keep comms running in the background")
-    t.send("n")
-    t.expect(r"When a teammate's agent messages one of yours")
-    t.send(ENTER)
-    t.expect(r"full working directories")
-    t.send("n")
+    t.send("the boys" + ENTER)
+    t.expect(r"Created team the boys\. You are alex on alex-box\.")
     t.expect(r"Codex: updated")
-    t.expect(r"Invite a teammate now\?")
-    t.send("y")
-    m = t.expect(r"Invite code: ([a-z]+(?:-[a-z]+){3})")
-    code = m.group(1)
-    t.expect(r"All set")
-    box = re.sub(r"[\s│]+", " ", t.seen)
-    check("the invite box has the one line to send", f"install.sh | sh -s -- {code}" in box, box)
+    t.expect(r"Team link for the boys")
+    m = t.expect(r"\n(https://\S+/join/#comms1[A-Za-z0-9_-]+)\n")
+    link = m.group(1)
     t.wait()
-    check("start a team, set up agents and get an invite code, all by prompts", True)
-    cfg = open(os.path.join(env("tal")["HOME"], ".codex", "config.toml")).read()
-    check("the chosen agent was wired up", "[mcp_servers.comms]" in cfg, cfg)
+    check("start a team with two answers (name, team) and get the team link", True)
+    cfg = open(os.path.join(env("alex")["HOME"], ".codex", "config.toml")).read()
+    check("agents found were set up without asking", "[mcp_servers.comms]" in cfg, cfg)
 except AssertionError as e:
     check("start a team by prompts", False, str(e))
 
-if code:
-    try:
-        t = Term([], env("alice"))
-        t.expect(r"What should teammates call you\?")
-        t.send("alice" + ENTER)
-        t.expect(r"Start a new team, or join one\?")
-        t.send(ENTER)  # "Join a team" is first
-        t.expect(r"Invite code")
-        t.send(code.replace("-", " ") + ENTER)
-        t.expect(r"Joined team vibes as alice on alice-box\.", timeout=90)
-        t.expect(r"Which agents should be on comms\?")
-        t.send(ENTER)
-        t.expect(r"Keep comms running in the background")
-        t.send("n")
-        t.expect(r"When a teammate's agent messages one of yours")
-        t.send(DOWN + ENTER)  # hold for approval
-        t.expect(r"full working directories")
-        t.send("n")
-        t.expect(r"Your team")
-        t.expect(r"tal\s+tal-box")
-        t.expect(r"All set")
-        t.wait()
-        check("join with the code by prompts", True)
-        cfg = open(os.path.join(env("alice")["COMMS_HOME"], "config.toml")).read()
-        check("the inbound choice was saved", 'default = "hold"' in cfg, cfg)
-    except AssertionError as e:
-        check("join with the code by prompts", False, str(e))
 
-    try:
-        t = Term([], env("alice"))
-        t.expect(r"(tal · tal-box|team vibes)")
-        t.wait()
-        check("`comms` after setup shows the team instead of asking again", True)
-    except AssertionError as e:
-        check("`comms` after setup shows the team", False, str(e))
-
-    t = Term(["join"], env("bob"))
-    try:
-        t.expect(r"What should teammates call you\?")
-        t.send("bob" + ENTER)
-        t.expect(r"Invite code")
-        t.send("not a real code" + ENTER)
-        t.expect(r"four words, like")
-        t.send("\x03")  # Ctrl-C
-        t.expect(r"Stopped")
-        check("a bad code is caught at the prompt, and Ctrl-C exits cleanly", True)
-    except AssertionError as e:
-        check("bad code / Ctrl-C", False, str(e))
+def join_by_link(who, name, retry_name=None):
+    # What install.sh does with the link: `comms join <link>`, answers from the terminal.
+    t = Term(["join", link], env(who))
+    t.expect(r"What should teammates call you\?")
+    t.send(name + ENTER)
+    if retry_name:
+        t.expect(r"already called " + name)
+        t.expect(r"Pick another name")
+        t.send(retry_name + ENTER)
+    t.expect(r"Joined team the boys as " + (retry_name or name), timeout=90)
+    t.expect(r"Your team")
+    t.expect(r"You're in")
     t.wait()
 
-for who in ("tal", "alice", "bob"):
+
+if link:
+    try:
+        join_by_link("alice", "alice")
+        check("a friend joins with the link by typing only their name", True)
+    except AssertionError as e:
+        check("join with the link", False, str(e))
+    try:
+        join_by_link("bob", "alice", retry_name="bob")
+        check("the same link works for the next friend; a taken name is asked again", True)
+    except AssertionError as e:
+        check("second friend with the same link", False, str(e))
+    try:
+        t = Term([], env("alice"))
+        t.expect(r"(alex · alex-box|team the boys)")
+        t.wait()
+        check("`comms` after joining shows the team instead of asking again", True)
+    except AssertionError as e:
+        check("`comms` after joining shows the team", False, str(e))
+
+t = Term(["join"], env("sam"))
+try:
+    t.expect(r"What should teammates call you\?")
+    t.send("sam" + ENTER)
+    t.expect(r"Paste the team link")
+    t.send("not a link" + ENTER)
+    t.expect(r"paste the team link your friend sent")
+    t.send("\x03")  # Ctrl-C
+    t.expect(r"Stopped")
+    check("a bad link is caught at the prompt, and Ctrl-C exits cleanly", True)
+except AssertionError as e:
+    check("bad link / Ctrl-C", False, str(e))
+t.wait()
+
+for who in ("alex", "alice", "bob", "sam"):
     stop(who)
 print(f"\n{sum(results)}/{len(results)} guided checks passed  (state in {D})")
 raise SystemExit(0 if all(results) else 1)

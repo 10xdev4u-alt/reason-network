@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn names() {
-        let git = GitInfo { root: Some("/Users/tal/src/API".into()), ..Default::default() };
-        assert_eq!(default_name(CLAUDE_CODE, "/Users/tal/src/API/web", &git), "api-claude");
+        let git = GitInfo { root: Some("/Users/alex/src/API".into()), ..Default::default() };
+        assert_eq!(default_name(CLAUDE_CODE, "/Users/alex/src/API/web", &git), "api-claude");
         assert_eq!(default_name("codex", "/tmp/My Thing", &GitInfo::default()), "my-thing-codex");
     }
 }

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Your name in the team, e.g. `tal`. Defaults to `$USER`.
+    /// Your name in the team, e.g. `alex`. Defaults to `$USER`.
     pub person: Option<String>,
     /// Show teammates full working directories (otherwise only the last component, plus repo@branch).
     pub share_paths: bool,
