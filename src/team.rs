@@ -241,7 +241,7 @@ impl TeamState {
             Some(_) => bail!("this invite was already used; ask for a new one"),
             None => {}
         }
-        if inv.expires < util::now_ms() {
+        if inv.expires <= util::now_ms() {
             bail!(if inv.reusable { "this team link was replaced; ask for the new one" } else { "this invite expired; ask for a new one" });
         }
         match &inv.person {
