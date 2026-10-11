@@ -129,7 +129,7 @@ impl TincanMcp {
             Err(e) => return Ok(failure(e)),
         };
         let req = Request::Who { me: Some(key.clone()), filter: a.filter, all: a.all.unwrap_or(false) };
-        let res = self.link.call::<Directory>(req).await.map(|d| render::directory(&d, true));
+        let res = self.link.call::<Directory>(req).await.map(|d| render::directory(&d, true, render::Paint::PLAIN));
         Ok(self.finish(&key, res, true).await)
     }
 

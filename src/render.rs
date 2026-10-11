@@ -3,14 +3,40 @@
 use crate::{proto::*, util};
 use std::fmt::Write;
 
+/// Terminal colours for people reading the CLI; agents, pipes and `NO_COLOR` get plain text.
+#[derive(Clone, Copy)]
+pub struct Paint(bool);
+
+impl Paint {
+    pub const PLAIN: Paint = Paint(false);
+
+    pub fn terminal() -> Paint {
+        use std::io::IsTerminal;
+        Paint(std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+    }
+
+    fn on(self, style: &str, text: &str) -> String {
+        if self.0 && !text.trim().is_empty() { format!("\x1b[{style}m{text}\x1b[0m") } else { text.to_string() }
+    }
+}
+
+const BOLD: &str = "1";
+const DIM: &str = "2";
+const GREEN: &str = "32";
+const YELLOW: &str = "33";
+const CYAN: &str = "36";
+
 /// The team directory. For an agent (`agent`), sessions without tincan are only counted: it can't message them.
-pub fn directory(d: &Directory, agent: bool) -> String {
+pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
     let now = util::now_ms();
     let mut out = String::new();
-    let team = d.team.as_deref().map_or_else(|| "no team yet (this machine only)".to_string(), |t| format!("team {t}"));
-    let _ = writeln!(out, "{team} · you are {} on {}", d.person, d.machine);
+    let team = d.team.as_deref().map_or_else(
+        || paint.on(DIM, "no team yet (this machine only)"),
+        |t| format!("{} {}", paint.on(DIM, "team"), paint.on(BOLD, t)),
+    );
+    let _ = writeln!(out, "{team} {}", paint.on(DIM, &format!("· you are {} on {}", d.person, d.machine)));
 
-    let cells: Vec<[String; 5]> = d
+    let cells: Vec<[String; 4]> = d
         .sessions
         .iter()
         .map(|s| {
@@ -20,17 +46,7 @@ pub fn directory(d: &Directory, agent: bool) -> String {
                 (st, Some(a)) => format!("{st} {a}"),
                 (st, None) => st.to_string(),
             };
-            let mut tier = match s.tier {
-                Tier::None => "not on tincan".to_string(),
-                t => t.as_str().to_string(),
-            };
-            if s.unread > 0 {
-                let _ = write!(tier, " · {} unread", s.unread);
-            }
-            if s.is_me {
-                tier.push_str(" · ← you");
-            }
-            [s.name.clone(), s.agent.clone(), status, place(s), tier]
+            [s.name.clone(), s.agent.clone(), status, place(s)]
         })
         .collect();
     let mut width = [0; 4];
@@ -52,9 +68,9 @@ pub fn directory(d: &Directory, agent: bool) -> String {
             quiet.push(format!("{} · {} ({})", m.person, m.machine, link(m, now)));
             continue;
         }
-        let _ = writeln!(out, "{} · {} · {}", m.person, m.machine, link(m, now));
+        let _ = writeln!(out, "{} {}", paint.on(BOLD, &format!("{} · {} ·", m.person, m.machine)), link_painted(m, now, paint));
         for i in rows {
-            session_line(&mut out, &d.sessions[i], &cells[i], &width);
+            session_line(&mut out, &d.sessions[i], &cells[i], &width, paint);
         }
         if !unreachable.is_empty() {
             let n = unreachable.len();
@@ -62,35 +78,54 @@ pub fn directory(d: &Directory, agent: bool) -> String {
         }
     }
     for (i, s) in d.sessions.iter().enumerate().filter(|(i, _)| !shown[*i]) {
-        let _ = writeln!(out, "{} · {}", s.person, s.machine);
-        session_line(&mut out, s, &cells[i], &width);
+        let _ = writeln!(out, "{}", paint.on(BOLD, &format!("{} · {}", s.person, s.machine)));
+        session_line(&mut out, s, &cells[i], &width, paint);
     }
     if !quiet.is_empty() {
-        let _ = writeln!(out, "no sessions: {}", quiet.join(", "));
+        let _ = writeln!(out, "{}", paint.on(DIM, &format!("no sessions: {}", quiet.join(", "))));
     }
     if !d.sessions.is_empty() {
-        out.push_str("push = sees messages right away, even when idle · turn = at its next step · pull = when it checks\n");
+        let legend = "push = sees messages right away, even when idle · turn = at its next step · pull = when it checks";
+        let _ = writeln!(out, "{}", paint.on(DIM, legend));
     }
     out
 }
 
-fn session_line(out: &mut String, s: &SessionInfo, row: &[String; 5], w: &[usize; 4]) {
-    let _ = writeln!(
-        out,
-        "  {:w0$}  {:w1$}  {:w2$}  {:w3$}  {}",
-        row[0],
-        row[1],
-        row[2],
-        row[3],
-        row[4],
-        w0 = w[0],
-        w1 = w[1],
-        w2 = w[2],
-        w3 = w[3]
-    );
-    if let Some(doing) = &s.doing {
-        let _ = writeln!(out, "  {:w0$}  doing: {doing}", "", w0 = w[0]);
+fn session_line(out: &mut String, s: &SessionInfo, row: &[String; 4], w: &[usize; 4], paint: Paint) {
+    let pad = |i: usize| format!("{:w$}", row[i], w = w[i]);
+    let status = match s.status.as_str() {
+        "busy" => YELLOW,
+        "idle" | "offline" => DIM,
+        _ => "",
+    };
+    let tier = match s.tier {
+        Tier::None => paint.on(DIM, "not on tincan"),
+        Tier::Push => paint.on(GREEN, "push"),
+        Tier::Turn => paint.on(CYAN, "turn"),
+        t => paint.on(DIM, t.as_str()),
+    };
+    let mut line =
+        format!("  {}  {}  {}  {}  {tier}", paint.on(BOLD, &pad(0)), paint.on(DIM, &pad(1)), paint.on(status, &pad(2)), pad(3));
+    if s.unread > 0 {
+        let _ = write!(line, " · {}", paint.on(YELLOW, &format!("{} unread", s.unread)));
     }
+    if s.is_me {
+        let _ = write!(line, " · {}", paint.on(BOLD, "← you"));
+    }
+    let _ = writeln!(out, "{}", line.trim_end());
+    if let Some(doing) = &s.doing {
+        let _ = writeln!(out, "  {:w0$}  {}", "", paint.on(DIM, &format!("doing: {doing}")), w0 = w[0]);
+    }
+}
+
+fn link_painted(m: &MachineInfo, now: i64, paint: Paint) -> String {
+    let text = link(m, now);
+    let style = match (m.is_me, m.online, m.link.as_deref()) {
+        (true, ..) | (false, false, _) => DIM,
+        (_, true, Some("relay")) => YELLOW,
+        _ => GREEN,
+    };
+    paint.on(style, &text)
 }
 
 /// How a machine is reached: `this machine`, `direct 4ms`, `relay 80ms`, `offline 2h`.

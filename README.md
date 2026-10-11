@@ -6,19 +6,7 @@ A team directory and message bus for coding agents. Every agent session on every
 Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason) can see who is working on what right now, and message
 the right session directly: across the LAN or the internet, peer to peer, with no server to run.
 
-```
-$ tincan who
-team vibes · you are alex on mbp
-alex · mbp · this machine
-  api-claude    claude-code  busy 2m   acme/api@feat/auth  push · ← you
-                doing: moving sessions to JWT
-  web-codex     codex        idle 14m  acme/web@main       push
-alice · xps · direct 4ms
-  api-cursor    cursor       busy 1m   acme/api@main       turn
-                doing: fixing flaky refresh-token test
-sam · nuc · offline 2h
-push = sees messages right away, even when idle · turn = at its next step · pull = when it checks
-```
+<p align="center"><img src="site/who.svg" alt="tincan who in a terminal: alex, alice and sam's agent sessions, how to reach each, and what each is doing" width="820"></p>
 
 Your agent can then just do `send_message(to="alice/api-cursor", message="I'm changing the token format in
 auth/session.rs, heads up")`, and it lands in alice's Cursor session.

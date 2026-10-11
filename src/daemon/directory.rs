@@ -130,7 +130,7 @@ impl Daemon {
         if unmanaged {
             for c in claude.iter().filter(|c| !matched.contains(&c.pid)) {
                 let cwd = c.cwd.clone().unwrap_or_default();
-                let name = c.name.clone().unwrap_or_else(|| format!("claude-{}", c.pid));
+                let name = c.label().unwrap_or_else(|| format!("claude-{}", c.pid));
                 let mut row = self.row(&name, agent::CLAUDE_CODE, &cwd, gits.get(&cwd));
                 row.status = c.status.clone().unwrap_or_else(|| "live".into());
                 row.since = c.status_updated_at.or(c.started_at);

@@ -31,6 +31,18 @@ pub fn scan() -> Vec<ClaudeSession> {
 }
 
 impl ClaudeSession {
+    /// A short name for the directory: Claude Code's own, or, when it named the session after its title (`auto`),
+    /// the first words of it (the whole title shows as what it's doing).
+    pub fn label(&self) -> Option<String> {
+        let name = self.name.as_deref()?;
+        let name = if self.name_source.as_deref() == Some("auto") {
+            name.split_whitespace().take(3).collect::<Vec<_>>().join(" ")
+        } else {
+            name.to_string()
+        };
+        Some(util::slug(&name)).filter(|n| !n.is_empty())
+    }
+
     /// The name someone chose for the session (`/rename`), as opposed to the one Claude Code made up.
     pub fn chosen_name(&self) -> Option<&str> {
         let chosen = matches!(self.name_source.as_deref(), Some("user" | "peer" | "hook"));

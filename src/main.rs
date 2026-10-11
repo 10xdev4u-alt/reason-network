@@ -248,7 +248,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&d)?);
             } else {
-                print!("{}", render::directory(&d, false));
+                print!("{}", render::directory(&d, false, render::Paint::terminal()));
             }
         }
         Cmd::Send { to, message, reply_to, fyi, from } => {
