@@ -26,7 +26,8 @@ const GREEN: &str = "32";
 const YELLOW: &str = "33";
 const CYAN: &str = "36";
 
-/// The team directory. For an agent (`agent`), sessions without tincan are only counted: it can't message them.
+/// The team directory. For an agent (`agent`) it is compact, and sessions without tincan are only counted (it
+/// can't message them); people get more room, a dot for whether each machine is online, and colour.
 pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
     let now = util::now_ms();
     let mut out = String::new();
@@ -55,6 +56,7 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
             *w = (*w).max(c.chars().count());
         }
     }
+    let layout = Layout { width, gap: if agent { 2 } else { 3 }, agent, paint };
 
     let mut quiet = Vec::new();
     let mut shown = vec![false; d.sessions.len()];
@@ -65,12 +67,20 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
         let (unreachable, rows): (Vec<usize>, Vec<usize>) =
             rows.into_iter().partition(|&i| agent && d.sessions[i].tier == Tier::None);
         if rows.is_empty() && unreachable.is_empty() {
-            quiet.push(format!("{} · {} ({})", m.person, m.machine, link(m, now)));
+            if agent {
+                quiet.push(format!("{} · {} ({})", m.person, m.machine, link(m, now)));
+                continue;
+            }
+            let _ = writeln!(out, "\n{}  {}", header(m, now, paint), paint.on(DIM, "no sessions"));
             continue;
         }
-        let _ = writeln!(out, "{} {}", paint.on(BOLD, &format!("{} · {} ·", m.person, m.machine)), link_painted(m, now, paint));
+        if agent {
+            let _ = writeln!(out, "{} · {} · {}", m.person, m.machine, link(m, now));
+        } else {
+            let _ = writeln!(out, "\n{}", header(m, now, paint));
+        }
         for i in rows {
-            session_line(&mut out, &d.sessions[i], &cells[i], &width, paint);
+            layout.session(&mut out, &d.sessions[i], &cells[i]);
         }
         if !unreachable.is_empty() {
             let n = unreachable.len();
@@ -78,43 +88,63 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
         }
     }
     for (i, s) in d.sessions.iter().enumerate().filter(|(i, _)| !shown[*i]) {
-        let _ = writeln!(out, "{}", paint.on(BOLD, &format!("{} · {}", s.person, s.machine)));
-        session_line(&mut out, s, &cells[i], &width, paint);
+        let _ = writeln!(out, "{}{}", if agent { "" } else { "\n" }, paint.on(BOLD, &format!("{} · {}", s.person, s.machine)));
+        layout.session(&mut out, s, &cells[i]);
     }
     if !quiet.is_empty() {
-        let _ = writeln!(out, "{}", paint.on(DIM, &format!("no sessions: {}", quiet.join(", "))));
+        let _ = writeln!(out, "no sessions: {}", quiet.join(", "));
     }
     if !d.sessions.is_empty() {
-        let legend = "push = sees messages right away, even when idle · turn = at its next step · pull = when it checks";
-        let _ = writeln!(out, "{}", paint.on(DIM, legend));
+        if agent {
+            out.push_str("push = sees messages right away, even when idle · turn = at its next step · pull = when it checks\n");
+        } else {
+            let _ = writeln!(out, "\n{}", paint.on(DIM, "push: sees it right away · turn: at its next step · pull: when it checks"));
+        }
     }
     out
 }
 
-fn session_line(out: &mut String, s: &SessionInfo, row: &[String; 4], w: &[usize; 4], paint: Paint) {
-    let pad = |i: usize| format!("{:w$}", row[i], w = w[i]);
-    let status = match s.status.as_str() {
-        "busy" => YELLOW,
-        "idle" | "offline" => DIM,
-        _ => "",
-    };
-    let tier = match s.tier {
-        Tier::None => paint.on(DIM, "not on tincan"),
-        Tier::Push => paint.on(GREEN, "push"),
-        Tier::Turn => paint.on(CYAN, "turn"),
-        t => paint.on(DIM, t.as_str()),
-    };
-    let mut line =
-        format!("  {}  {}  {}  {}  {tier}", paint.on(BOLD, &pad(0)), paint.on(DIM, &pad(1)), paint.on(status, &pad(2)), pad(3));
-    if s.unread > 0 {
-        let _ = write!(line, " · {}", paint.on(YELLOW, &format!("{} unread", s.unread)));
-    }
-    if s.is_me {
-        let _ = write!(line, " · {}", paint.on(BOLD, "← you"));
-    }
-    let _ = writeln!(out, "{}", line.trim_end());
-    if let Some(doing) = &s.doing {
-        let _ = writeln!(out, "  {:w0$}  {}", "", paint.on(DIM, &format!("doing: {doing}")), w0 = w[0]);
+/// `● alice · xps · direct 4ms`: a green dot while the machine is online.
+fn header(m: &MachineInfo, now: i64, paint: Paint) -> String {
+    let dot = if m.is_me || m.online { paint.on(GREEN, "●") } else { paint.on(DIM, "○") };
+    format!("{dot} {} {}", paint.on(BOLD, &format!("{} · {} ·", m.person, m.machine)), link_painted(m, now, paint))
+}
+
+struct Layout {
+    width: [usize; 4],
+    gap: usize,
+    agent: bool,
+    paint: Paint,
+}
+
+impl Layout {
+    fn session(&self, out: &mut String, s: &SessionInfo, row: &[String; 4]) {
+        let (paint, gap) = (self.paint, " ".repeat(self.gap));
+        let pad = |i: usize| format!("{:w$}", row[i], w = self.width[i]);
+        let status = match s.status.as_str() {
+            "busy" => YELLOW,
+            "idle" | "offline" => DIM,
+            _ => "",
+        };
+        let tier = match s.tier {
+            Tier::None => paint.on(DIM, "not on tincan"),
+            Tier::Push => paint.on(GREEN, "push"),
+            Tier::Turn => paint.on(CYAN, "turn"),
+            t => paint.on(DIM, t.as_str()),
+        };
+        let cols = [paint.on(BOLD, &pad(0)), paint.on(DIM, &pad(1)), paint.on(status, &pad(2)), pad(3), tier];
+        let mut line = format!("  {}", cols.join(&gap));
+        if s.unread > 0 {
+            let _ = write!(line, " · {}", paint.on(YELLOW, &format!("{} unread", s.unread)));
+        }
+        if s.is_me {
+            let _ = write!(line, " · {}", paint.on(BOLD, "← you"));
+        }
+        let _ = writeln!(out, "{}", line.trim_end());
+        if let Some(doing) = &s.doing {
+            let label = if self.agent { format!("doing: {doing}") } else { format!("↳ {doing}") };
+            let _ = writeln!(out, "  {:w$}{gap}{}", "", paint.on(DIM, &label), w = self.width[0]);
+        }
     }
 }
 

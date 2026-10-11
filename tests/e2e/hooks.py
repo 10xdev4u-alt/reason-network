@@ -55,11 +55,11 @@ with open(tp, "w") as f:
         {"content": "Rename the config loader", "status": "in_progress"}]}}) + "\n")
 hook("cursor", "post-tool-use", dict(cur, transcript_path=tp))
 out = run("who", "proj-cursor")
-check("the todo in progress in the transcript shows as what the session is doing", "doing: Rename the config loader" in out, out)
+check("the todo in progress in the transcript shows as what the session is doing", "↳ Rename the config loader" in out, out)
 with open(tp, "a") as f:
     f.write(json.dumps({"args": {"todos": [{"content": "Rename the config loader", "status": "completed"}]}}) + "\n")
 out = run("who", "proj-cursor")
-check("…and goes away once it's done", "doing:" not in out, out)
+check("…and goes away once it's done", "↳" not in out, out)
 
 # Gemini
 gem = {"session_id": "g-1", "cwd": D, "hook_event_name": "SessionStart"}
@@ -90,7 +90,7 @@ out = run("hook", "opencode", "poll", "--session", "o-1", cwd=oc)
 check("…and nothing the next time", out == "", out)
 run("hook", "opencode", "doing", "--session", "o-1", "--doing", "Flaky login test · Bisecting the failure", cwd=oc)
 out = run("who", "oc-proj")
-check("the opencode plugin reports title and todo", "doing: Flaky login test · Bisecting the failure" in out, out)
+check("the opencode plugin reports title and todo", "↳ Flaky login test · Bisecting the failure" in out, out)
 
 # pi: its extension reports busy/idle and the session's name, and asks for mail mid-run and when idle.
 pi_dir = os.path.join(D, "pi-proj")
@@ -98,7 +98,7 @@ os.makedirs(pi_dir)
 run("hook", "pi", "status", "--session", "pi-1", "--state", "busy", cwd=pi_dir)
 run("hook", "pi", "doing", "--session", "pi-1", "--doing", "Auth refactor", cwd=pi_dir)
 out = run("who", "pi-proj")
-check("pi's extension registers the session, named for what it's doing", "pi-proj-pi" in out and "busy" in out and "doing: Auth refactor" in out, out)
+check("pi's extension registers the session, named for what it's doing", "pi-proj-pi" in out and "busy" in out and "↳ Auth refactor" in out, out)
 out = run("send", "pi-proj-pi", "pi: stop and look at this")
 check("the sender hears pi gets it within seconds", "within seconds" in out, out)
 out = run("hook", "pi", "post-tool-use", "--session", "pi-1", cwd=pi_dir)
@@ -135,7 +135,7 @@ run("who")
 time.sleep(2)
 out = run("who")
 check("live Reason sessions are listed with their title, finished ones aren't",
-      "fix-flaky-billing-reason" in out and "doing: Fix flaky billing test" in out and "Something finished" not in out, out)
+      "fix-flaky-billing-reason" in out and "↳ Fix flaky billing test" in out and "Something finished" not in out, out)
 out = run("send", "fix-flaky-billing-reason", "reason: the billing test is flaky on main too")
 time.sleep(1)
 sent = open(reason_log).read() if os.path.exists(reason_log) else ""
