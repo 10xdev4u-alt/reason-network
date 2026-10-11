@@ -64,7 +64,8 @@ check("…and goes away once it's done", "↳" not in out, out)
 # Gemini
 gem = {"session_id": "g-1", "cwd": D, "hook_event_name": "SessionStart"}
 hook("gemini", "session-start", gem)
-gem_name = os.path.basename(D).lower().replace("_", "-") + "-gemini"
+# Named after its directory, normalised by tincan: read it back rather than guess.
+gem_name = next(w for w in run("who").split() if w.endswith("-gemini"))
 run("send", gem_name, "gemini: run the tests")
 out = hook("gemini", "stop", gem)
 check("gemini stop → decision block with the message", '"decision":"block"' in out and "run the tests" in out, out)
@@ -140,7 +141,7 @@ out = run("send", "fix-flaky-billing-reason", "reason: the billing test is flaky
 time.sleep(1)
 sent = open(reason_log).read() if os.path.exists(reason_log) else ""
 check("messages go in with `reason session send`", "queued into the Reason session" in out and sent.startswith("session send r-1 --message") and "flaky on main too" in sent, out + sent)
-check("…telling it how to reply with the CLI", "tincan send alex --from alex/fix-flaky-billing-reason --reply-to" in sent, sent)
+check("…telling it how to reply with the CLI", "tincan send alex --from alex/fix-flaky-billing-reason" in sent, sent)
 run("send", "alex", "--from", "alex/fix-flaky-billing-reason", "found it: a timezone bug")
 out = run("inbox")
 check("its reply comes from the Reason session", "── alex/fix-flaky-billing-reason" in out and "timezone bug" in out, out)
