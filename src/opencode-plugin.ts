@@ -1,17 +1,17 @@
-// company-comms for opencode: written by `comms setup`, removed by `comms setup --remove`.
-// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to comms, and
+// tincan for opencode: written by `tincan setup`, removed by `tincan setup --remove`.
+// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to tincan, and
 // delivers teammates' messages into idle sessions.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 
-const COMMS = "__COMMS_EXE__"
+const TINCAN = "__TINCAN_EXE__"
 
 const run = (args: string[], cwd: string) =>
   new Promise<string>((resolve) =>
-    execFile(COMMS, args, { cwd, timeout: 10_000 }, (err, out) => resolve(err ? "" : String(out).trim())),
+    execFile(TINCAN, args, { cwd, timeout: 10_000 }, (err, out) => resolve(err ? "" : String(out).trim())),
   )
 
-export const CompanyComms: Plugin = async ({ client, directory }) => {
+export const Tincan: Plugin = async ({ client, directory }) => {
   const idle = new Set<string>()
   const subagents = new Set<string>()
   const delivering = new Set<string>()

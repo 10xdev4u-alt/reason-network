@@ -1,5 +1,5 @@
 //! Claude Code keeps one `~/.claude/sessions/<pid>.json` per live session (name, cwd, busy/idle). Reading them
-//! lists every Claude session on this machine, including ones that don't have comms loaded.
+//! lists every Claude session on this machine, including ones that don't have tincan loaded.
 
 use crate::{paths, util};
 use serde::Deserialize;

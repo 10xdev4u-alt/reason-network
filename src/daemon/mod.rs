@@ -4,6 +4,7 @@
 
 mod directory;
 mod mail;
+mod reason;
 mod sessions;
 mod teamops;
 
@@ -34,7 +35,7 @@ use tokio::{
 const GIT_TTL: Duration = Duration::from_secs(30);
 const MAX_WAIT: u64 = 600;
 
-/// Runs the daemon. Only one runs per `COMMS_HOME`: a second one exits, or with `service` waits its turn.
+/// Runs the daemon. Only one runs per `TINCAN_HOME`: a second one exits, or with `service` waits its turn.
 pub async fn run(service: bool) -> Result<()> {
     paths::ensure_home()?;
     let lock = tokio::task::spawn_blocking(move || util::lock(&paths::lock(), service)).await??;
@@ -56,6 +57,9 @@ pub async fn run(service: bool) -> Result<()> {
     }
     if service && daemon.cfg.tray() {
         tokio::spawn(tray());
+    }
+    if daemon.cfg.reason {
+        tokio::spawn(daemon.clone().reason_loop());
     }
     loop {
         let (stream, _) = listener.accept().await?;
@@ -112,7 +116,7 @@ struct Inner {
 struct Live {
     reg: SessionReg,
     name: String,
-    /// The client connection (`comms mcp`) that owns it; `None` for sessions known only through hooks.
+    /// The client connection (`tincan mcp`) that owns it; `None` for sessions known only through hooks.
     conn: Option<u64>,
     git: GitInfo,
     doing: Option<String>,

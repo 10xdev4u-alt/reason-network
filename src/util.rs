@@ -4,9 +4,9 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-/// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `COMMS_MACHINE` overrides it.
+/// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `TINCAN_MACHINE` overrides it.
 pub fn hostname() -> String {
-    if let Some(name) = std::env::var("COMMS_MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
+    if let Some(name) = std::env::var("TINCAN_MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
         return name;
     }
     let mut buf = [0u8; 256];

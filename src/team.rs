@@ -21,7 +21,7 @@ pub struct Signed<T> {
 
 /// What a signature covers: the team, the kind of entry, and the entry itself.
 fn payload<T: Serialize>(team: &str, kind: &str, body: &T) -> Vec<u8> {
-    let mut p = format!("company-comms/1/{team}/{kind}/").into_bytes();
+    let mut p = format!("tincan/1/{team}/{kind}/").into_bytes();
     p.extend(serde_json::to_vec(body).expect("entries serialize"));
     p
 }
@@ -61,7 +61,7 @@ pub struct Invite {
     /// blake3 of the secret; the secret itself only travels in the ticket.
     pub hash: String,
     pub expires: i64,
-    /// Set for `comms invite --me`: only this person can redeem it (adding a machine of their own).
+    /// Set for `tincan invite --me`: only this person can redeem it (adding a machine of their own).
     pub person: Option<String>,
     pub used_by: Option<EndpointId>,
     pub ts: i64,
@@ -70,7 +70,7 @@ pub struct Invite {
     pub reusable: bool,
 }
 
-/// The team link's secret, known to every member so any of them can show the link (`comms link`).
+/// The team link's secret, known to every member so any of them can show the link (`tincan link`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     pub secret: String,
@@ -385,10 +385,10 @@ pub struct Ticket {
     pub peers: Vec<EndpointId>,
 }
 
-const TICKET_PREFIX: &str = "comms1";
+const TICKET_PREFIX: &str = "tincan1";
 
 impl Ticket {
-    /// `comms1` + base64url of: team id (16 bytes), secret (16), name, team relay, first peer's relay hint (each
+    /// `tincan1` + base64url of: team id (16 bytes), secret (16), name, team relay, first peer's relay hint (each
     /// length-prefixed, 0 for none), its address hints (count, then family 4/6, address, port), then 32 bytes per
     /// member key.
     pub fn encode(&self) -> String {
@@ -424,7 +424,7 @@ impl Ticket {
 
     pub fn decode(s: &str) -> Result<Self> {
         let s = s.trim().rsplit('#').next().unwrap_or_default();
-        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a comms invite"))?;
+        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a tincan invite"))?;
         let b = BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("this invite is damaged (was it cut off?)"))?;
         let damaged = || anyhow!("this invite is damaged (was it cut off?)");
         let mut at = 0;
@@ -654,7 +654,7 @@ mod tests {
         assert_eq!(Ticket::decode(&format!("  {enc}\n")).unwrap(), t);
         assert_eq!(Ticket::decode(&format!("https://example.com/join/#{enc}")).unwrap(), t, "a whole link works too");
         assert!(Ticket::decode(&enc[..enc.len() - 10]).is_err());
-        assert!(Ticket::decode("comms1!!!").is_err());
+        assert!(Ticket::decode("tincan1!!!").is_err());
         assert!(Ticket::decode("hello").is_err());
     }
 

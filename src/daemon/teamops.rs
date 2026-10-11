@@ -160,7 +160,7 @@ impl Daemon {
 
     pub(super) async fn create_team(self: &Arc<Self>, name: &str, person: &str) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
-            bail!("already in team '{}'; run `comms leave` first", t.name());
+            bail!("already in team '{}'; run `tincan leave` first", t.name());
         }
         let (name, person) = (name.trim(), util::slug(person));
         if name.is_empty() || person.is_empty() {
@@ -177,10 +177,10 @@ impl Daemon {
         Ok(TeamInfo { name: name.into(), relay: None, person, machine: self.machine.clone(), machines: Vec::new() })
     }
 
-    /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `comms1…` ticket.
+    /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `tincan1…` ticket.
     pub(super) async fn join_team(self: &Arc<Self>, invite_text: &str, person: &str) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
-            bail!("already in team '{}'; run `comms leave` first", t.name());
+            bail!("already in team '{}'; run `tincan leave` first", t.name());
         }
         let person = util::slug(person);
         if person.is_empty() {
@@ -189,7 +189,7 @@ impl Daemon {
         // A code points at the key the inviting machine listens on for it; a ticket lists machines.
         let (team, secret, relay, peers) = match invite::normalize(invite_text) {
             Some(code) => (String::new(), invite::secret(&code), None, vec![EndpointAddr::new(invite::key(&code).public())]),
-            None if invite_text.contains("comms1") => {
+            None if invite_text.contains("tincan1") => {
                 let t = Ticket::decode(invite_text)?;
                 let addrs = t.addrs();
                 (t.team, t.secret, t.relay, addrs)
@@ -230,7 +230,7 @@ impl Daemon {
     /// Makes an invite: a code (this machine listens for it until it is used or expires) and the equivalent
     /// long ticket (which any teammate's machine can redeem).
     pub(super) async fn invite(&self, me: bool, hours: u64) -> Result<InviteInfo> {
-        let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `comms init` or `comms join`)"))?;
+        let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `tincan init` or `tincan join`)"))?;
         net.online(Duration::from_secs(5)).await;
         let hours = hours.clamp(1, 24 * 30);
         let code = invite::generate();
@@ -280,7 +280,7 @@ impl Daemon {
         }
         let state = {
             let mut g = self.inner.lock().unwrap();
-            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team yet: run `comms`"))?;
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team yet: run `tincan`"))?;
             if new || team.link_secret().is_none() {
                 team.new_link(&self.key);
             }
@@ -297,7 +297,7 @@ impl Daemon {
     }
 
     pub(super) fn team_info(&self) -> Result<TeamInfo> {
-        let team = self.team_state().ok_or_else(|| anyhow!("not in a team yet: `comms init <team>` or `comms join <invite>`"))?;
+        let team = self.team_state().ok_or_else(|| anyhow!("not in a team yet: `tincan init <team>` or `tincan join <invite>`"))?;
         Ok(TeamInfo {
             name: team.name().into(),
             relay: team.meta.body.relay.clone(),
@@ -363,7 +363,7 @@ impl Daemon {
                 bail!("'{who}' matches machines of several people; say which: {}", opts.join(", "));
             }
             if hits.iter().any(|h| h.0 == me) {
-                bail!("that includes this machine; use `comms leave` instead");
+                bail!("that includes this machine; use `tincan leave` instead");
             }
             for (id, person, machine) in &hits {
                 team.put_member(&self.key, *id, person, machine, false);
@@ -381,7 +381,7 @@ impl Daemon {
             }
         }
         let names: Vec<String> = removed.iter().map(|(_, p, m)| format!("{p} on {m}")).collect();
-        Ok(format!("Removed {}. The team link changed too (`comms link` shows the new one).", names.join(", ")))
+        Ok(format!("Removed {}. The team link changed too (`tincan link` shows the new one).", names.join(", ")))
     }
 
     pub(super) async fn leave(self: &Arc<Self>, force: bool) -> Result<String> {
@@ -390,7 +390,7 @@ impl Daemon {
         if !anyone && !self.peer_ids().is_empty() && !force {
             bail!(
                 "no teammate is online to hear that this machine left. Try again when one is, or use --force (they'll \
-                 need to `comms remove` it then)"
+                 need to `tincan remove` it then)"
             );
         }
         let state = {

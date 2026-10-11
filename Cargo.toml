@@ -1,14 +1,14 @@
 [package]
-name = "company-comms"
-version = "0.4.0"
+name = "tincan"
+version = "0.5.0"
 edition = "2024"
 description = "Team directory and message bus for coding agents across machines"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/asdf9384/company-comms"
+repository = "https://github.com/asdf9384/tincan"
 publish = false
 
 [[bin]]
-name = "comms"
+name = "tincan"
 path = "src/main.rs"
 
 [dependencies]

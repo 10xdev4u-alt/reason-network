@@ -1,7 +1,7 @@
 name: pages
 
 # Publishes site/ plus install.sh to GitHub Pages. To serve it from your domain, set the custom domain in
-# Settings > Pages (or add site/CNAME), then set the repo variable COMMS_SITE_URL=https://<domain>.
+# Settings > Pages (or add site/CNAME), then set the repo variable TINCAN_SITE_URL=https://<domain>.
 on:
   push:
     branches: [main]

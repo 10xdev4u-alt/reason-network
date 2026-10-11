@@ -413,34 +413,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "company-comms"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "blake3",
- "clap",
- "cliclack",
- "data-encoding",
- "getrandom 0.3.4",
- "iroh",
- "iroh-mdns-address-lookup",
- "libc",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "rmcp",
- "rusqlite",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "toml_edit",
- "tray-icon",
- "ulid",
-]
-
-[[package]]
 name = "console"
 version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3632,6 +3604,34 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tincan"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "clap",
+ "cliclack",
+ "data-encoding",
+ "getrandom 0.3.4",
+ "iroh",
+ "iroh-mdns-address-lookup",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "rmcp",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "tray-icon",
+ "ulid",
 ]
 
 [[package]]

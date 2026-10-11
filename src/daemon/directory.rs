@@ -53,7 +53,7 @@ enum Place {
 }
 
 impl Daemon {
-    /// This machine's sessions: running ones, plus (if `unmanaged`) Claude Code sessions without comms.
+    /// This machine's sessions: running ones, plus (if `unmanaged`) Claude Code sessions without tincan.
     pub(super) async fn local_rows(self: &Arc<Self>, me: Option<&str>, unmanaged: bool) -> Result<Vec<SessionInfo>> {
         let claude = tokio::task::spawn_blocking(claude::scan).await?;
         let mut cwds: Vec<String> = self.inner.lock().unwrap().live.values().map(|l| l.reg.cwd.clone()).collect();
@@ -221,7 +221,7 @@ impl Daemon {
                     .any(|s| s.to_lowercase().contains(&f))
             });
         }
-        // Me first, then teammates; on comms before not; live before offline.
+        // Me first, then teammates; on tincan before not; live before offline.
         let rank = |r: &SessionInfo| {
             (r.person != self.person, r.person.clone(), r.machine.clone(), r.tier == Tier::None, r.status == "offline", r.name.clone())
         };
@@ -359,7 +359,7 @@ impl Daemon {
         let pool: Vec<&&Cand> = if live.is_empty() { found.iter().collect() } else { live };
         match pool.as_slice() {
             [] => bail!(
-                "no session called '{spec}'. Run list_team to see who is around (sessions without comms can't \
+                "no session called '{spec}'. Run list_team to see who is around (sessions without tincan can't \
                  receive)."
             ),
             [one] => Ok(vec![target(one)]),

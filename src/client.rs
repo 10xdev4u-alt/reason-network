@@ -1,4 +1,4 @@
-//! Connection to the local daemon, starting it if needed. Long-lived clients (`comms mcp`) reconnect on their
+//! Connection to the local daemon, starting it if needed. Long-lived clients (`tincan mcp`) reconnect on their
 //! own and re-register their sessions, so a daemon restart is invisible to the agent.
 
 use crate::{paths, proto::*};
@@ -75,8 +75,8 @@ impl Link {
         let (tx, rx) = oneshot::channel();
         conn.pending.lock().unwrap().insert(id, tx);
         let line = serde_json::to_string(&Frame { id, body: req })?;
-        conn.tx.send(line).map_err(|_| anyhow!("comms daemon connection closed"))?;
-        let reply = rx.await.map_err(|_| anyhow!("comms daemon connection closed"))?;
+        conn.tx.send(line).map_err(|_| anyhow!("tincan daemon connection closed"))?;
+        let reply = rx.await.map_err(|_| anyhow!("tincan daemon connection closed"))?;
         if reply.ok {
             Ok(reply.result.unwrap_or(Value::Null))
         } else {
@@ -143,7 +143,7 @@ async fn reconnect(link: Weak<Link>) {
         let Some(link) = link.upgrade() else { return };
         match link.connect().await {
             Ok(_) => return,
-            Err(e) => eprintln!("comms: reconnecting to daemon: {e:#}"),
+            Err(e) => eprintln!("tincan: reconnecting to daemon: {e:#}"),
         }
     }
 }
@@ -154,7 +154,7 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
         return Ok(s);
     }
     if !start {
-        bail!("the comms daemon isn't running");
+        bail!("the tincan daemon isn't running");
     }
     start_daemon()?;
     for _ in 0..60 {
@@ -163,10 +163,10 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
             return Ok(s);
         }
     }
-    bail!("could not start the comms daemon; see {}", paths::log().display())
+    bail!("could not start the tincan daemon; see {}", paths::log().display())
 }
 
-/// Starts `comms daemon` detached from this process group, logging to `~/.comms/daemon.log`.
+/// Starts `tincan daemon` detached from this process group, logging to `~/.tincan/daemon.log`.
 fn start_daemon() -> Result<()> {
     paths::ensure_home()?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;

@@ -25,28 +25,28 @@ use client::Link;
 use proto::*;
 use std::{io::Read, time::Duration};
 
-/// The project's site, which serves `install.sh` and the join page. Release builds set `COMMS_SITE_URL` to the
+/// The project's site, which serves `install.sh` and the join page. Release builds set `TINCAN_SITE_URL` to the
 /// project's domain.
-pub const SITE_URL: &str = match option_env!("COMMS_SITE_URL") {
+pub const SITE_URL: &str = match option_env!("TINCAN_SITE_URL") {
     Some(u) if !u.is_empty() => u,
-    _ => "https://asdf9384.github.io/company-comms",
+    _ => "https://asdf9384.github.io/tincan",
 };
 
 pub fn install_url() -> String {
     format!("{SITE_URL}/install.sh")
 }
 
-/// The team link: a page showing the one command that installs comms and joins with `ticket`.
+/// The team link: a page showing the one command that installs tincan and joins with `ticket`.
 pub fn join_url(ticket: &str) -> String {
     format!("{SITE_URL}/join/#{ticket}")
 }
 
 #[derive(Parser)]
 #[command(
-    name = "comms",
+    name = "tincan",
     version,
     about = "Your team's coding agents, talking to each other",
-    after_help = "Run `comms` on its own to get set up, then to see who's working on what."
+    after_help = "Run `tincan` on its own to get set up, then to see who's working on what."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -75,6 +75,9 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
+        /// Send as this agent session here (for agents that reply through the CLI)
+        #[arg(long, hide = true)]
+        from: Option<String>,
     },
     /// Read your messages (or, inside an agent's shell, that session's)
     Inbox {
@@ -156,12 +159,12 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
-    /// Wire comms into the agents on this machine and install the background service
+    /// Wire tincan into the agents on this machine and install the background service
     Setup {
         /// Show what would change without changing anything
         #[arg(long)]
         dry_run: bool,
-        /// Undo: remove comms from every agent and remove the service
+        /// Undo: remove tincan from every agent and remove the service
         #[arg(long)]
         remove: bool,
         /// Don't install the background service
@@ -212,14 +215,14 @@ async fn main() -> Result<()> {
             std::process::exit(0)
         }
         Some(cmd) => cli(cmd).await,
-        // `comms` alone: get set up if needed, else show who's around.
+        // `tincan` alone: get set up if needed, else show who's around.
         None => {
             let in_team = Link::new(None).call::<TeamInfo>(Request::Team).await.is_ok();
             if !in_team && wizard::interactive() {
                 return wizard::guided(wizard::onboard(None, None, None, None)).await;
             }
             if !in_team {
-                println!("Not in a team yet. Run `comms` in a terminal to get set up (or `comms init <team>` / `comms join <code>`).");
+                println!("Not in a team yet. Run `tincan` in a terminal to get set up (or `tincan init <team>` / `tincan join <code>`).");
                 return Ok(());
             }
             cli(Cmd::Who { filter: None, all: false, json: false }).await
@@ -248,13 +251,13 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 print!("{}", render::directory(&d, false));
             }
         }
-        Cmd::Send { to, message, reply_to, fyi } => {
+        Cmd::Send { to, message, reply_to, fyi, from } => {
             let mut body = message.join(" ");
             if body.is_empty() || body == "-" {
                 body.clear();
                 std::io::stdin().read_to_string(&mut body)?;
             }
-            let req = Request::Send { from: current_session(), to, body, reply_to, wake: !fyi };
+            let req = Request::Send { from: from.or_else(current_session), to, body, reply_to, wake: !fyi };
             let r: SendResult = link.call(req).await?;
             print!("{}", render::send_result(&r));
         }
@@ -293,14 +296,14 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let l: LinkInfo = link.call(Request::Link { new }).await?;
             let copied = wizard::interactive() && wizard::copy(&l.url);
             println!("Team link for {}{}:\n\n{}\n", l.team, if copied { " (on your clipboard)" } else { "" }, l.url);
-            println!("Anyone with it can join: it opens a page with one command. `comms link --new` replaces it.");
+            println!("Anyone with it can join: it opens a page with one command. `tincan link --new` replaces it.");
         }
         Cmd::Invite { me: false, code: false, .. } => Box::pin(cli(Cmd::Link { new: false })).await?,
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
             wizard::guided(wizard::setup_agents()).await?
         }
         Cmd::Init { team, person, no_setup } => {
-            let Some(team) = team else { bail!("name the team: `comms init <team>` (or run it in a terminal to be asked)") };
+            let Some(team) = team else { bail!("name the team: `tincan init <team>` (or run it in a terminal to be asked)") };
             let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Created team {}. You are {} on {}.", t.name, t.person, t.machine);
@@ -308,10 +311,10 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!();
                 setup::run(false, false, false).await?;
             }
-            println!("\nNext: `comms invite` prints an invite for each teammate.");
+            println!("\nNext: `tincan invite` prints an invite for each teammate.");
         }
         Cmd::Join { invite, person, no_setup } => {
-            let Some(invite) = invite else { bail!("give the invite code: `comms join <code>`") };
+            let Some(invite) = invite else { bail!("give the invite code: `tincan join <code>`") };
             let t: TeamInfo = link.call(Request::Join { ticket: invite, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Joined team {} as {} on {}.", t.name, t.person, t.machine);
@@ -337,10 +340,10 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
-            println!("They run this, which installs comms and joins the team:\n");
+            println!("They run this, which installs tincan and joins the team:\n");
             println!("  curl -fsSL {} | sh -s -- {}\n", install_url(), i.code);
-            println!("(or `comms join {}` if they have comms). Works once, within {}h, while this machine is online.", i.code, i.hours);
-            println!("If this machine will be offline, use the long form instead: comms join {}", i.ticket);
+            println!("(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.", i.code, i.hours);
+            println!("If this machine will be offline, use the long form instead: tincan join {}", i.ticket);
         }
         Cmd::Team => {
             let t: TeamInfo = link.call(Request::Team).await?;
@@ -362,7 +365,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("Nothing held.");
             } else {
                 print!("{}", render::for_human(&msgs));
-                println!("`comms approve <id>` delivers, `comms reject <id>` drops (or --all).");
+                println!("`tincan approve <id>` delivers, `tincan reject <id>` drops (or --all).");
             }
         }
         Cmd::Approve { ids, all } | Cmd::Reject { ids, all }
@@ -385,13 +388,13 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let status = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(format!("curl -fsSL {} | sh", install_url()))
-                .env("COMMS_BIN_DIR", dir)
+                .env("TINCAN_BIN_DIR", dir)
                 .status()?;
             if !status.success() {
                 bail!("upgrade failed");
             }
             stop_daemon().await;
-            println!("The daemon restarted on the new version. Restart agent sessions to update their comms tools.");
+            println!("The daemon restarted on the new version. Restart agent sessions to update their tincan tools.");
         }
         Cmd::Stop => {
             if !stop_daemon().await {

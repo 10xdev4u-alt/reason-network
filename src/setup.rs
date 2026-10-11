@@ -1,8 +1,8 @@
-//! `comms setup`: wires comms into every agent on this machine (MCP server, plus hooks where the agent has
-//! them) and installs the daemon as a login service. `comms setup --remove` undoes it. Every file it edits is
-//! backed up once, as `<file>.bak-comms`. Also `comms doctor`.
+//! `tincan setup`: wires tincan into every agent on this machine (MCP server, plus hooks where the agent has
+//! them) and installs the daemon as a login service. `tincan setup --remove` undoes it. Every file it edits is
+//! backed up once, as `<file>.bak-tincan`. Also `tincan doctor`.
 
-use crate::{agent, client::Link, paths, proto::*, render};
+use crate::{agent, client::Link, config::Config, paths, proto::*, render};
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value, json};
 use std::{
@@ -10,12 +10,12 @@ use std::{
     process::Command,
 };
 
-/// The service's name. A non-default `COMMS_HOME` gets its own, so a second instance (or a test) can never
+/// The service's name. A non-default `TINCAN_HOME` gets its own, so a second instance (or a test) can never
 /// replace the real one.
 fn service_name() -> String {
-    match std::env::var("COMMS_HOME") {
-        Ok(h) => format!("dev.company-comms.daemon.{}", &blake3::hash(h.as_bytes()).to_hex()[..8]),
-        Err(_) => "dev.company-comms.daemon".into(),
+    match std::env::var("TINCAN_HOME") {
+        Ok(h) => format!("dev.tincan.daemon.{}", &blake3::hash(h.as_bytes()).to_hex()[..8]),
+        Err(_) => "dev.tincan.daemon".into(),
     }
 }
 
@@ -30,7 +30,7 @@ pub fn exe() -> Result<PathBuf> {
     Ok(std::env::current_exe()?.canonicalize()?)
 }
 
-/// The command line agents run through a shell: `'/path/to/comms' hook codex stop`.
+/// The command line agents run through a shell: `'/path/to/tincan' hook codex stop`.
 fn shell_cmd(exe: &Path, args: &str) -> String {
     let p = exe.display().to_string();
     let quoted = if p.chars().all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c)) { p } else { format!("'{}'", p.replace('\'', "'\\''")) };
@@ -53,6 +53,10 @@ fn opencode_home() -> PathBuf {
     home().join(".config/opencode")
 }
 
+fn pi_home() -> PathBuf {
+    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| home().join(".pi/agent"))
+}
+
 fn read_json(path: &Path) -> Result<Value> {
     match std::fs::read_to_string(path) {
         Ok(s) if s.trim().is_empty() => Ok(json!({})),
@@ -73,19 +77,19 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let backup = PathBuf::from(format!("{}.bak-comms", path.display()));
+    let backup = PathBuf::from(format!("{}.bak-tincan", path.display()));
     if path.exists() && !backup.exists() {
         std::fs::copy(path, &backup)?;
     }
     // Write then rename, so an agent never reads a half-written file.
-    let tmp = PathBuf::from(format!("{}.tmp-comms", path.display()));
+    let tmp = PathBuf::from(format!("{}.tmp-tincan", path.display()));
     std::fs::write(&tmp, content)?;
     std::fs::rename(&tmp, path)?;
     Ok(true)
 }
 
 fn write_json(path: &Path, v: &Value, dry: bool) -> Result<bool> {
-    // Removing comms from a config that never existed leaves an empty shell: don't create a file for that.
+    // Removing tincan from a config that never existed leaves an empty shell: don't create a file for that.
     if !path.exists() && hollow(v) {
         return Ok(false);
     }
@@ -114,7 +118,7 @@ fn obj(v: &mut Value) -> Result<&mut Map<String, Value>> {
 }
 
 /// Hook groups in the Claude Code style (`{matcher, hooks: [{type, command, ...}]}`), used by Codex and Gemini.
-/// Replaces any earlier comms groups for `agent`, keeps everything else.
+/// Replaces any earlier tincan groups for `agent`, keeps everything else.
 fn merge_hook_groups(hooks: &mut Map<String, Value>, agent: &str, groups: Vec<(&str, Value)>, remove: bool) {
     let marker = format!(" hook {agent} ");
     let mine = |v: &Value| v.to_string().contains(&marker);
@@ -154,24 +158,24 @@ fn changed(path: &Path, did: bool) -> String {
 fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let Some(bin) = agent::find_bin("claude") else { return Ok(None) };
     let mut r = Report { agent: "Claude Code", lines: Vec::new(), notes: Vec::new() };
-    let get = Command::new(&bin).args(["mcp", "get", "comms"]).output()?;
+    let get = Command::new(&bin).args(["mcp", "get", "tincan"]).output()?;
     let existing = get.status.success();
     let current = existing && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
     if remove || (existing && !current) {
         if existing && !dry {
-            Command::new(&bin).args(["mcp", "remove", "comms", "--scope", "user"]).output()?;
+            Command::new(&bin).args(["mcp", "remove", "tincan", "--scope", "user"]).output()?;
         }
         if remove {
-            r.lines.push(if existing { "removed the comms MCP server" } else { "nothing to remove" }.into());
+            r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
             return Ok(Some(r));
         }
     }
     if current {
-        r.lines.push("comms MCP server already set".into());
+        r.lines.push("tincan MCP server already set".into());
     } else {
         if !dry {
             let out = Command::new(&bin)
-                .args(["mcp", "add", "--scope", "user", "comms", "--"])
+                .args(["mcp", "add", "--scope", "user", "tincan", "--"])
                 .arg(exe)
                 .arg("mcp")
                 .output()?;
@@ -179,8 +183,8 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
                 return Err(anyhow!("claude mcp add failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
         }
-        r.lines.push("added the comms MCP server (user scope)".into());
-        r.notes.push("Claude Code: new sessions pick it up; restart running ones to join comms.".into());
+        r.lines.push("added the tincan MCP server (user scope)".into());
+        r.notes.push("Claude Code: new sessions pick it up; restart running ones to join tincan.".into());
     }
     Ok(Some(r))
 }
@@ -199,7 +203,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mut doc: toml_edit::DocumentMut = text.parse().with_context(|| format!("parsing {}", cfg_path.display()))?;
     if remove {
         if let Some(servers) = doc.get_mut("mcp_servers").and_then(|t| t.as_table_like_mut()) {
-            servers.remove("comms");
+            servers.remove("tincan");
         }
     } else {
         let servers = doc.entry("mcp_servers").or_insert(toml_edit::table());
@@ -210,15 +214,15 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         t["command"] = toml_edit::value(exe.display().to_string());
         t["args"] = toml_edit::value(toml_edit::Array::from_iter(["mcp"]));
         let mut env = toml_edit::InlineTable::new();
-        env.insert("COMMS_AGENT", "codex".into());
-        if let Ok(h) = std::env::var("COMMS_HOME") {
-            env.insert("COMMS_HOME", h.into());
+        env.insert("TINCAN_AGENT", "codex".into());
+        if let Ok(h) = std::env::var("TINCAN_HOME") {
+            env.insert("TINCAN_HOME", h.into());
         }
         t["env"] = toml_edit::value(env);
         // Room for check_inbox(wait_secs) long-polls.
         t["tool_timeout_sec"] = toml_edit::value(660);
         t["default_tools_approval_mode"] = toml_edit::value("approve");
-        servers["comms"] = toml_edit::Item::Table(t);
+        servers["tincan"] = toml_edit::Item::Table(t);
     }
     r.lines.push(changed(&cfg_path, write_file(&cfg_path, &doc.to_string(), dry)?));
 
@@ -261,11 +265,11 @@ fn cursor(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mut v = read_json(&mcp_path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
     if remove {
-        servers.remove("comms");
+        servers.remove("tincan");
     } else {
         servers.insert(
-            "comms".into(),
-            json!({ "type": "stdio", "command": exe.display().to_string(), "args": ["mcp"], "env": { "COMMS_AGENT": "cursor" } }),
+            "tincan".into(),
+            json!({ "type": "stdio", "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "cursor" } }),
         );
     }
     r.lines.push(changed(&mcp_path, write_json(&mcp_path, &v, dry)?));
@@ -300,15 +304,15 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mut v = read_json(&path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
     if remove {
-        servers.remove("comms");
+        servers.remove("tincan");
     } else {
         servers.insert(
-            "comms".into(),
-            json!({ "command": exe.display().to_string(), "args": ["mcp"], "env": { "COMMS_AGENT": "gemini" }, "timeout": 660000, "trust": true }),
+            "tincan".into(),
+            json!({ "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "gemini" }, "timeout": 660000, "trust": true }),
         );
     }
     let group = |event: &str, timeout: u64| {
-        json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("comms-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] })
+        json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("tincan-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] })
     };
     let groups = vec![
         ("SessionStart", group("session-start", 10000)),
@@ -338,16 +342,16 @@ fn copilot(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mut v = read_json(&mcp_path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
     if remove {
-        servers.remove("comms");
+        servers.remove("tincan");
     } else {
         servers.insert(
-            "comms".into(),
-            json!({ "type": "local", "command": exe.display().to_string(), "args": ["mcp"], "env": { "COMMS_AGENT": "copilot" }, "tools": ["*"], "timeout": 660000 }),
+            "tincan".into(),
+            json!({ "type": "local", "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "copilot" }, "tools": ["*"], "timeout": 660000 }),
         );
     }
     r.lines.push(changed(&mcp_path, write_json(&mcp_path, &v, dry)?));
 
-    let hooks_path = dir.join("hooks/comms.json");
+    let hooks_path = dir.join("hooks/tincan.json");
     if remove {
         if hooks_path.exists() {
             if !dry {
@@ -380,23 +384,23 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let path = dir.join("opencode.json");
     if dir.join("opencode.jsonc").exists() && !path.exists() {
         r.notes.push(format!(
-            "opencode: you use opencode.jsonc, which comms doesn't edit. Add under \"mcp\": \"comms\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"COMMS_AGENT\": \"opencode\"}}}}",
+            "opencode: you use opencode.jsonc, which tincan doesn't edit. Add under \"mcp\": \"tincan\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"TINCAN_AGENT\": \"opencode\"}}}}",
             exe.display()
         ));
     } else {
         let mut v = read_json(&path)?;
         let mcp = obj(obj(&mut v)?.entry("mcp").or_insert_with(|| json!({})))?;
         if remove {
-            mcp.remove("comms");
+            mcp.remove("tincan");
         } else {
             mcp.insert(
-                "comms".into(),
-                json!({ "type": "local", "command": [exe.display().to_string(), "mcp"], "environment": { "COMMS_AGENT": "opencode" }, "enabled": true }),
+                "tincan".into(),
+                json!({ "type": "local", "command": [exe.display().to_string(), "mcp"], "environment": { "TINCAN_AGENT": "opencode" }, "enabled": true }),
             );
         }
         r.lines.push(changed(&path, write_json(&path, &v, dry)?));
     }
-    let plugin = dir.join("plugins/comms.ts");
+    let plugin = dir.join("plugins/tincan.ts");
     if remove {
         if plugin.exists() {
             if !dry {
@@ -405,8 +409,54 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             r.lines.push(format!("removed {}", crate::util::tilde(&plugin.display().to_string())));
         }
     } else {
-        let code = include_str!("opencode-plugin.ts").replace("__COMMS_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+        let code = include_str!("opencode-plugin.ts").replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&plugin, write_file(&plugin, &code, dry)?));
+    }
+    Ok(Some(r))
+}
+
+// ---- pi ----
+
+/// One extension does it all: it adds tincan's MCP server to each session (deferred, so the tools stay out of
+/// the model's context until it looks for them) and delivers messages.
+fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
+    if !pi_home().exists() && agent::find_bin("pi").is_none() {
+        return Ok(None);
+    }
+    let mut r = Report { agent: "pi", lines: Vec::new(), notes: Vec::new() };
+    let ext = pi_home().join("extensions/tincan.ts");
+    if remove {
+        if ext.exists() {
+            if !dry {
+                std::fs::remove_file(&ext)?;
+            }
+            r.lines.push(format!("removed {}", crate::util::tilde(&ext.display().to_string())));
+        }
+    } else {
+        let code = include_str!("pi-extension.ts").replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+        r.lines.push(changed(&ext, write_file(&ext, &code, dry)?));
+    }
+    Ok(Some(r))
+}
+
+// ---- Reason ----
+
+/// Reason's agent runs in its cloud: nothing to install there. The daemon lists your live Reason sessions and
+/// delivers with `reason session send`; they reply with the tincan CLI.
+fn reason(_exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
+    if agent::find_bin("reason").is_none() {
+        return Ok(None);
+    }
+    let mut r = Report { agent: "Reason", lines: Vec::new(), notes: Vec::new() };
+    let mut cfg = Config::load_strict()?;
+    if cfg.reason != remove {
+        r.lines.push("already set".into());
+    } else {
+        if !dry {
+            cfg.reason = !remove;
+            cfg.save()?;
+        }
+        r.lines.push(if remove { "stopped listing Reason sessions" } else { "lists your live Reason sessions" }.into());
     }
     Ok(Some(r))
 }
@@ -434,7 +484,7 @@ fn service_path_env() -> String {
 async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     let path = service_path();
     let uid = unsafe { libc::getuid() };
-    let comms_home = std::env::var("COMMS_HOME").ok();
+    let tincan_home = std::env::var("TINCAN_HOME").ok();
     if cfg!(target_os = "macos") {
         let target = format!("gui/{uid}/{}", service_name());
         if remove {
@@ -444,7 +494,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             }
             return Ok("removed the login service".into());
         }
-        let home_env = comms_home.map(|h| format!("\n    <key>COMMS_HOME</key><string>{}</string>", xml(&h))).unwrap_or_default();
+        let home_env = tincan_home.map(|h| format!("\n    <key>TINCAN_HOME</key><string>{}</string>", xml(&h))).unwrap_or_default();
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -487,9 +537,9 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             }
             return Ok("removed the login service".into());
         }
-        let home_env = comms_home.map(|h| format!("Environment=\"COMMS_HOME={h}\"\n")).unwrap_or_default();
+        let home_env = tincan_home.map(|h| format!("Environment=\"TINCAN_HOME={h}\"\n")).unwrap_or_default();
         let unit = format!(
-            "[Unit]\nDescription=company-comms daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=tincan daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
             service_path_env()
         );
@@ -534,7 +584,7 @@ fn me(exe: &Path) -> String {
     exe.display().to_string()
 }
 
-const AGENTS: [Agent; 6] = [
+const AGENTS: [Agent; 8] = [
     Agent {
         id: "claude",
         name: "Claude Code",
@@ -542,7 +592,7 @@ const AGENTS: [Agent; 6] = [
         installed: || agent::find_bin("claude").is_some(),
         wired: |_| {
             agent::find_bin("claude")
-                .is_some_and(|b| Command::new(b).args(["mcp", "get", "comms"]).output().is_ok_and(|o| o.status.success()))
+                .is_some_and(|b| Command::new(b).args(["mcp", "get", "tincan"]).output().is_ok_and(|o| o.status.success()))
         },
         apply: claude,
     },
@@ -583,8 +633,24 @@ const AGENTS: [Agent; 6] = [
         name: "opencode",
         hint: "messages arrive within seconds",
         installed: || opencode_home().exists() || agent::find_bin("opencode").is_some(),
-        wired: |_| opencode_home().join("plugins/comms.ts").exists(),
+        wired: |_| opencode_home().join("plugins/tincan.ts").exists(),
         apply: opencode,
+    },
+    Agent {
+        id: "pi",
+        name: "pi",
+        hint: "messages arrive within seconds",
+        installed: || pi_home().exists() || agent::find_bin("pi").is_some(),
+        wired: |_| pi_home().join("extensions/tincan.ts").exists(),
+        apply: pi,
+    },
+    Agent {
+        id: "reason",
+        name: "Reason",
+        hint: "messages arrive after its current turn",
+        installed: || agent::find_bin("reason").is_some(),
+        wired: |_| Config::load().reason,
+        apply: reason,
     },
 ];
 
@@ -611,7 +677,7 @@ pub struct Applied {
     pub notes: Vec<String>,
 }
 
-/// Wires comms into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
+/// Wires tincan into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
 /// (`Some(false)`) the login service.
 pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Option<bool>, dry: bool) -> Applied {
     let mut out = Applied::default();
@@ -630,8 +696,8 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
         }
     }
     if let Some(on) = service {
-        if std::env::var_os("COMMS_NO_SERVICE").is_some() {
-            out.lines.push("service: skipped (COMMS_NO_SERVICE is set)".into());
+        if std::env::var_os("TINCAN_NO_SERVICE").is_some() {
+            out.lines.push("service: skipped (TINCAN_NO_SERVICE is set)".into());
             return out;
         }
         match self::service(exe, !on, dry).await {
@@ -646,10 +712,10 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
 pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
     let exe = exe()?;
     let found = detect(&exe);
-    let verb = if dry { "Would change" } else if remove { "Removing comms" } else { "Setting up comms" };
+    let verb = if dry { "Would change" } else if remove { "Removing tincan" } else { "Setting up tincan" };
     println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
     if found.is_empty() && !remove {
-        println!("  no supported agents found (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode)");
+        println!("  no supported agents found (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason)");
     }
     let ids: Vec<&str> = found.iter().map(|f| f.id).collect();
     let (install, removing): (&[&str], &[&str]) = if remove { (&[], &ids) } else { (&ids, &[]) };
@@ -669,7 +735,7 @@ pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
 /// Read-only checks, one line each.
 pub async fn doctor() -> Result<()> {
     let exe = exe()?;
-    println!("comms {} at {}", env!("CARGO_PKG_VERSION"), crate::util::tilde(&exe.display().to_string()));
+    println!("tincan {} at {}", env!("CARGO_PKG_VERSION"), crate::util::tilde(&exe.display().to_string()));
     let link = Link::new(None);
     match link.call::<TeamInfo>(Request::Team).await {
         Ok(t) => {
@@ -678,12 +744,12 @@ pub async fn doctor() -> Result<()> {
             println!("✓ daemon running; team {} with {others} other machine(s), {online} connected", t.name);
             print!("{}", render::team(&t).lines().skip(1).map(|l| format!("{l}\n")).collect::<String>());
             if others > 0 && online == 0 {
-                println!("  ! no teammate connected: check your internet, or that their machines are on (`comms doctor` there)");
+                println!("  ! no teammate connected: check your internet, or that their machines are on (`tincan doctor` there)");
             }
         }
         Err(e) if e.to_string().contains("not in a team") => {
             println!("✓ daemon running");
-            println!("- not in a team yet: run `comms`");
+            println!("- not in a team yet: run `tincan`");
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
@@ -691,13 +757,13 @@ pub async fn doctor() -> Result<()> {
     println!(
         "{} login service: {}",
         if svc.exists() { "✓" } else { "-" },
-        if svc.exists() { "installed" } else { "not installed (`comms setup`)" }
+        if svc.exists() { "installed" } else { "not installed (`tincan setup`)" }
     );
     for f in detect(&exe) {
         if f.wired {
             println!("✓ {}: wired up", f.name);
         } else {
-            println!("- {}: installed, not on comms (`comms setup`)", f.name);
+            println!("- {}: installed, not on tincan (`tincan setup`)", f.name);
         }
     }
     Ok(())
@@ -711,13 +777,13 @@ mod tests {
     fn hook_groups_merge_and_remove() {
         let mut hooks = serde_json::from_value::<Map<String, Value>>(json!({
             "Stop": [{ "hooks": [{ "type": "command", "command": "other-tool stop" }] }],
-            "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/x/comms hook codex post-tool-use" }] }],
+            "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/x/tincan hook codex post-tool-use" }] }],
         }))
         .unwrap();
-        let ours = |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/comms hook codex {e} ") }] });
+        let ours = |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/tincan hook codex {e} ") }] });
         merge_hook_groups(&mut hooks, "codex", vec![("Stop", ours("stop")), ("PostToolUse", ours("post-tool-use"))], false);
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 2, "keeps other tools' hooks");
-        assert_eq!(hooks["PostToolUse"].as_array().unwrap().len(), 1, "replaces the old comms hook");
+        assert_eq!(hooks["PostToolUse"].as_array().unwrap().len(), 1, "replaces the old tincan hook");
         merge_hook_groups(&mut hooks, "codex", vec![], true);
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 1);
         assert!(!hooks.contains_key("PostToolUse"));
@@ -725,7 +791,7 @@ mod tests {
 
     #[test]
     fn quoting() {
-        assert_eq!(shell_cmd(Path::new("/usr/local/bin/comms"), "mcp"), "/usr/local/bin/comms mcp");
-        assert_eq!(shell_cmd(Path::new("/Users/a b/comms"), "mcp"), "'/Users/a b/comms' mcp");
+        assert_eq!(shell_cmd(Path::new("/usr/local/bin/tincan"), "mcp"), "/usr/local/bin/tincan mcp");
+        assert_eq!(shell_cmd(Path::new("/Users/a b/tincan"), "mcp"), "'/Users/a b/tincan' mcp");
     }
 }

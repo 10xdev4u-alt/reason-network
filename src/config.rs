@@ -10,17 +10,19 @@ pub struct Config {
     pub person: Option<String>,
     /// Show teammates full working directories (otherwise only the last component, plus repo@branch).
     pub share_paths: bool,
-    /// Show teammates this machine's Claude Code sessions that don't have comms loaded.
+    /// Show teammates this machine's Claude Code sessions that don't have tincan loaded.
     pub share_unmanaged: bool,
     /// Find teammates on the local network with mDNS.
     pub lan: bool,
     /// Show the menu bar icon (macOS, while the background service runs).
     pub tray: bool,
+    /// List your live Reason sessions and deliver to them (`reason session list`/`send`).
+    pub reason: bool,
     pub inbound: Inbound,
 }
 
 /// What happens to messages from teammates' agents: `accept` delivers them, `hold` waits for you to approve
-/// (`comms held`), `refuse` bounces them.
+/// (`tincan held`), `refuse` bounces them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inbound {
@@ -39,7 +41,7 @@ pub enum Policy {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, inbound: Inbound::default() }
+        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, reason: false, inbound: Inbound::default() }
     }
 }
 
@@ -52,7 +54,7 @@ impl Default for Inbound {
 impl Config {
     pub fn load() -> Self {
         Self::load_strict().unwrap_or_else(|e| {
-            eprintln!("comms: ignoring {} (fix or delete it): {e}", paths::config().display());
+            eprintln!("tincan: ignoring {} (fix or delete it): {e}", paths::config().display());
             Config::default()
         })
     }
@@ -86,10 +88,10 @@ impl Config {
     }
 
     pub fn lan(&self) -> bool {
-        self.lan && std::env::var_os("COMMS_NO_MDNS").is_none()
+        self.lan && std::env::var_os("TINCAN_NO_MDNS").is_none()
     }
 
     pub fn tray(&self) -> bool {
-        cfg!(target_os = "macos") && self.tray && std::env::var_os("COMMS_NO_TRAY").is_none()
+        cfg!(target_os = "macos") && self.tray && std::env::var_os("TINCAN_NO_TRAY").is_none()
     }
 }

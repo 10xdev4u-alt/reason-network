@@ -1,5 +1,5 @@
-//! The local API between the daemon and its clients (`comms mcp`, the CLI, hooks): one JSON object per line
-//! over `~/.comms/comms.sock`. Requests carry an `id` and get a [`Reply`] with the same id; a connection that
+//! The local API between the daemon and its clients (`tincan mcp`, the CLI, hooks): one JSON object per line
+//! over `~/.tincan/tincan.sock`. Requests carry an `id` and get a [`Reply`] with the same id; a connection that
 //! registered sessions also receives [`Event`]s for them.
 
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ pub enum Tier {
     Turn,
     /// Seen only when the agent checks its inbox.
     Pull,
-    /// Not on comms: cannot receive.
+    /// Not on tincan: cannot receive.
     None,
 }
 
@@ -128,7 +128,7 @@ pub enum Request {
         key: String,
         ids: Vec<String>,
     },
-    /// An agent hook fired (`comms hook`): keeps hook-only sessions alive and returns mail to inject.
+    /// An agent hook fired (`tincan hook`): keeps hook-only sessions alive and returns mail to inject.
     Hook(HookCall),
     /// For agents whose MCP calls carry no session id (Cursor, opencode): the hook-known session of this agent
     /// that is most likely making the call.
@@ -161,7 +161,7 @@ pub enum Request {
         who: String,
     },
     Leave {
-        /// Leave even if no teammate is online to hear it (they'll need to `comms remove` this machine).
+        /// Leave even if no teammate is online to hear it (they'll need to `tincan remove` this machine).
         #[serde(default)]
         force: bool,
     },
@@ -288,7 +288,7 @@ pub struct LinkInfo {
 pub struct InviteInfo {
     /// Four words, like `plum-tiger-lake-orbit`.
     pub code: String,
-    /// The same invite as a long `comms1…` string, for when the inviting machine will be offline.
+    /// The same invite as a long `tincan1…` string, for when the inviting machine will be offline.
     pub ticket: String,
     pub hours: u64,
 }

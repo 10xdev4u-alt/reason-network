@@ -25,10 +25,10 @@ const IN_FLIGHT_TTL: Duration = Duration::from_secs(90);
 
 /// How a session on this machine gets a message into its conversation.
 enum Channel {
-    /// Its `comms mcp` posts into Claude Code's session socket.
+    /// Its `tincan mcp` posts into Claude Code's session socket.
     ClaudeSocket(u64),
-    /// `codex queue --thread <id>`.
-    CodexQueue(String),
+    /// The agent's own CLI: `codex queue --thread <id> --message`, `reason session send <id> --message`.
+    Command(&'static str, Vec<String>),
     /// Hooks inject it at the next tool call or turn end.
     Hook,
     /// Only `check_inbox`.
@@ -88,8 +88,14 @@ impl Daemon {
         {
             let mut g = self.inner.lock().unwrap();
             self.prune(&mut g);
+            // A session key, or (from agents that reply through the CLI, like Reason's) its address or name here.
             let sender = match from.as_deref() {
-                Some(k) => Some(g.live.get(k).ok_or_else(unregistered)?),
+                Some(k) => Some(
+                    g.live
+                        .get(k)
+                        .or_else(|| g.live.values().find(|l| self.addr(&l.name) == k || l.name == k))
+                        .ok_or_else(unregistered)?,
+                ),
                 None => None,
             };
             let (from_addr, from_agent, from_repo) = match sender {
@@ -118,7 +124,7 @@ impl Daemon {
                     }
                     Target::Human => {
                         g.store.insert(&msg, false)?;
-                        ("inbox".into(), format!("in {}'s inbox (`comms inbox`)", self.person))
+                        ("inbox".into(), format!("in {}'s inbox (`tincan inbox`)", self.person))
                     }
                     Target::Session { key: Some(key), .. } => {
                         g.store.insert(&msg, false)?;
@@ -172,16 +178,21 @@ impl Daemon {
         if g.polling.get(key).is_some_and(|n| *n > 0) {
             return ("delivered".into(), "delivered: the session was waiting for messages".into());
         }
-        let codex = || agent::find_bin("codex").is_some();
+        let has = |bin: &str| !l.push_failed && agent::find_bin(bin).is_some();
         let channel = match (l.reg.tier, l.conn, &l.reg.agent_session_id) {
             (Tier::Push, Some(conn), _) if l.reg.agent == agent::CLAUDE_CODE => Channel::ClaudeSocket(conn),
-            (Tier::Push, _, Some(id)) if l.reg.agent == "codex" && !l.push_failed && codex() => Channel::CodexQueue(id.clone()),
+            (Tier::Push, _, Some(id)) if l.reg.agent == "codex" && has("codex") => {
+                Channel::Command("codex", vec!["queue".into(), "--thread".into(), id.clone(), "--message".into()])
+            }
+            (Tier::Push, _, Some(id)) if l.reg.agent == "reason" && has("reason") => {
+                Channel::Command("reason", vec!["session".into(), "send".into(), id.clone(), "--message".into()])
+            }
             _ if l.last_hook.is_some() => Channel::Hook,
             _ => Channel::Pull,
         };
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
         let text = render::for_agent(&msgs, &self.person, Some(&l.reg.agent));
-        let hook_note = if l.reg.agent == "opencode" {
+        let hook_note = if matches!(l.reg.agent.as_str(), "opencode" | "pi") {
             "queued: delivered within seconds once the session is idle"
         } else {
             "queued: it sees it at its next tool call or when its turn ends"
@@ -198,27 +209,25 @@ impl Daemon {
                 }
                 ("pushed".into(), "delivered into the session: it reads it between tool calls, or wakes up if idle".into())
             }
-            Channel::CodexQueue(thread) => {
+            Channel::Command(bin, args) => {
                 for id in &ids {
                     g.in_flight.insert(id.clone(), Instant::now());
                 }
-                self.codex_queue(key.to_string(), thread, ids, text);
-                ("pushed".into(), "queued into the Codex session: it runs after the current turn, or now if idle".into())
+                self.send_with(bin, args, key.to_string(), ids, text);
+                ("pushed".into(), format!("queued into the {} session: it runs after the current turn, or now if idle", agent::label(bin)))
             }
             Channel::Hook => ("queued".into(), hook_note.into()),
             Channel::Pull => ("queued".into(), "queued: this agent only sees it when it checks its inbox".into()),
         }
     }
 
-    fn codex_queue(self: &Arc<Self>, key: String, thread: String, ids: Vec<String>, text: String) {
+    /// Hands `text` to the agent's own CLI (`args` end with its message flag).
+    fn send_with(self: &Arc<Self>, bin: &'static str, args: Vec<String>, key: String, ids: Vec<String>, text: String) {
         let this = self.clone();
         tokio::spawn(async move {
             let run = async {
-                let bin = agent::find_bin("codex").ok_or_else(|| "codex not found".to_string())?;
-                let out = tokio::process::Command::new(bin)
-                    .args(["queue", "--thread", &thread, "--message", &text])
-                    .stdin(std::process::Stdio::null())
-                    .output();
+                let path = agent::find_bin(bin).ok_or_else(|| format!("{bin} not found"))?;
+                let out = tokio::process::Command::new(path).args(&args).arg(&text).stdin(std::process::Stdio::null()).output();
                 match tokio::time::timeout(Duration::from_secs(30), out).await {
                     Ok(Ok(o)) if o.status.success() => Ok(()),
                     Ok(Ok(o)) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
@@ -236,7 +245,7 @@ impl Daemon {
                     let _ = g.store.mark_read(&ids, util::now_ms());
                 }
                 Err(why) => {
-                    log(&format!("codex queue for {key} failed ({why}); falling back to hooks"));
+                    log(&format!("{bin} delivery to {key} failed ({why}); falling back to hooks"));
                     // Hooks (or check_inbox) show it instead; tell senders the truth from now on.
                     if let Some(l) = g.live.get_mut(&key) {
                         l.push_failed = true;
@@ -403,7 +412,7 @@ impl Drop for Polling<'_> {
 }
 
 fn unregistered() -> anyhow::Error {
-    anyhow!("this session isn't registered with comms; restart the agent session, or use the comms tools")
+    anyhow!("this session isn't registered with tincan; restart the agent session, or use the tincan tools")
 }
 
 fn is_group(to: &str) -> bool {

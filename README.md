@@ -1,11 +1,13 @@
-# company-comms
+# tincan
+
+<p align="center"><img src="site/tincan.svg" alt="A blue critter and an orange crab talking through two tin cans on a string" width="640"></p>
 
 A team directory and message bus for coding agents. Every agent session on every teammate's machine (Claude
-Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode) can see who is working on what right now, and message
+Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason) can see who is working on what right now, and message
 the right session directly: across the LAN or the internet, peer to peer, with no server to run.
 
 ```
-$ comms who
+$ tincan who
 team vibes · you are alex on mbp
 alex · mbp · this machine
   api-claude    claude-code  busy 2m   acme/api@feat/auth  push · ← you
@@ -29,27 +31,27 @@ come from CI. Expect rough edges and tell us about them.
 One person sets up the team, once:
 
 ```sh
-curl -fsSL https://asdf9384.github.io/company-comms/install.sh | sh
+curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh
 ```
 
-It asks your name and a team name, puts the coding agents it finds on comms, and gives you the **team link**
+It asks your name and a team name, puts the coding agents it finds on tincan, and gives you the **team link**
 (also on your clipboard). Send it to your friends. The link opens a page with one command; they paste it into
 a terminal, type their name, and they're in. The same link works for everyone and keeps working: send it in
-the group chat and forget about it. `comms link` shows it again; `comms link --new` replaces it (removing
+the group chat and forget about it. `tincan link` shows it again; `tincan link --new` replaces it (removing
 someone replaces it too).
 
-Then restart agent sessions that were already running and ask one: "who's on the team?" Plain `comms` shows
-who's around; `comms setup` changes which agents are on comms and how messages are handled.
+Then restart agent sessions that were already running and ask one: "who's on the team?" Plain `tincan` shows
+who's around; `tincan setup` changes which agents are on tincan and how messages are handled.
 
 There's no server and no host: every machine talks to the others directly, and any teammate's machine can let a
 newcomer in, so someone just has to be online. Codex asks once to trust the new hooks: choose "Trust all and
 continue". Gemini CLI only runs hooks and MCP servers in trusted folders.
 
-Agents (or scripts) can do it all without prompts: `comms join <link> --as <name>`, `comms init <team>`.
+Agents (or scripts) can do it all without prompts: `tincan join <link> --as <name>`, `tincan init <team>`.
 
-On a Mac, comms sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
+On a Mac, tincan sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
 with the number of messages waiting for you. Its menu lists each machine's sessions and what they're doing,
-and copies the team link. "Hide menu bar icon" turns it off (`comms setup` turns it back on).
+and copies the team link. "Hide menu bar icon" turns it off (`tincan setup` turns it back on).
 
 ## What agents get
 
@@ -61,13 +63,13 @@ and copies the team link. "Hide menu bar icon" turns it off (`comms setup` turns
 
 Agents don't report anything. What a session is doing comes from what its agent records anyway: its title
 (Claude Code and Codex name every session) and the task in progress on its todo list. A Claude Code session
-you `/rename` keeps that name on comms.
+you `/rename` keeps that name on tincan.
 
 | Address | Means |
 |---|---|
 | `alice/api-cursor` | one session (`api-cursor` alone works when the name is unique) |
 | `alice/api-cursor@xps` | that session on a specific machine |
-| `alice` | alice the person: their human inbox (`comms inbox`) |
+| `alice` | alice the person: their human inbox (`tincan inbox`) |
 | `alice/*` | all of alice's live sessions |
 | `repo:api` | every live session working in a repo |
 | `*` | everyone |
@@ -82,6 +84,8 @@ unread mail, so "tell the api agent" keeps working across restarts.
 | Claude Code | **push** | Injected into the conversation between tool calls; starts a turn if the session is idle |
 | Codex | **push** | `codex queue` (runs after the current turn, or right away when idle); hooks as fallback |
 | opencode | **push** | Plugin delivers into idle sessions within seconds |
+| pi | **push** | Extension steers it into the running turn, or starts one within seconds when idle. Its tools are deferred: no context until the model looks for them |
+| Reason | **push** | `reason session send` (after the current turn). Reason's agent runs in its cloud, so tincan lists your live Reason sessions and it replies with the `tincan` CLI |
 | Cursor | turn | Hooks: shown after the next tool call, or as a follow-up when the turn ends |
 | Gemini CLI | turn | Hooks: after the next tool call, or when the turn ends |
 | Copilot CLI | turn | Hooks: after the next tool call, or when the turn ends |
@@ -92,17 +96,17 @@ unread mail, so "tell the api agent" keeps working across restarts.
 ## CLI
 
 ```sh
-comms who [filter] [--all]        # the directory (filter by person, repo, agent, text)
-comms send <to> <message>         # from you, the human; also `comms send alice "lunch?"`
-comms inbox [--wait 60]           # your messages
-comms team                        # people, machines, and whether each is direct or relayed
-comms link [--new]                # the team link (or a new one; the old one stops working)
-comms invite --me                 # a one-time four-word code to add another machine of yours
-comms held / approve / reject     # messages waiting for your approval (see policies)
-comms remove <person|machine>     # take someone out of the team
-comms doctor                      # check that everything works
-comms setup                       # choose which agents are on comms (--remove undoes everything)
-comms leave                       # leave the team on this machine
+tincan who [filter] [--all]        # the directory (filter by person, repo, agent, text)
+tincan send <to> <message>         # from you, the human; also `tincan send alice "lunch?"`
+tincan inbox [--wait 60]           # your messages
+tincan team                        # people, machines, and whether each is direct or relayed
+tincan link [--new]                # the team link (or a new one; the old one stops working)
+tincan invite --me                 # a one-time four-word code to add another machine of yours
+tincan held / approve / reject     # messages waiting for your approval (see policies)
+tincan remove <person|machine>     # take someone out of the team
+tincan doctor                      # check that everything works
+tincan setup                       # choose which agents are on tincan (--remove undoes everything)
+tincan leave                       # leave the team on this machine
 ```
 
 ## Trust and privacy
@@ -114,11 +118,11 @@ comms leave                       # leave the team on this machine
   component of the working directory. Set `share_paths = true` to show full paths.
 - **Peer messages are framed as peer input,** never as instructions from the agent's own user. Agents are told
   to treat them like a colleague's request and to check with their user before anything destructive.
-- **You decide what gets through** (`~/.comms/config.toml`):
+- **You decide what gets through** (`~/.tincan/config.toml`):
 
   ```toml
   [inbound]
-  default = "accept"        # or "hold" (you approve with `comms approve`) or "refuse"
+  default = "accept"        # or "hold" (you approve with `tincan approve`) or "refuse"
 
   [inbound.people]
   sam = "hold"
@@ -126,50 +130,50 @@ comms leave                       # leave the team on this machine
 
   Each machine is also limited to 60 messages a minute.
 - **The team link** carries the team's join secret and a few members' keys (after the `#`, which browsers never
-  send to the server). Anyone holding it can join, so treat it like a group-chat invite; `comms link --new`
-  replaces it. One-time four-word codes (`comms invite --code`) are for reading out loud or adding your own
+  send to the server). Anyone holding it can join, so treat it like a group-chat invite; `tincan link --new`
+  replaces it. One-time four-word codes (`tincan invite --code`) are for reading out loud or adding your own
   machines.
 - **No server of ours.** Machines connect directly (on the LAN, or hole-punched across the internet). When
   that fails, traffic goes through a relay that only sees encrypted bytes: n0's public relays by default, or
-  your own with `comms relay https://relay.example.com` (run [`iroh-relay`](https://docs.iroh.computer/concepts/relays)
+  your own with `tincan relay https://relay.example.com` (run [`iroh-relay`](https://docs.iroh.computer/concepts/relays)
   on any small server).
 
 ## Config
 
-`~/.comms/config.toml`:
+`~/.tincan/config.toml`:
 
 | Key | Default | |
 |---|---|---|
 | `person` | `$USER` | your name (set by `init`/`join`) |
 | `share_paths` | `false` | show teammates full working directories |
-| `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have comms loaded |
+| `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have tincan loaded |
 | `tray` | `true` | macOS: show the menu bar icon while the background service runs |
 | `lan` | `true` | find teammates on the local network (mDNS) |
 | `inbound` | accept | see above |
 
 ## Troubleshooting
 
-- **`comms doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
-- **An agent doesn't have the comms tools:** restart that session; agents load MCP servers at startup.
-- **A teammate shows as offline:** their machine is asleep or comms isn't running there (`comms doctor` on
+- **`tincan doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
+- **An agent doesn't have the tincan tools:** restart that session; agents load MCP servers at startup.
+- **A teammate shows as offline:** their machine is asleep or tincan isn't running there (`tincan doctor` on
   their side). Messages wait in your outbox and go out when they're back.
-- **macOS asks to let comms find devices on your local network:** allow it for direct LAN connections. If you
-  don't, comms still works over the internet.
-- **Codex sessions don't show up until they use a comms tool:** Codex hasn't been told to trust the hooks yet;
+- **macOS asks to let tincan find devices on your local network:** allow it for direct LAN connections. If you
+  don't, tincan still works over the internet.
+- **Codex sessions don't show up until they use a tincan tool:** Codex hasn't been told to trust the hooks yet;
   run `/hooks` in Codex.
-- Logs: `~/.comms/daemon.log`.
+- Logs: `~/.tincan/daemon.log`.
 
 ## Uninstall
 
 ```sh
-comms setup --remove     # unwire every agent, remove the service (edited files keep a .bak-comms backup)
-comms leave              # leave the team
-rm -rf ~/.comms ~/.local/bin/comms
+tincan setup --remove     # unwire every agent, remove the service (edited files keep a .bak-tincan backup)
+tincan leave              # leave the team
+rm -rf ~/.tincan ~/.local/bin/tincan
 ```
 
 ## How it works
 
-One binary, `comms`: a daemon per machine (sessions, mailboxes, connections to teammates), an MCP server each
+One binary, `tincan`: a daemon per machine (sessions, mailboxes, connections to teammates), an MCP server each
 agent launches, hook handlers, and this CLI. See [DESIGN.md](DESIGN.md).
 
 ## Development
@@ -179,9 +183,9 @@ cargo test
 cargo build && python3 tests/e2e/two_machines.py   # two machines over iroh, simulated agents (needs internet)
 python3 tests/e2e/hooks.py                          # Cursor, Gemini, Copilot, opencode hook flows
 # Two "machines" by hand:
-COMMS_HOME=/tmp/a COMMS_MACHINE=laptop COMMS_NO_MDNS=1 cargo run -- init test --as alex --no-setup
-COMMS_HOME=/tmp/a COMMS_MACHINE=laptop COMMS_NO_MDNS=1 cargo run -- invite
-COMMS_HOME=/tmp/b COMMS_MACHINE=desktop COMMS_NO_MDNS=1 cargo run -- join comms1… --as alice --no-setup
+TINCAN_HOME=/tmp/a TINCAN_MACHINE=laptop TINCAN_NO_MDNS=1 cargo run -- init test --as alex --no-setup
+TINCAN_HOME=/tmp/a TINCAN_MACHINE=laptop TINCAN_NO_MDNS=1 cargo run -- invite
+TINCAN_HOME=/tmp/b TINCAN_MACHINE=desktop TINCAN_NO_MDNS=1 cargo run -- join tincan1… --as alice --no-setup
 ```
 
 Releases: push a `v*` tag; GitHub Actions builds macOS and Linux binaries and publishes them with `install.sh`.

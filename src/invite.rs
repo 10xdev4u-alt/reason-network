@@ -41,12 +41,12 @@ pub fn normalize(input: &str) -> Option<String> {
 
 /// The key the inviting machine listens on while the code is valid.
 pub fn key(code: &str) -> SecretKey {
-    SecretKey::from_bytes(&blake3::derive_key("company-comms 2026 invite endpoint", code.as_bytes()))
+    SecretKey::from_bytes(&blake3::derive_key("tincan 2026 invite endpoint", code.as_bytes()))
 }
 
 /// The invite secret the joiner proves (its hash is in the team state, like any invite's).
 pub fn secret(code: &str) -> String {
-    HEXLOWER.encode(&blake3::derive_key("company-comms 2026 invite secret", code.as_bytes())[..16])
+    HEXLOWER.encode(&blake3::derive_key("tincan 2026 invite secret", code.as_bytes())[..16])
 }
 
 #[cfg(test)]

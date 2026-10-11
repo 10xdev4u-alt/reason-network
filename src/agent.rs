@@ -6,11 +6,11 @@ use std::{io::Write, os::unix::net::UnixStream, path::PathBuf, time::Duration};
 
 pub const CLAUDE_CODE: &str = "claude-code";
 
-/// Best guess from the environment the agent gives its children. `COMMS_AGENT` (set by `comms setup` in the
+/// Best guess from the environment the agent gives its children. `TINCAN_AGENT` (set by `tincan setup` in the
 /// MCP config) wins.
 pub fn detect_env() -> Option<&'static str> {
     let has = |k: &str| std::env::var_os(k).is_some();
-    if let Ok(a) = std::env::var("COMMS_AGENT") {
+    if let Ok(a) = std::env::var("TINCAN_AGENT") {
         return from_client_name(&a);
     }
     if has("CLAUDECODE") || has("CLAUDE_CODE_SESSION_ID") {
@@ -47,6 +47,10 @@ pub fn from_client_name(name: &str) -> Option<&'static str> {
         "opencode"
     } else if has("copilot") {
         "copilot"
+    } else if n == "pi" || n.starts_with("pi-") || n.starts_with("pi ") {
+        "pi"
+    } else if has("reason") {
+        "reason"
     } else if n == "amp" || n.starts_with("amp-") || n.starts_with("amp ") {
         "amp"
     } else if has("zed") {
@@ -65,8 +69,11 @@ pub fn multiplexed(agent: &str) -> bool {
     matches!(agent, "codex" | "opencode" | "cursor")
 }
 
-/// The session id an agent exports to its MCP servers, if any.
+/// The session id an agent exports to its MCP servers, if any. `TINCAN_SESSION` is set by our own pi extension.
 pub fn env_session_id(agent: &str) -> Option<String> {
+    if let Some(id) = std::env::var("TINCAN_SESSION").ok().filter(|s| !s.is_empty()) {
+        return Some(id);
+    }
     let var = match agent {
         CLAUDE_CODE => "CLAUDE_CODE_SESSION_ID",
         "copilot" => "COPILOT_AGENT_SESSION_ID",
@@ -90,7 +97,7 @@ pub fn meta_session_id(meta: &serde_json::Map<String, Value>) -> Option<String> 
 
 /// Finds an executable on `PATH` or in the usual install places (a launchd/systemd daemon has a bare `PATH`).
 pub fn find_bin(name: &str) -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os(format!("COMMS_{}_BIN", name.to_uppercase())) {
+    if let Some(p) = std::env::var_os(format!("TINCAN_{}_BIN", name.to_uppercase())) {
         let p = PathBuf::from(p);
         return p.is_file().then_some(p);
     }
@@ -132,6 +139,15 @@ pub fn short(agent: &str) -> &str {
     match agent {
         CLAUDE_CODE | "claude-desktop" => "claude",
         "" => "agent",
+        a => a,
+    }
+}
+
+/// How people write the agent's name, for notes to senders.
+pub fn label(agent: &str) -> &str {
+    match agent {
+        "codex" => "Codex",
+        "reason" => "Reason",
         a => a,
     }
 }

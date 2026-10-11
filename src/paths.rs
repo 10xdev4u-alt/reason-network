@@ -1,4 +1,4 @@
-//! Where comms keeps its state. `COMMS_HOME` overrides `~/.comms` (handy for running two "machines" side by side).
+//! Where tincan keeps its state. `TINCAN_HOME` overrides `~/.tincan` (handy for running two "machines" side by side).
 
 use std::path::PathBuf;
 
@@ -7,13 +7,13 @@ pub fn user_home() -> PathBuf {
 }
 
 pub fn home() -> PathBuf {
-    std::env::var_os("COMMS_HOME").map(PathBuf::from).unwrap_or_else(|| user_home().join(".comms"))
+    std::env::var_os("TINCAN_HOME").map(PathBuf::from).unwrap_or_else(|| user_home().join(".tincan"))
 }
 
-/// `~/.comms/comms.sock`, unless that is too long for a Unix socket address (104 bytes on macOS): then a short
-/// path in a private `/tmp/comms-<uid>` directory, derived from the home directory so every client agrees on it.
+/// `~/.tincan/tincan.sock`, unless that is too long for a Unix socket address (104 bytes on macOS): then a short
+/// path in a private `/tmp/tincan-<uid>` directory, derived from the home directory so every client agrees on it.
 pub fn socket() -> PathBuf {
-    let path = home().join("comms.sock");
+    let path = home().join("tincan.sock");
     if path.as_os_str().len() < 100 {
         return path;
     }
@@ -25,7 +25,7 @@ pub fn socket() -> PathBuf {
 }
 
 fn short_dir() -> PathBuf {
-    PathBuf::from(format!("/tmp/comms-{}", unsafe { libc::getuid() }))
+    PathBuf::from(format!("/tmp/tincan-{}", unsafe { libc::getuid() }))
 }
 
 /// Makes sure the socket's directory exists and that nobody else can get at it.
@@ -44,7 +44,7 @@ pub fn ensure_socket_dir() -> std::io::Result<()> {
 }
 
 pub fn db() -> PathBuf {
-    home().join("comms.db")
+    home().join("tincan.db")
 }
 
 pub fn config() -> PathBuf {

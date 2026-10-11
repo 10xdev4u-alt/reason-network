@@ -26,8 +26,8 @@ use std::{
 };
 use tokio::sync::{Notify, mpsc, oneshot};
 
-pub const ALPN: &[u8] = b"company-comms/1";
-pub const JOIN_ALPN: &[u8] = b"company-comms/join/1";
+pub const ALPN: &[u8] = b"tincan/1";
+pub const JOIN_ALPN: &[u8] = b"tincan/join/1";
 const PROTO: u32 = 1;
 const MAX_FRAME: usize = 4 << 20;
 const ACK_TIMEOUT: Duration = Duration::from_secs(5);

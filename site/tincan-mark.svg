@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+  <title>tincan</title>
+  <defs>
+    <linearGradient id="blueBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e3f4fc"/>
+      <stop offset="0.35" stop-color="#a9daf2"/>
+      <stop offset="1" stop-color="#5fa9d3"/>
+    </linearGradient>
+    <linearGradient id="blueCap" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d4eefa"/>
+      <stop offset="1" stop-color="#7fbfe2"/>
+    </linearGradient>
+    <linearGradient id="orangeBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe1cc"/>
+      <stop offset="0.35" stop-color="#f8a676"/>
+      <stop offset="1" stop-color="#d9632f"/>
+    </linearGradient>
+    <linearGradient id="orangeCap" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd2b5"/>
+      <stop offset="1" stop-color="#ec8a55"/>
+    </linearGradient>
+    <!-- a can lying on its side; the closed end (with the string hole) is at 0,0 -->
+    <path id="shape" d="M-70,-35 L0,-35 A16 35 0 0 1 0,35 L-70,35 A16 35 0 0 1 -70,-35 Z"/>
+    <path id="ridges" d="M-50,-35 A16 35 0 0 1 -50,35 M-33,-35 A16 35 0 0 1 -33,35 M-16,-35 A16 35 0 0 1 -16,35"/>
+    <path id="ridgeShine" d="M-48,-34 A16 35 0 0 1 -48,34 M-31,-34 A16 35 0 0 1 -31,34 M-14,-34 A16 35 0 0 1 -14,34"/>
+    <g id="details">
+      <use href="#ridgeShine" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+      <path d="M-60,-25 L-10,-25" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.75"/>
+      <use href="#shape" fill="none" stroke="#2b2838" stroke-width="8" stroke-linejoin="round"/>
+    </g>
+  </defs>
+
+  <g transform="translate(128 128) scale(0.92) translate(-128 -124.6)">
+  <!-- left can (blue) -->
+  <g transform="translate(93 140) rotate(26)">
+    <use href="#shape" fill="url(#blueBody)"/>
+    <use href="#ridges" fill="none" stroke="#4f93bd" stroke-width="3.5"/>
+    <use href="#details"/>
+    <ellipse cx="0" cy="0" rx="16" ry="35" fill="url(#blueCap)" stroke="#2b2838" stroke-width="8"/>
+  </g>
+
+  <!-- right can (orange) -->
+  <g transform="translate(163 140) scale(-1 1) rotate(26)">
+    <use href="#shape" fill="url(#orangeBody)"/>
+    <use href="#ridges" fill="none" stroke="#c4552a" stroke-width="3.5"/>
+    <use href="#details"/>
+    <ellipse cx="0" cy="0" rx="16" ry="35" fill="url(#orangeCap)" stroke="#2b2838" stroke-width="8"/>
+  </g>
+
+  <!-- the string, from hole to hole -->
+  <path d="M93,140 C111,177 145,177 163,140" fill="none" stroke="#2b2838" stroke-width="15" stroke-linecap="round"/>
+  <path d="M93,140 C111,177 145,177 163,140" fill="none" stroke="#e6c48e" stroke-width="7.5" stroke-linecap="round"/>
+  </g>
+</svg>

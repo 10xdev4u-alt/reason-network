@@ -1,5 +1,5 @@
-//! `comms hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
-//! or idle), and prints whatever makes the agent show incoming mail. It never fails loudly: a broken comms must
+//! `tincan hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
+//! or idle), and prints whatever makes the agent show incoming mail. It never fails loudly: a broken tincan must
 //! not break the agent.
 
 use crate::{agent, client::Link, proto::*};
@@ -83,9 +83,9 @@ async fn handle(
     let ids = reply.ids;
     let text = match (reply.text, ev, reply.address) {
         (Some(t), ..) => t,
-        // Say who it is on comms once, at session start.
+        // Say who it is on tincan once, at session start.
         (None, "start", Some(addr)) => {
-            format!("company-comms: you are {addr}. Teammates' agents can message you; list_team and send_message reach them.")
+            format!("tincan: you are {addr}. Teammates' agents can message you; list_team and send_message reach them.")
         }
         _ => return None,
     };

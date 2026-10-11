@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       # The site team links and the installer point at; set the repo variable once the domain is live.
-      COMMS_SITE_URL: ${{ vars.COMMS_SITE_URL }}
+      TINCAN_SITE_URL: ${{ vars.TINCAN_SITE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -34,11 +34,11 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          tar -czf dist/comms-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release comms
-          cd dist && shasum -a 256 comms-${{ matrix.target }}.tar.gz > comms-${{ matrix.target }}.tar.gz.sha256
+          tar -czf dist/tincan-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release tincan
+          cd dist && shasum -a 256 tincan-${{ matrix.target }}.tar.gz > tincan-${{ matrix.target }}.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: comms-${{ matrix.target }}
+          name: tincan-${{ matrix.target }}
           path: dist/*
 
   release:

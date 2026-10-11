@@ -8,8 +8,8 @@ Uses throwaway homes (agent configs are edited there, not yours) and answers "no
 import os, pty, re, select, subprocess, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BIN = os.path.join(ROOT, "target", "debug", "comms")
-D = tempfile.mkdtemp(prefix="comms-guided-")
+BIN = os.path.join(ROOT, "target", "debug", "tincan")
+D = tempfile.mkdtemp(prefix="tincan-guided-")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]|\r")
 DOWN, ENTER = "\x1b[B", "\r"
 results = []
@@ -24,8 +24,8 @@ def env(who):
     home = os.path.join(D, who, "home")
     os.makedirs(os.path.join(home, ".codex"), exist_ok=True)  # a "Codex" to set up
     e = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-    e.update(HOME=home, COMMS_HOME=os.path.join(D, who, "comms"), COMMS_MACHINE=who + "-box", COMMS_NO_MDNS="1",
-             COMMS_CLAUDE_BIN="/nonexistent", COMMS_NO_SERVICE="1", TERM="xterm-256color")
+    e.update(HOME=home, TINCAN_HOME=os.path.join(D, who, "tincan"), TINCAN_MACHINE=who + "-box", TINCAN_NO_MDNS="1",
+             TINCAN_CLAUDE_BIN="/nonexistent", TINCAN_NO_SERVICE="1", TERM="xterm-256color")
     return e
 
 
@@ -80,18 +80,18 @@ try:
     t.expect(r"Created team the boys\. You are alex on alex-box\.")
     t.expect(r"Codex: updated")
     t.expect(r"Team link for the boys")
-    m = t.expect(r"\n(https://\S+/join/#comms1[A-Za-z0-9_-]+)\n")
+    m = t.expect(r"\n(https://\S+/join/#tincan1[A-Za-z0-9_-]+)\n")
     link = m.group(1)
     t.wait()
     check("start a team with two answers (name, team) and get the team link", True)
     cfg = open(os.path.join(env("alex")["HOME"], ".codex", "config.toml")).read()
-    check("agents found were set up without asking", "[mcp_servers.comms]" in cfg, cfg)
+    check("agents found were set up without asking", "[mcp_servers.tincan]" in cfg, cfg)
 except AssertionError as e:
     check("start a team by prompts", False, str(e))
 
 
 def join_by_link(who, name, retry_name=None):
-    # What install.sh does with the link: `comms join <link>`, answers from the terminal.
+    # What install.sh does with the link: `tincan join <link>`, answers from the terminal.
     t = Term(["join", link], env(who))
     t.expect(r"What should teammates call you\?")
     t.send(name + ENTER)
@@ -120,9 +120,9 @@ if link:
         t = Term([], env("alice"))
         t.expect(r"(alex · alex-box|team the boys)")
         t.wait()
-        check("`comms` after joining shows the team instead of asking again", True)
+        check("`tincan` after joining shows the team instead of asking again", True)
     except AssertionError as e:
-        check("`comms` after joining shows the team", False, str(e))
+        check("`tincan` after joining shows the team", False, str(e))
 
 t = Term(["join"], env("sam"))
 try:

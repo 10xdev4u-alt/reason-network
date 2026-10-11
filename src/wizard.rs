@@ -1,4 +1,4 @@
-//! The guided setup: what `comms`, `comms init`, `comms join`, `comms invite` and `comms setup` do when a person
+//! The guided setup: what `tincan`, `tincan init`, `tincan join`, `tincan invite` and `tincan setup` do when a person
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
@@ -13,14 +13,14 @@ use cliclack::{confirm, input, intro, log, multiselect, note, outro, outro_cance
 use std::io::IsTerminal;
 
 pub fn interactive() -> bool {
-    std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && std::env::var_os("COMMS_NO_PROMPT").is_none()
+    std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && std::env::var_os("TINCAN_NO_PROMPT").is_none()
 }
 
 /// Runs a guided flow, turning Ctrl-C at a prompt into a quiet exit.
 pub async fn guided(f: impl std::future::Future<Output = Result<()>>) -> Result<()> {
     match f.await {
         Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Interrupted) => {
-            let _ = outro_cancel("Stopped. Run `comms` to pick up where you left off.");
+            let _ = outro_cancel("Stopped. Run `tincan` to pick up where you left off.");
             Ok(())
         }
         r => r,
@@ -32,7 +32,7 @@ fn name_ok(s: &str) -> Result<(), &'static str> {
 }
 
 fn invite_ok(s: &str) -> Result<(), &'static str> {
-    if s.contains("comms1") || invite::normalize(s).is_some() { Ok(()) } else { Err("paste the team link your friend sent") }
+    if s.contains("tincan1") || invite::normalize(s).is_some() { Ok(()) } else { Err("paste the team link your friend sent") }
 }
 
 fn ask_name() -> Result<String> {
@@ -42,13 +42,13 @@ fn ask_name() -> Result<String> {
 }
 
 /// Start or join a team. With an invite (a team link, from the installer), it only asks for your name.
-/// `start`: `Some(true)` from `comms init`, `Some(false)` from `comms join`, `None` to ask.
+/// `start`: `Some(true)` from `tincan init`, `Some(false)` from `tincan join`, `None` to ask.
 pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<String>, person: Option<String>) -> Result<()> {
-    intro(" comms ")?;
+    intro(" tincan ")?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
-        outro("`comms` shows who's around; `comms invite` gives you the team link.")?;
+        outro("`tincan` shows who's around; `tincan invite` gives you the team link.")?;
         return Ok(());
     }
     let mut person = match person {
@@ -79,7 +79,7 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
         loop {
             let text: String = match invite.take() {
                 Some(t) => t,
-                None => input("Paste the team link").placeholder("https://…/join/#comms1…").validate(|s: &String| invite_ok(s)).interact()?,
+                None => input("Paste the team link").placeholder("https://…/join/#tincan1…").validate(|s: &String| invite_ok(s)).interact()?,
             };
             let sp = spinner();
             sp.start("Joining...");
@@ -138,37 +138,37 @@ async fn set_up_agents_with_defaults() -> Result<()> {
     for n in &out.notes {
         log::warning(n)?;
     }
-    log::remark("Change any of this with `comms setup`.")?;
+    log::remark("Change any of this with `tincan setup`.")?;
     Ok(())
 }
 
-/// Which agents are on comms, the background service, and how teammates' messages are handled.
+/// Which agents are on tincan, the background service, and how teammates' messages are handled.
 pub async fn agents_and_preferences() -> Result<()> {
     let exe = setup::exe()?;
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
-        log::warning("No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode). Install one, then run `comms setup`.")?;
+        log::warning("No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `tincan setup`.")?;
         Vec::new()
     } else {
         let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
-        let mut pick = multiselect("Which agents should be on comms?  (space to toggle, enter to confirm)").required(false).initial_values(initial);
+        let mut pick = multiselect("Which agents should be on tincan?  (space to toggle, enter to confirm)").required(false).initial_values(initial);
         for f in &found {
             pick = pick.item(f.id, f.name, f.hint);
         }
         pick.interact()?
     };
-    let service = confirm("Keep comms running in the background, so teammates can always reach you?").initial_value(true).interact()?;
+    let service = confirm("Keep tincan running in the background, so teammates can always reach you?").initial_value(true).interact()?;
     let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
     cfg.inbound.default = select("When a teammate's agent messages one of yours")
         .item(Policy::Accept, "Deliver it", "recommended")
-        .item(Policy::Hold, "Hold it until I approve", "you approve with `comms held`")
+        .item(Policy::Hold, "Hold it until I approve", "you approve with `tincan held`")
         .initial_value(cfg.inbound.default)
         .interact()?;
     cfg.share_paths = confirm("Show teammates your full working directories? (otherwise just the folder name)")
         .initial_value(cfg.share_paths)
         .interact()?;
     if cfg!(target_os = "macos") && service {
-        cfg.tray = confirm("Show comms in the menu bar?").initial_value(cfg.tray).interact()?;
+        cfg.tray = confirm("Show tincan in the menu bar?").initial_value(cfg.tray).interact()?;
     }
     cfg.save()?;
 
@@ -197,7 +197,7 @@ pub async fn show_link(new: bool) -> Result<String> {
     note(
         format!("Team link for {}", l.team),
         format!(
-            "{}Send your friends the link below. It opens a page with one command: they\npaste it, type their name, and they're in. It keeps working for everyone\nuntil you run `comms link --new`.",
+            "{}Send your friends the link below. It opens a page with one command: they\npaste it, type their name, and they're in. It keeps working for everyone\nuntil you run `tincan link --new`.",
             if copied { "It's on your clipboard. " } else { "" },
         ),
     )?;
@@ -211,7 +211,7 @@ pub async fn show_code(me: bool) -> Result<()> {
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: curl -fsSL {} | sh -s -- {}\n(or `comms join {}` if comms is there already)\nWorks once, within {}h, while this machine is online.",
+            "On {who}: curl -fsSL {} | sh -s -- {}\n(or `tincan join {}` if tincan is there already)\nWorks once, within {}h, while this machine is online.",
             install_url(),
             i.code,
             i.code,
@@ -240,27 +240,27 @@ pub fn copy(text: &str) -> bool {
     })
 }
 
-/// `comms invite` in a terminal: the team link, or a one-time code for another machine of yours.
+/// `tincan invite` in a terminal: the team link, or a one-time code for another machine of yours.
 pub async fn invite() -> Result<()> {
-    intro(" comms invite ")?;
+    intro(" tincan invite ")?;
     let what = select("Who's joining?")
         .item(0, "Friends", "the team link, works for everyone")
         .item(1, "Another machine of mine", "a one-time code")
         .interact()?;
     if what == 0 {
         let url = show_link(false).await?;
-        outro("They'll show up in `comms` once they've joined.")?;
+        outro("They'll show up in `tincan` once they've joined.")?;
         println!("\n{url}\n");
     } else {
         show_code(true).await?;
-        outro("It'll show up in `comms` once it has joined.")?;
+        outro("It'll show up in `tincan` once it has joined.")?;
     }
     Ok(())
 }
 
-/// `comms setup` in a terminal.
+/// `tincan setup` in a terminal.
 pub async fn setup_agents() -> Result<()> {
-    intro(" comms setup ")?;
+    intro(" tincan setup ")?;
     agents_and_preferences().await?;
     outro("Restart agent sessions that were already running to pick up changes.")?;
     Ok(())

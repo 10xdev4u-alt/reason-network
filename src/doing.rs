@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn reads_appended_lines_and_rewritten_documents() {
-        let dir = std::env::temp_dir().join(format!("comms-doing-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("tincan-doing-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("t.jsonl");
         std::fs::write(&p, "{\"type\":\"ai-title\",\"aiTitle\":\"First\"}\n{\"partial\":").unwrap();
