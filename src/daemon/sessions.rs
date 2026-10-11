@@ -61,7 +61,18 @@ impl Daemon {
             let name = pick_name(g, &reg, &git, &others)?;
             g.live.insert(
                 key.clone(),
-                Live { reg, name, conn, git, doing: None, since: now, status: None, last_hook: None, push_failed: false },
+                Live {
+                    reg,
+                    name,
+                    conn,
+                    git,
+                    doing: None,
+                    since: now,
+                    status: None,
+                    last_hook: None,
+                    push_failed: false,
+                    transcript: None,
+                },
             );
         }
         let l = &g.live[&key];
@@ -131,15 +142,9 @@ impl Daemon {
     }
 
     /// A hook fired in an agent: keep its session alive, track busy/idle, hand back mail to inject.
-    pub(super) async fn hook(
-        self: &Arc<Self>,
-        agent: &str,
-        event: &str,
-        session_id: &str,
-        cwd: Option<String>,
-        pid: Option<u32>,
-        mail: bool,
-    ) -> Result<HookReply> {
+    pub(super) async fn hook(self: &Arc<Self>, h: HookCall) -> Result<HookReply> {
+        let HookCall { agent, event, session_id, cwd, pid, mail, transcript, doing } = h;
+        let (agent, event) = (agent.as_str(), event.as_str());
         let key = format!("{agent}:{session_id}");
         let now = util::now_ms();
         if event == "end" {
@@ -161,7 +166,7 @@ impl Daemon {
                 key: key.clone(),
                 agent: agent.to_string(),
                 cwd,
-                agent_session_id: Some(session_id.to_string()),
+                agent_session_id: Some(session_id.clone()),
                 pid,
                 tier: Tier::Pull,
                 name: None,
@@ -172,6 +177,16 @@ impl Daemon {
         let mut g = self.inner.lock().unwrap();
         let g = &mut *g;
         let Some(l) = g.live.get_mut(&key) else { return Ok(HookReply::default()) };
+        if let Some(t) = transcript {
+            l.transcript = Some(t.into());
+        }
+        // Only a report: it says nothing about the session's activity or how to reach it.
+        if event == "doing" {
+            if let Some(d) = doing {
+                l.doing = Some(d.trim().chars().take(200).collect::<String>()).filter(|d| !d.is_empty());
+            }
+            return Ok(HookReply::default());
+        }
         l.last_hook = Some(now);
         l.reg.tier = l.reg.tier.min(self.hook_tier(agent, l.push_failed));
         if pid.is_some() {

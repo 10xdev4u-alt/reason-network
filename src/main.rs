@@ -3,6 +3,7 @@ mod claude;
 mod client;
 mod config;
 mod daemon;
+mod doing;
 mod git;
 mod hook;
 mod invite;
@@ -180,6 +181,8 @@ enum Cmd {
         session: Option<String>,
         #[arg(long)]
         state: Option<String>,
+        #[arg(long)]
+        doing: Option<String>,
     },
     /// Run the daemon in the foreground (normally started on demand or by the service)
     Daemon {
@@ -203,8 +206,8 @@ async fn main() -> Result<()> {
         Some(Cmd::Mcp) => mcp::run().await,
         // Blocks this (the main) thread with AppKit's event loop; its daemon calls run on the runtime's workers.
         Some(Cmd::Tray) => tray::run(),
-        Some(Cmd::Hook { agent, event, session, state }) => {
-            hook::run(&agent, &event, session, state).await;
+        Some(Cmd::Hook { agent, event, session, state, doing }) => {
+            hook::run(&agent, &event, session, state, doing).await;
             // Don't wait on anything left behind (a stuck stdin read): the agent is waiting on us.
             std::process::exit(0)
         }
@@ -273,7 +276,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
         }
         Cmd::Status { doing, name } => {
             let Some(key) = current_session() else {
-                bail!("run this from inside an agent session's shell (or use the set_status tool)");
+                bail!("run this from inside an agent session's shell");
             };
             let doing = (!doing.is_empty()).then(|| doing.join(" "));
             let r: Registered = link.call(Request::SetStatus { key, doing, name }).await?;

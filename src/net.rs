@@ -11,7 +11,7 @@ use crate::{
 use anyhow::{Result, anyhow, bail};
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey,
-    endpoint::{Connection, RecvStream, SendStream, presets},
+    endpoint::{ConnectError, ConnectWithOptsError, Connection, RecvStream, SendStream, presets},
     protocol::{AcceptError, ProtocolHandler, Router},
 };
 use iroh_mdns_address_lookup::MdnsAddressLookup;
@@ -145,7 +145,7 @@ async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
 pub async fn join(endpoint: &Endpoint, peers: &[EndpointAddr], req: &JoinRequest) -> Result<TeamState> {
     let mut last = anyhow!("the invite lists no machines");
     for addr in peers {
-        let attempt = async {
+        let attempt = || async {
             let conn = endpoint.connect(addr.clone(), JOIN_ALPN).await?;
             let (mut send, mut recv) = conn.open_bi().await?;
             write_frame(&mut send, req).await?;
@@ -154,7 +154,18 @@ pub async fn join(endpoint: &Endpoint, peers: &[EndpointAddr], req: &JoinRequest
             conn.close(0u32.into(), b"joined");
             anyhow::Ok(reply)
         };
-        match tokio::time::timeout(Duration::from_secs(25), attempt).await {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
+        let reply = loop {
+            match tokio::time::timeout_at(deadline, attempt()).await {
+                // An invite made seconds ago may not have published its address yet: look again shortly.
+                Ok(Err(e)) if unpublished(&e) && tokio::time::Instant::now() + Duration::from_secs(2) < deadline => {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+                r => break r,
+            }
+        };
+        match reply {
             Ok(Ok(JoinReply::Ok { state })) => return Ok(*state),
             // A refusal is final: another machine would say the same.
             Ok(Ok(JoinReply::Err { error })) => bail!(error),
@@ -163,6 +174,11 @@ pub async fn join(endpoint: &Endpoint, peers: &[EndpointAddr], req: &JoinRequest
         }
     }
     Err(last)
+}
+
+/// Nothing is known yet about where that machine is.
+fn unpublished(e: &anyhow::Error) -> bool {
+    matches!(e.downcast_ref::<ConnectError>(), Some(ConnectError::Connect { source: ConnectWithOptsError::NoAddress { .. }, .. }))
 }
 
 #[derive(Debug, Clone)]

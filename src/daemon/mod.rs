@@ -122,6 +122,8 @@ struct Live {
     last_hook: Option<i64>,
     /// Its push channel failed (e.g. `codex queue`); stick to hooks from now on.
     push_failed: bool,
+    /// The agent's transcript (from its hooks), which says what the session is doing.
+    transcript: Option<std::path::PathBuf>,
 }
 
 fn load_key() -> Result<SecretKey> {
@@ -230,9 +232,7 @@ impl Daemon {
                 }
                 Value::Null
             }
-            Request::Hook { agent, event, session_id, cwd, pid, mail } => {
-                json!(self.hook(&agent, &event, &session_id, cwd, pid, mail).await?)
-            }
+            Request::Hook(h) => json!(self.hook(h).await?),
             Request::Attach { agent, cwd } => json!(self.attach(&agent, &cwd)),
             Request::CreateTeam { name, person } => json!(self.create_team(&name, &person).await?),
             Request::Join { ticket, person } => json!(self.join_team(&ticket, &person).await?),

@@ -5,6 +5,7 @@ use super::Daemon;
 use crate::{
     agent,
     claude::{self, ClaudeSession},
+    doing,
     git::GitInfo,
     net::{Presence, Remote},
     proto::*,
@@ -63,6 +64,39 @@ impl Daemon {
             gits.insert(cwd, info);
         }
 
+        // A Claude Code session someone renamed goes by that name here too.
+        let renames: Vec<(String, String)> = {
+            let g = self.inner.lock().unwrap();
+            g.live
+                .iter()
+                .filter_map(|(k, l)| {
+                    let name = util::slug(claude.iter().find(|c| claude_match(c, &l.reg))?.chosen_name()?);
+                    (!name.is_empty() && name != l.name).then(|| (k.clone(), name))
+                })
+                .collect()
+        };
+        for (key, name) in renames {
+            let _ = self.set_status(&key, None, Some(name));
+        }
+        // What each session is doing, from what its agent records anyway (title, task in progress).
+        let sources: Vec<(String, doing::Source)> = {
+            let g = self.inner.lock().unwrap();
+            let live = g.live.iter().map(|(k, l)| {
+                let session = claude.iter().find(|c| claude_match(c, &l.reg)).and_then(|c| c.session_id.clone());
+                let session = session.or_else(|| l.reg.agent_session_id.clone());
+                (k.clone(), doing::Source { agent: l.reg.agent.clone(), session, transcript: l.transcript.clone() })
+            });
+            let unmanaged = claude.iter().map(|c| {
+                let source = doing::Source { agent: agent::CLAUDE_CODE.into(), session: c.session_id.clone(), transcript: None };
+                (format!("pid:{}", c.pid), source)
+            });
+            live.chain(unmanaged).collect()
+        };
+        let doings: HashMap<String, String> = tokio::task::spawn_blocking(move || {
+            sources.into_iter().filter_map(|(k, s)| Some((k, doing::of(&s)?))).collect()
+        })
+        .await?;
+
         let mut g = self.inner.lock().unwrap();
         self.prune(&mut g);
         for l in g.live.values_mut() {
@@ -87,7 +121,7 @@ impl Daemon {
                     row.since = c.status_updated_at.or(row.since);
                 }
             }
-            row.doing = l.doing.clone();
+            row.doing = l.doing.clone().or_else(|| doings.get(&l.reg.key).cloned());
             row.tier = l.reg.tier;
             row.unread = g.store.unread_count(&row.address)?;
             row.is_me = me == Some(l.reg.key.as_str());
@@ -100,6 +134,7 @@ impl Daemon {
                 let mut row = self.row(&name, agent::CLAUDE_CODE, &cwd, gits.get(&cwd));
                 row.status = c.status.clone().unwrap_or_else(|| "live".into());
                 row.since = c.status_updated_at.or(c.started_at);
+                row.doing = doings.get(&format!("pid:{}", c.pid)).cloned();
                 rows.push(row);
             }
         }

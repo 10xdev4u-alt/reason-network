@@ -59,9 +59,14 @@ pub fn lock() -> PathBuf {
     home().join("daemon.lock")
 }
 
+/// Claude Code's own directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`).
+pub fn claude_dir() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| user_home().join(".claude"))
+}
+
 /// Claude Code's registry of live sessions, one `<pid>.json` per session.
 pub fn claude_sessions() -> PathBuf {
-    user_home().join(".claude/sessions")
+    claude_dir().join("sessions")
 }
 
 pub fn ensure_home() -> std::io::Result<()> {

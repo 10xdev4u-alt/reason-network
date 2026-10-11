@@ -47,6 +47,20 @@ check("FYI messages wait for a pause (not injected mid-turn)", out == "", out)
 out = hook("cursor", "stop", cur)
 check("cursor stop → followup_message with the FYI", '"followup_message"' in out and "deploy at 5" in out, out)
 
+# What a session is doing comes from its transcript (title, todo in progress), never from the agent reporting it.
+tp = os.path.join(D, "cursor-transcript.jsonl")
+with open(tp, "w") as f:
+    f.write(json.dumps({"role": "assistant", "tool": "todo_write", "args": {"todos": [
+        {"content": "Read the config loader", "status": "completed"},
+        {"content": "Rename the config loader", "status": "in_progress"}]}}) + "\n")
+hook("cursor", "post-tool-use", dict(cur, transcript_path=tp))
+out = run("who", "proj-cursor")
+check("the todo in progress in the transcript shows as what the session is doing", "doing: Rename the config loader" in out, out)
+with open(tp, "a") as f:
+    f.write(json.dumps({"args": {"todos": [{"content": "Rename the config loader", "status": "completed"}]}}) + "\n")
+out = run("who", "proj-cursor")
+check("…and goes away once it's done", "doing:" not in out, out)
+
 # Gemini
 gem = {"session_id": "g-1", "cwd": D, "hook_event_name": "SessionStart"}
 hook("gemini", "session-start", gem)
@@ -74,6 +88,9 @@ out = run("hook", "opencode", "poll", "--session", "o-1", cwd=oc)
 check("opencode poll prints the framed message as plain text", out.startswith("<comms-message") and "opencode: ping" in out, out)
 out = run("hook", "opencode", "poll", "--session", "o-1", cwd=oc)
 check("…and nothing the next time", out == "", out)
+run("hook", "opencode", "doing", "--session", "o-1", "--doing", "Flaky login test · Bisecting the failure", cwd=oc)
+out = run("who", "oc-proj")
+check("the opencode plugin reports title and todo", "doing: Flaky login test · Bisecting the failure" in out, out)
 
 # Session end removes hook-only sessions.
 hook("gemini", "session-end", gem)

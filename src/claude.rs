@@ -11,6 +11,8 @@ pub struct ClaudeSession {
     pub session_id: Option<String>,
     pub cwd: Option<String>,
     pub name: Option<String>,
+    /// `user` after a `/rename` (`derived` for the default name).
+    pub name_source: Option<String>,
     pub status: Option<String>,
     pub status_updated_at: Option<i64>,
     pub started_at: Option<i64>,
@@ -26,4 +28,12 @@ pub fn scan() -> Vec<ClaudeSession> {
         .filter_map(|p| serde_json::from_str::<ClaudeSession>(&std::fs::read_to_string(p).ok()?).ok())
         .filter(|s| util::pid_alive(s.pid))
         .collect()
+}
+
+impl ClaudeSession {
+    /// The name someone chose for the session (`/rename`), as opposed to the one Claude Code made up.
+    pub fn chosen_name(&self) -> Option<&str> {
+        let chosen = matches!(self.name_source.as_deref(), Some("user" | "peer" | "hook"));
+        self.name.as_deref().filter(|_| chosen)
+    }
 }

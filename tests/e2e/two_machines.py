@@ -109,14 +109,19 @@ subprocess.run([BIN, "stop"], env=bob, capture_output=True)
 claude = Mcp("alex", "claude-code", strip_claude=False, cwd=ROOT)
 codex = Mcp("alice", "codex-mcp-client", strip_claude=True, cwd=os.path.join(D, "work"))
 meta = {"sessionId": "11111111-aaaa", "threadId": "11111111-aaaa"}
-time.sleep(4)
-codex.tool("set_status", {"doing": "testing cross-machine comms"}, meta)
-time.sleep(3)  # presence propagates every 2s
+time.sleep(7)  # Claude's session registers after 3s; presence propagates every 2s
 out = codex.tool("list_team", {}, meta)
 claude_name = os.path.basename(ROOT).lower() + "-claude"
 check("alice's agent sees alex's session across machines", claude_name in out and "alex · laptop" in out, out)
+# (After Codex's first tool call registered it.) Nobody reports a status: comms reads the plan step in progress from Codex's own transcript.
+rollout = os.path.join(D, "rollout.jsonl")
+plan = {"plan": [{"step": "set up fixtures", "status": "completed"}, {"step": "testing cross-machine comms", "status": "in_progress"}]}
+with open(rollout, "w") as f:
+    f.write(json.dumps({"type": "response_item", "payload": {"type": "function_call", "name": "update_plan", "arguments": json.dumps(plan)}}) + "\n")
+hook("alice", "codex", "doing", {"session_id": "11111111-aaaa", "cwd": os.path.join(D, "work"), "transcript_path": rollout})
+time.sleep(3)
 out = cli("alex", "who")
-check("alex sees alice's codex and its status", "work-codex" in out and "testing cross-machine comms" in out, out)
+check("alex sees what alice's codex is doing, read from its plan", "work-codex" in out and "testing cross-machine comms" in out, out)
 
 # --- messages across machines ---
 out = codex.tool("send_message", {"to": f"alex/{claude_name}", "message": "comms e2e (cross-machine push): ignore this."}, meta)

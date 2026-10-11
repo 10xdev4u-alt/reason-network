@@ -58,7 +58,10 @@ and copies the team link. "Hide menu bar icon" turns it off (`comms setup` turns
 | `list_team` | Every live session: who, which machine, which agent, repo@branch, busy/idle, what it's doing |
 | `send_message` | To a session, a person, a whole repo, or everyone (below) |
 | `check_inbox` | Read messages, optionally wait for one (a reply, say) |
-| `set_status` | The one line teammates see about what this session is doing; rename it |
+
+Agents don't report anything. What a session is doing comes from what its agent records anyway: its title
+(Claude Code and Codex name every session) and the task in progress on its todo list. A Claude Code session
+you `/rename` keeps that name on comms.
 
 | Address | Means |
 |---|---|

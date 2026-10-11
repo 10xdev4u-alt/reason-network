@@ -9,11 +9,11 @@ use std::{
     time::Duration,
 };
 
-pub async fn run(agent_name: &str, event: &str, session: Option<String>, state: Option<String>) {
+pub async fn run(agent_name: &str, event: &str, session: Option<String>, state: Option<String>, doing: Option<String>) {
     let input = if session.is_none() { read_stdin(Duration::from_secs(3)) } else { String::new() };
     let link = Link::new(None);
     let Ok(Some((out, key, ids))) =
-        tokio::time::timeout(Duration::from_secs(8), handle(&link, agent_name, event, &input, session, state)).await
+        tokio::time::timeout(Duration::from_secs(8), handle(&link, agent_name, event, &input, session, state, doing)).await
     else {
         return;
     };
@@ -43,6 +43,7 @@ async fn handle(
     input: &str,
     session: Option<String>,
     state: Option<String>,
+    doing: Option<String>,
 ) -> Option<(String, String, Vec<String>)> {
     let v: Value = serde_json::from_str(input).unwrap_or(Value::Null);
     let agent = agent::from_client_name(agent_name).unwrap_or(agent_name);
@@ -61,29 +62,31 @@ async fn handle(
         ("session-end", _) => "end",
         ("status", Some("busy" | "retry")) => "prompt",
         ("status", _) => "stop",
+        ("doing", _) => "doing",
         _ => return None,
     };
     // Prompt-submit hooks in Cursor and Copilot can't add context, and opencode's status call shows nothing.
-    let mail = !matches!((agent, event), ("cursor" | "copilot", "user-prompt-submit") | (_, "status"));
+    let mail = !matches!((agent, event), ("cursor" | "copilot", "user-prompt-submit") | (_, "status" | "doing"));
 
     let key = format!("{agent}:{session_id}");
-    let req = Request::Hook {
+    let req = Request::Hook(HookCall {
         agent: agent.to_string(),
         event: ev.to_string(),
         session_id,
         cwd,
         pid: agent::hook_agent_pid(),
         mail,
-    };
+        transcript: str_at("transcript_path"),
+        doing,
+    });
     let reply: HookReply = link.call(req).await.ok()?;
     let ids = reply.ids;
     let text = match (reply.text, ev, reply.address) {
         (Some(t), ..) => t,
         // Say who it is on comms once, at session start.
-        (None, "start", Some(addr)) => format!(
-            "company-comms: you are {addr}. Teammates' agents can message you; use list_team and send_message to \
-             reach them, and set_status to say what you are working on."
-        ),
+        (None, "start", Some(addr)) => {
+            format!("company-comms: you are {addr}. Teammates' agents can message you; list_team and send_message reach them.")
+        }
         _ => return None,
     };
     Some((format_for(agent, event, ev, &text), key, ids))

@@ -56,6 +56,27 @@ pub struct SessionReg {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookCall {
+    pub agent: String,
+    /// `start`, `prompt`, `tool`, `stop`, `end`, or `doing` (only reports what the session is doing).
+    pub event: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub pid: Option<u32>,
+    /// False when this event can't show the agent anything (so mail stays for a later event).
+    #[serde(default = "yes")]
+    pub mail: bool,
+    /// The agent's transcript, which says what the session is doing.
+    #[serde(default)]
+    pub transcript: Option<String>,
+    /// What the session is doing, from agents that say so themselves (the opencode plugin).
+    #[serde(default)]
+    pub doing: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Register {
@@ -108,19 +129,7 @@ pub enum Request {
         ids: Vec<String>,
     },
     /// An agent hook fired (`comms hook`): keeps hook-only sessions alive and returns mail to inject.
-    Hook {
-        agent: String,
-        /// `start`, `prompt`, `tool`, `stop` or `end`.
-        event: String,
-        session_id: String,
-        #[serde(default)]
-        cwd: Option<String>,
-        #[serde(default)]
-        pid: Option<u32>,
-        /// False when this event can't show the agent anything (so mail stays for a later event).
-        #[serde(default = "yes")]
-        mail: bool,
-    },
+    Hook(HookCall),
     /// For agents whose MCP calls carry no session id (Cursor, opencode): the hook-known session of this agent
     /// that is most likely making the call.
     Attach {

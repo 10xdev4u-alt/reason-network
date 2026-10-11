@@ -1,5 +1,6 @@
 // company-comms for opencode: written by `comms setup`, removed by `comms setup --remove`.
-// Reports each session's busy/idle state to comms, and delivers teammates' messages into idle sessions.
+// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to comms, and
+// delivers teammates' messages into idle sessions.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 
@@ -15,6 +16,12 @@ export const CompanyComms: Plugin = async ({ client, directory }) => {
   const subagents = new Set<string>()
   const delivering = new Set<string>()
   const last = new Map<string, { agent?: string; model?: { providerID: string; modelID: string } }>()
+  const titles = new Map<string, string>()
+  const tasks = new Map<string, string>()
+  const doing = (id: string) => {
+    const line = [titles.get(id), tasks.get(id)].filter(Boolean).join(" · ")
+    void run(["hook", "opencode", "doing", "--session", id, "--doing", line], directory)
+  }
 
   const deliver = async (id: string) => {
     if (delivering.has(id) || subagents.has(id)) return
@@ -37,6 +44,22 @@ export const CompanyComms: Plugin = async ({ client, directory }) => {
       if (e.type === "message.updated" && e.properties?.info?.role === "user") {
         const m = e.properties.info
         last.set(m.sessionID, { agent: m.agent, model: m.model })
+      }
+      if (e.type === "session.updated") {
+        const { id, title } = e.properties?.info ?? {}
+        // Until opencode names it, a session is "New session - <date>".
+        if (id && title && !title.startsWith("New session") && titles.get(id) !== title && !subagents.has(id)) {
+          titles.set(id, title)
+          doing(id)
+        }
+      }
+      if (e.type === "todo.updated") {
+        const { sessionID, todos } = e.properties ?? {}
+        const now = (todos ?? []).find((t: any) => t.status === "in_progress")?.content ?? ""
+        if (sessionID && tasks.get(sessionID) !== now && !subagents.has(sessionID)) {
+          tasks.set(sessionID, now)
+          doing(sessionID)
+        }
       }
       if (e.type === "session.status") {
         const { sessionID, status } = e.properties

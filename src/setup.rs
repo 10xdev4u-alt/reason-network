@@ -85,7 +85,21 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
 }
 
 fn write_json(path: &Path, v: &Value, dry: bool) -> Result<bool> {
+    // Removing comms from a config that never existed leaves an empty shell: don't create a file for that.
+    if !path.exists() && hollow(v) {
+        return Ok(false);
+    }
     write_file(path, &(serde_json::to_string_pretty(v)? + "\n"), dry)
+}
+
+/// Only empty objects and arrays.
+fn hollow(v: &Value) -> bool {
+    match v {
+        Value::Object(o) => o.values().all(hollow),
+        Value::Array(a) => a.is_empty(),
+        Value::Null => true,
+        _ => false,
+    }
 }
 
 /// `v` as a JSON object (creating it if absent); anything else is left alone and reported.
@@ -132,7 +146,7 @@ fn merge_hook_groups(hooks: &mut Map<String, Value>, agent: &str, groups: Vec<(&
 
 fn changed(path: &Path, did: bool) -> String {
     let p = crate::util::tilde(&path.display().to_string());
-    if did { format!("updated {p}") } else { format!("{p} already set") }
+    if did { format!("updated {p}") } else { format!("{p} unchanged") }
 }
 
 // ---- Claude Code ----
@@ -335,10 +349,12 @@ fn copilot(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
     let hooks_path = dir.join("hooks/comms.json");
     if remove {
-        if hooks_path.exists() && !dry {
-            std::fs::remove_file(&hooks_path)?;
+        if hooks_path.exists() {
+            if !dry {
+                std::fs::remove_file(&hooks_path)?;
+            }
+            r.lines.push(format!("removed {}", crate::util::tilde(&hooks_path.display().to_string())));
         }
-        r.lines.push(format!("removed {}", crate::util::tilde(&hooks_path.display().to_string())));
     } else {
         let entry = |event: &str| json!([{ "type": "command", "bash": shell_cmd(exe, &format!("hook copilot {event}")), "timeoutSec": 10 }]);
         let v = json!({ "version": 1, "hooks": {
@@ -382,10 +398,12 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     }
     let plugin = dir.join("plugins/comms.ts");
     if remove {
-        if plugin.exists() && !dry {
-            std::fs::remove_file(&plugin)?;
+        if plugin.exists() {
+            if !dry {
+                std::fs::remove_file(&plugin)?;
+            }
+            r.lines.push(format!("removed {}", crate::util::tilde(&plugin.display().to_string())));
         }
-        r.lines.push(format!("removed {}", crate::util::tilde(&plugin.display().to_string())));
     } else {
         let code = include_str!("opencode-plugin.ts").replace("__COMMS_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&plugin, write_file(&plugin, &code, dry)?));
