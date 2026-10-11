@@ -324,8 +324,8 @@ impl Daemon {
         let pool: Vec<&&Cand> = if live.is_empty() { found.iter().collect() } else { live };
         match pool.as_slice() {
             [] => bail!(
-                "no session called '{spec}'. Run list_team to see who is around (sessions marked 'not on comms' \
-                 can't receive)."
+                "no session called '{spec}'. Run list_team to see who is around (sessions without comms can't \
+                 receive)."
             ),
             [one] => Ok(vec![target(one)]),
             many => {

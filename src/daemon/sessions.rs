@@ -113,12 +113,13 @@ impl Daemon {
         Ok(Registered { name: live.name.clone(), unread: g.store.unread_count(&address)?, address })
     }
 
-    pub(super) fn unread(&self, key: &str) -> Result<Unread> {
+    pub(super) fn unread(&self, key: Option<&str>) -> Result<Unread> {
         let mut g = self.inner.lock().unwrap();
-        let Some(l) = g.live.get(key) else {
-            return Ok(Unread { count: 0, from: Vec::new() });
+        let address = match key.map(|k| g.live.get(k)) {
+            None => self.person.clone(),
+            Some(Some(l)) => self.addr(&l.name),
+            Some(None) => return Ok(Unread { count: 0, from: Vec::new() }),
         };
-        let address = self.addr(&l.name);
         let msgs = g.pending(&address)?;
         let mut from: Vec<String> = Vec::new();
         for m in &msgs {

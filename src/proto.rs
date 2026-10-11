@@ -97,8 +97,10 @@ pub enum Request {
         #[serde(default)]
         peek: bool,
     },
+    /// Unread messages for a session, or (`None`) for the human here.
     Unread {
-        key: String,
+        #[serde(default)]
+        key: Option<String>,
     },
     /// The client injected these messages into its agent's conversation.
     Delivered {

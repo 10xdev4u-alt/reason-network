@@ -167,6 +167,9 @@ pub async fn agents_and_preferences() -> Result<()> {
     cfg.share_paths = confirm("Show teammates your full working directories? (otherwise just the folder name)")
         .initial_value(cfg.share_paths)
         .interact()?;
+    if cfg!(target_os = "macos") && service {
+        cfg.tray = confirm("Show comms in the menu bar?").initial_value(cfg.tray).interact()?;
+    }
     cfg.save()?;
 
     let remove: Vec<&str> = found.iter().filter(|f| f.wired && !chosen.contains(&f.id)).map(|f| f.id).collect();

@@ -140,7 +140,7 @@ impl CommsMcp {
             Err(e) => return Ok(failure(e)),
         };
         let req = Request::Who { me: Some(key.clone()), filter: a.filter, all: a.all.unwrap_or(false) };
-        let res = self.link.call::<Directory>(req).await.map(|d| render::directory(&d));
+        let res = self.link.call::<Directory>(req).await.map(|d| render::directory(&d, true));
         Ok(self.finish(&key, res, true).await)
     }
 
@@ -276,7 +276,7 @@ impl CommsMcp {
         match res {
             Ok(mut text) => {
                 if notice
-                    && let Ok(u) = self.link.call::<Unread>(Request::Unread { key: key.to_string() }).await
+                    && let Ok(u) = self.link.call::<Unread>(Request::Unread { key: Some(key.to_string()) }).await
                     && let Some(n) = render::unread_notice(&u)
                 {
                     text.push_str("\n\n");

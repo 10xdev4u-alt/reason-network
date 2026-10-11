@@ -54,9 +54,25 @@ pub async fn run(service: bool) -> Result<()> {
     {
         log(&format!("network not started: {e:#}"));
     }
+    if service && daemon.cfg.tray() {
+        tokio::spawn(tray());
+    }
     loop {
         let (stream, _) = listener.accept().await?;
         tokio::spawn(daemon.clone().serve(stream));
+    }
+}
+
+/// Keeps the menu bar icon up while we run. It exits 0 when the user hides it, and on its own when we exit.
+async fn tray() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    for _ in 0..5 {
+        match tokio::process::Command::new(&exe).arg("tray").stdin(std::process::Stdio::null()).status().await {
+            Ok(st) if st.success() => return,
+            Ok(st) => log(&format!("menu bar icon exited ({st}); restarting it")),
+            Err(e) => return log(&format!("menu bar icon not started: {e}")),
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 
@@ -205,7 +221,7 @@ impl Daemon {
             Request::Who { me, filter, all } => json!(self.who(me, filter, all).await?),
             Request::Send { from, to, body, reply_to, wake } => json!(self.send(from, &to, &body, reply_to, wake).await?),
             Request::Inbox { key, wait_secs, peek } => json!(self.inbox(key, wait_secs.min(MAX_WAIT), peek).await?),
-            Request::Unread { key } => json!(self.unread(&key)?),
+            Request::Unread { key } => json!(self.unread(key.as_deref())?),
             Request::Delivered { ids, .. } => {
                 let mut g = self.inner.lock().unwrap();
                 g.store.mark_read(&ids, util::now_ms())?;

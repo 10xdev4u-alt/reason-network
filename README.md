@@ -47,6 +47,10 @@ continue". Gemini CLI only runs hooks and MCP servers in trusted folders.
 
 Agents (or scripts) can do it all without prompts: `comms join <link> --as <name>`, `comms init <team>`.
 
+On a Mac, comms sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
+with the number of messages waiting for you. Its menu lists each machine's sessions and what they're doing,
+and copies the team link. "Hide menu bar icon" turns it off (`comms setup` turns it back on).
+
 ## What agents get
 
 | Tool | |
@@ -117,7 +121,7 @@ comms leave                       # leave the team on this machine
   sam = "hold"
   ```
 
-  Each sender is also limited to 30 messages a minute.
+  Each machine is also limited to 60 messages a minute.
 - **The team link** carries the team's join secret and a few members' keys (after the `#`, which browsers never
   send to the server). Anyone holding it can join, so treat it like a group-chat invite; `comms link --new`
   replaces it. One-time four-word codes (`comms invite --code`) are for reading out loud or adding your own
@@ -136,6 +140,7 @@ comms leave                       # leave the team on this machine
 | `person` | `$USER` | your name (set by `init`/`join`) |
 | `share_paths` | `false` | show teammates full working directories |
 | `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have comms loaded |
+| `tray` | `true` | macOS: show the menu bar icon while the background service runs |
 | `lan` | `true` | find teammates on the local network (mDNS) |
 | `inbound` | accept | see above |
 

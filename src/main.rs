@@ -14,6 +14,7 @@ mod render;
 mod setup;
 mod store;
 mod team;
+mod tray;
 mod util;
 mod wizard;
 
@@ -190,6 +191,9 @@ enum Cmd {
     Stop,
     /// Run the MCP server on stdio (what agents launch)
     Mcp,
+    /// The menu bar icon (macOS; the background service starts it)
+    #[command(hide = true)]
+    Tray,
 }
 
 #[tokio::main]
@@ -197,6 +201,8 @@ async fn main() -> Result<()> {
     match Cli::parse().cmd {
         Some(Cmd::Daemon { service }) => daemon::run(service).await,
         Some(Cmd::Mcp) => mcp::run().await,
+        // Blocks this (the main) thread with AppKit's event loop; its daemon calls run on the runtime's workers.
+        Some(Cmd::Tray) => tray::run(),
         Some(Cmd::Hook { agent, event, session, state }) => {
             hook::run(&agent, &event, session, state).await;
             // Don't wait on anything left behind (a stuck stdin read): the agent is waiting on us.
@@ -236,7 +242,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&d)?);
             } else {
-                print!("{}", render::directory(&d));
+                print!("{}", render::directory(&d, false));
             }
         }
         Cmd::Send { to, message, reply_to, fyi } => {
@@ -389,7 +395,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("The daemon is not running.");
             }
         }
-        Cmd::Daemon { .. } | Cmd::Mcp | Cmd::Hook { .. } => unreachable!("handled in main"),
+        Cmd::Daemon { .. } | Cmd::Mcp | Cmd::Hook { .. } | Cmd::Tray => unreachable!("handled in main"),
     }
     Ok(())
 }

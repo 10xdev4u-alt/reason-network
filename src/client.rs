@@ -36,11 +36,22 @@ pub struct Link {
     /// Where pushed events go. `None` for one-shot clients, which also don't reconnect.
     events: Option<mpsc::UnboundedSender<Event>>,
     next_id: AtomicU64,
+    /// Start the daemon when it isn't running.
+    start: bool,
 }
 
 impl Link {
     pub fn new(events: Option<mpsc::UnboundedSender<Event>>) -> Arc<Self> {
-        Arc::new(Link { conn: Default::default(), regs: Default::default(), events, next_id: AtomicU64::new(1) })
+        Self::with(events, true)
+    }
+
+    /// A one-shot client that never starts the daemon: it fails while none is running.
+    pub fn existing() -> Arc<Self> {
+        Self::with(None, false)
+    }
+
+    fn with(events: Option<mpsc::UnboundedSender<Event>>, start: bool) -> Arc<Self> {
+        Arc::new(Link { conn: Default::default(), regs: Default::default(), events, next_id: AtomicU64::new(1), start })
     }
 
     pub async fn call<T: DeserializeOwned>(self: &Arc<Self>, req: Request) -> Result<T> {
@@ -80,7 +91,7 @@ impl Link {
         {
             return Ok(c.clone());
         }
-        let c = self.spawn_io(connect_or_start().await?);
+        let c = self.spawn_io(connect_or_start(self.start).await?);
         let regs: Vec<SessionReg> = self.regs.lock().unwrap().values().cloned().collect();
         for reg in regs {
             self.raw(&c, &Request::Register { session: reg }).await?;
@@ -137,10 +148,13 @@ async fn reconnect(link: Weak<Link>) {
     }
 }
 
-async fn connect_or_start() -> Result<UnixStream> {
+async fn connect_or_start(start: bool) -> Result<UnixStream> {
     let sock = paths::socket();
     if let Ok(s) = UnixStream::connect(&sock).await {
         return Ok(s);
+    }
+    if !start {
+        bail!("the comms daemon isn't running");
     }
     start_daemon()?;
     for _ in 0..60 {

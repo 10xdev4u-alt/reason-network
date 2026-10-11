@@ -14,6 +14,8 @@ pub struct Config {
     pub share_unmanaged: bool,
     /// Find teammates on the local network with mDNS.
     pub lan: bool,
+    /// Show the menu bar icon (macOS, while the background service runs).
+    pub tray: bool,
     pub inbound: Inbound,
 }
 
@@ -37,7 +39,7 @@ pub enum Policy {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, inbound: Inbound::default() }
+        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, inbound: Inbound::default() }
     }
 }
 
@@ -85,5 +87,9 @@ impl Config {
 
     pub fn lan(&self) -> bool {
         self.lan && std::env::var_os("COMMS_NO_MDNS").is_none()
+    }
+
+    pub fn tray(&self) -> bool {
+        cfg!(target_os = "macos") && self.tray && std::env::var_os("COMMS_NO_TRAY").is_none()
     }
 }
