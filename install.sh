@@ -10,7 +10,7 @@
 # TINCAN_DOWNLOAD_BASE (a mirror serving the release files), TINCAN_NO_PROMPT (never ask anything: updates).
 set -eu
 
-repo="${TINCAN_REPO:-asdf9384/tincan}"
+repo="${TINCAN_REPO:-larstalian/tincan}"
 bin_dir="${TINCAN_BIN_DIR:-$HOME/.local/bin}"
 version="${TINCAN_VERSION:-latest}"
 

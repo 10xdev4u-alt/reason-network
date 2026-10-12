@@ -29,7 +29,7 @@ use std::{io::Read, time::Duration};
 /// project's domain.
 pub const SITE_URL: &str = match option_env!("TINCAN_SITE_URL") {
     Some(u) if !u.is_empty() => u,
-    _ => "https://asdf9384.github.io/tincan",
+    _ => "https://larstalian.github.io/tincan",
 };
 
 pub fn install_url() -> String {

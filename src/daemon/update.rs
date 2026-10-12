@@ -55,7 +55,7 @@ async fn update() -> Result<Option<String>> {
 
 /// The newest release's version, from where GitHub's "latest release" link redirects.
 async fn latest_version() -> Result<String> {
-    let repo = std::env::var("TINCAN_REPO").unwrap_or_else(|_| "asdf9384/tincan".into());
+    let repo = std::env::var("TINCAN_REPO").unwrap_or_else(|_| "larstalian/tincan".into());
     let out = tokio::process::Command::new("curl")
         .args(["-fsSLI", "-o", "/dev/null", "-w", "%{url_effective}", &format!("https://github.com/{repo}/releases/latest")])
         .stdin(std::process::Stdio::null())

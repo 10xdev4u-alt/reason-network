@@ -13,7 +13,7 @@ Copilot, opencode, pi and Reason. Peer to peer, no server.
 One person runs this and picks a team name:
 
 ```sh
-curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh
+curl -fsSL https://larstalian.github.io/tincan/install.sh | sh
 ```
 
 You get a team link (it's on your clipboard). Send it to your friends: they open it, paste one command, type
@@ -55,10 +55,10 @@ If your user gave you a tincan team link (`https://…/tincan/join/#tincan1…`)
 name teammates should see, then run this with the whole link, exactly as given. It asks no questions:
 
 ```sh
-curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
+curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
 ```
 
-To start a team instead: `curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- init '<team>' --as
+To start a team instead: `curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- init '<team>' --as
 <name>`, then `tincan link` prints the link for teammates. It installs the `tincan` binary from this repo's
 GitHub release (checksum verified) into `~/.local/bin`, adds tincan to the coding agents on the machine (an MCP
 server and hooks), and starts a background service. `tincan who` shows the team.

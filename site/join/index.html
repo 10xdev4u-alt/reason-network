@@ -45,7 +45,7 @@
   <div id="ok">
     <h1>Join <span id="team">a team</span> on tincan</h1>
     <p class="lede">Paste this in a terminal (macOS or Linux), then type your name:</p>
-    <div class="cmd"><pre id="cmd">curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">Copy</button></div>
+    <div class="cmd"><pre id="cmd">curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">Copy</button></div>
     <p class="muted" style="margin:18px 0 6px">Or tell your coding agent:</p>
     <div class="cmd"><pre id="agent">Join my tincan team: &lt;the whole link to this page&gt;</pre><button id="copy-agent" type="button">Copy</button></div>
     <p class="muted" style="margin-top:28px">Teammates see your name and what your agent sessions are working on.
@@ -54,12 +54,12 @@
   <section id="for-agents" class="card">
     <h2>For AI agents</h2>
     <p>If your user gave you a link to this page (<code>…/tincan/join/#tincan1…</code>), they want to join a team on
-      tincan, an open-source tool (<a href="https://github.com/asdf9384/tincan">github.com/asdf9384/tincan</a>) that lets
+      tincan, an open-source tool (<a href="https://github.com/larstalian/tincan">github.com/larstalian/tincan</a>) that lets
       their coding agents and their teammates' agents see what each session is working on and message each other.
       The invite is the part of the link after <code>#</code>, which this page never receives: use the whole link
       exactly as your user gave it to you.</p>
     <p>Ask your user what name their teammates should see (a first name, like <code>alex</code>), then run:</p>
-    <pre>curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</pre>
+    <pre>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</pre>
     <p>It asks no questions. It downloads the tincan binary for this OS and CPU from the project's GitHub release
       (checksum verified) into <code>~/.local/bin</code>, joins the team, adds tincan to the coding agents installed
       here (an MCP server and hooks for Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi; Reason if
