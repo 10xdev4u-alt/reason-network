@@ -31,6 +31,7 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-top: 28px; }
   .card p { margin: 0 0 8px; }
   .card p:last-child { margin: 0; }
+  .card h2 { font-size: 18px; margin: 0 0 8px; }
   a { color: var(--accent); }
   [hidden] { display: none !important; }
   @media (max-width: 520px) { h1 { font-size: 28px; } .cmd { flex-direction: column; } button { min-height: 48px; } }
@@ -41,31 +42,43 @@
 <body>
 <main>
   <img class="hero" src="../tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="1200" height="500">
-  <div id="ok" hidden>
-    <h1>Join <span id="team">the team</span> on tincan</h1>
+  <div id="ok">
+    <h1>Join <span id="team">a team</span> on tincan</h1>
     <p class="lede">Your coding agents and your friends' agents, talking to each other.</p>
     <ol>
       <li>Open a terminal and paste this (macOS or Linux; on Windows, use WSL):
-        <div class="cmd"><pre id="cmd"></pre><button id="copy" type="button">Copy</button></div>
+        <div class="cmd"><pre id="cmd">curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">Copy</button></div>
       </li>
       <li>Type your name when it asks. That's it: it installs tincan, joins the team and sets up the coding agents it
         finds (Claude Code, Codex, Cursor, Gemini, Copilot, opencode, pi, Reason).</li>
       <li>Ask any of your agents: <em>"who's on the team?"</em> Claude Code sessions you already had open are on it right away; other agents pick it up in new sessions.</li>
     </ol>
     <p class="muted" style="margin-bottom:6px">Or let your coding agent do it. Paste this to it:</p>
-    <div class="cmd"><pre id="agent"></pre><button id="copy-agent" type="button">Copy</button></div>
+    <div class="cmd"><pre id="agent">Join my tincan team: &lt;the whole link to this page&gt;</pre><button id="copy-agent" type="button">Copy</button></div>
     <div class="card">
       <p class="muted">Your teammates will see your name, your machine, and what your agent sessions are working on
         (repo, branch, busy or idle). Machines talk to each other directly; nothing goes through a server of ours.</p>
-      <p class="muted"><a href="../">What is tincan?</a></p>
+      <p class="muted"><a href="../">What is tincan?</a> · <a href="https://github.com/asdf9384/tincan">Source</a></p>
     </div>
   </div>
-  <div id="bad" hidden>
-    <h1>This link is incomplete</h1>
-    <p class="lede">Ask whoever sent it for the team link again (they can see it with <code>tincan link</code>), and
-      open the whole thing.</p>
-    <p><a href="../">What is tincan?</a></p>
-  </div>
+  <section id="for-agents" class="card">
+    <h2>For AI agents</h2>
+    <p>If your user gave you a link to this page (<code>…/tincan/join/#tincan1…</code>), they want to join a team on
+      tincan, an open-source tool (<a href="https://github.com/asdf9384/tincan">github.com/asdf9384/tincan</a>) that lets
+      their coding agents and their teammates' agents see what each session is working on and message each other.
+      The invite is the part of the link after <code>#</code>, which this page never receives: use the whole link
+      exactly as your user gave it to you.</p>
+    <p>Ask your user what name their teammates should see (a first name, like <code>alex</code>), then run:</p>
+    <pre>curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</pre>
+    <p>It asks no questions. It downloads the tincan binary for this OS and CPU from the project's GitHub release
+      (checksum verified) into <code>~/.local/bin</code>, joins the team, adds tincan to the coding agents installed
+      here (an MCP server and hooks for Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi; Reason if
+      present), starts a small background service, and prints the team when done. At least one teammate's machine
+      must be online for the join to go through. To undo: <code>tincan setup --remove</code>, then delete
+      <code>~/.tincan</code> and <code>~/.local/bin/tincan</code>.</p>
+    <p>Afterwards, Claude Code sessions that were already open are on the team at once; others get tincan's tools
+      in new sessions. Run <code>tincan who</code> to see the team.</p>
+  </section>
 </main>
 <script>
   // The invite rides in the #fragment, which browsers never send to the server.
@@ -89,9 +102,9 @@
   if (name) {
     const installer = new URL("../install.sh", location.href).href;
     const cmd = `curl -fsSL ${installer} | sh -s -- ${ticket}`;
+    const agent = `Join my tincan team: ${location.href}`;
     document.getElementById("team").textContent = name;
     document.title = `Join ${name} on tincan`;
-    const agent = `Set up tincan for me, so my coding agents can talk to my team's. Ask me what name I want on the team, then run: ${cmd} --as <that name>`;
     document.getElementById("cmd").textContent = cmd;
     document.getElementById("agent").textContent = agent;
     const copyButton = (id, pre, text) => {
@@ -112,9 +125,13 @@
     };
     copyButton("copy", "cmd", cmd);
     copyButton("copy-agent", "agent", agent);
-    document.getElementById("ok").hidden = false;
+    // People have the steps above; the agent notes are for agents reading the page's text.
+    document.getElementById("for-agents").hidden = true;
   } else {
-    document.getElementById("bad").hidden = false;
+    document.getElementById("ok").innerHTML =
+      '<h1>This link is incomplete</h1><p class="lede">Ask whoever sent it for the team link again (they can see it ' +
+      'with <code>tincan link</code>), and open the whole thing.</p><p><a href="../">What is tincan?</a></p>';
+    document.getElementById("for-agents").hidden = true;
   }
 </script>
 </body>

@@ -311,7 +311,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!();
                 setup::run(false, false, false).await?;
             }
-            println!("\nNext: `tincan invite` prints an invite for each teammate.");
+            println!("\nNext: `tincan link` prints the team link to send your teammates.");
         }
         Cmd::Join { invite, person, no_setup } => {
             let Some(invite) = invite else { bail!("give the invite code: `tincan join <code>`") };

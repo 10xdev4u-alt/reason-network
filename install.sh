@@ -2,7 +2,9 @@
 # Installs tincan for macOS or Linux.
 #
 #   curl -fsSL <this url> | sh                      install, then set up (start or join a team)
-#   curl -fsSL <this url> | sh -s -- <invite code>  install, then join that team
+#   curl -fsSL <this url> | sh -s -- <team link>    install, then join that team
+#   curl -fsSL <this url> | sh -s -- <team link> --as <name>     the same, without questions (for agents)
+#   curl -fsSL <this url> | sh -s -- init <team> --as <name>     install and start a team, without questions
 #
 # Environment: TINCAN_BIN_DIR (default ~/.local/bin), TINCAN_VERSION (default latest), TINCAN_REPO,
 # TINCAN_DOWNLOAD_BASE (a mirror serving the release files).
@@ -65,12 +67,12 @@ esac
 if { : </dev/tty; } 2>/dev/null; then
   case "${1:-}" in
     "") exec "$bin_dir/tincan" </dev/tty ;;
-    -*) exec "$bin_dir/tincan" "$@" </dev/tty ;;
+    -*|init|join|setup) exec "$bin_dir/tincan" "$@" </dev/tty ;;
     *) exec "$bin_dir/tincan" join "$@" </dev/tty ;;
   esac
 fi
 case "${1:-}" in
   "") say ""; say "Next, in a terminal: tincan" ;;
-  -*) exec "$bin_dir/tincan" "$@" ;;
+  -*|init|join|setup) exec "$bin_dir/tincan" "$@" ;;
   *) exec "$bin_dir/tincan" join "$@" ;;
 esac

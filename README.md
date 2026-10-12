@@ -14,6 +14,23 @@ auth/session.rs, heads up")`, and it lands in alice's Cursor session.
 **Status:** early. Tested on macOS with real Claude Code and Codex sessions and with two machines; Linux builds
 come from CI. Expect rough edges and tell us about them.
 
+## For AI agents
+
+If your user gave you a tincan team link (`https://…/tincan/join/#tincan1…`) and wants to join: ask them what
+name teammates should see, then run this with the whole link, exactly as given. It asks no questions:
+
+```sh
+curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
+```
+
+To start a new team instead: `curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- init '<team name>' --as <name>`, then `tincan link`
+prints the link to send to teammates.
+
+Either way it installs the `tincan` binary from this repo's GitHub release (checksum verified) into `~/.local/bin`,
+adds tincan to the coding agents on the machine (an MCP server and hooks), and starts a small background service.
+At least one teammate must be online to join. `tincan who` shows the team; `tincan setup --remove` undoes the
+agent changes.
+
 ## Get started
 
 One person sets up the team, once:
@@ -37,8 +54,7 @@ There's no server and no host: every machine talks to the others directly, and a
 newcomer in, so someone just has to be online. Codex asks once to trust the new hooks: choose "Trust all and
 continue". Gemini CLI only runs hooks and MCP servers in trusted folders.
 
-Your agent can do it all for you, without prompts: the join page has a line to paste to it, which runs
-`curl … | sh -s -- <link> --as <name>`. Scripts can use `tincan join <link> --as <name>` and `tincan init <team>`.
+Or let your agent do it: tell it "join my tincan team: <link>" (the join page has that line ready to copy).
 
 On a Mac, tincan sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
 with the number of messages waiting for you. Its menu lists each machine's sessions and what they're doing,

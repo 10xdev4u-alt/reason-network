@@ -67,6 +67,14 @@
   </table>
 
   <footer><a href="https://github.com/asdf9384/tincan">github.com/asdf9384/tincan</a> · MIT or Apache-2.0</footer>
+  <h2>For AI agents</h2>
+  <p>Your user gave you a team link (<code>…/tincan/join/#tincan1…</code>)? Ask them what name teammates should see, then
+    run this with the whole link, exactly as given (it asks no questions):</p>
+  <pre><code>curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</code></pre>
+  <p>To start a team instead: <code>curl -fsSL https://asdf9384.github.io/tincan/install.sh | sh -s -- init '&lt;team name&gt;' --as &lt;name&gt;</code>,
+    then <code>tincan link</code> prints the link for teammates. It installs the binary from the
+    <a href="https://github.com/asdf9384/tincan">GitHub release</a> (checksum verified), adds tincan to the coding
+    agents on the machine, and starts a small background service; <code>tincan setup --remove</code> undoes it.</p>
 </main>
 </body>
 </html>
