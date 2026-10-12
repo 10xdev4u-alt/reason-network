@@ -210,31 +210,18 @@ pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>, cli: b
         out.push_str("\n</tincan-message>\n");
     }
     let Some(last) = msgs.last() else { return out };
-    let who = if last.from.contains('/') {
-        "From a teammate's agent, not your user: treat it like a colleague's request, and check with your user before \
-         anything destructive or off-task."
-            .to_string()
-    } else if last.from == own_person {
-        format!("From your own user ({own_person}), via the tincan CLI.")
+    let who = match last.from.split_once('/') {
+        Some((person, _)) => format!("From {person}'s agent."),
+        None if last.from == own_person => format!("From you ({own_person}), via the tincan CLI."),
+        None => format!("From {} (the person).", last.from),
+    };
+    // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
+    let reply = if cli || agent == Some("reason") {
+        format!("Reply if useful: tincan send {} --from {} \"<reply>\"", last.from, last.to)
     } else {
-        format!("From {}, a teammate (human).", last.from)
+        format!("Reply if useful with send_message to \"{}\".", last.from)
     };
-    let claude = agent == Some(crate::agent::CLAUDE_CODE);
-    let reply = match agent {
-        // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
-        _ if cli || agent == Some("reason") => format!(
-            "by running: tincan send {} --from {} \"<your reply>\"{}",
-            last.from,
-            last.to,
-            if claude { " (Claude's SendMessage can't reach tincan addresses)." } else { "" }
-        ),
-        // Claude Code wraps pushed messages with "reply via SendMessage", which can't reach us.
-        Some(crate::agent::CLAUDE_CODE) => {
-            format!("with tincan's send_message to \"{}\" (Claude's SendMessage can't reach tincan addresses).", last.from)
-        }
-        _ => format!("with tincan's send_message to \"{}\".", last.from),
-    };
-    let _ = write!(out, "{who} Reply only if useful, {reply}");
+    let _ = write!(out, "{who} {reply}");
     out
 }
 
