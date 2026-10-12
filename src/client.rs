@@ -156,7 +156,11 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
     if !start {
         bail!("the tincan daemon isn't running");
     }
-    start_daemon()?;
+    // With the background service installed, the service starts it, so there is only ever its daemon.
+    let by_service = crate::setup::service_installed() && std::env::var_os("TINCAN_NO_SERVICE").is_none() && crate::setup::start_service();
+    if !by_service {
+        start_daemon()?;
+    }
     for _ in 0..60 {
         tokio::time::sleep(Duration::from_millis(50)).await;
         if let Ok(s) = UnixStream::connect(&sock).await {

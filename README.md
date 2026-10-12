@@ -28,7 +28,8 @@ a terminal, type their name, and they're in. The same link works for everyone an
 the group chat and forget about it. `tincan link` shows it again; `tincan link --new` replaces it (removing
 someone replaces it too).
 
-Then restart agent sessions that were already running and ask one: "who's on the team?" Plain `tincan` shows
+Agent sessions that were already open don't have tincan yet (agents load their tools at startup): reopen them
+(`claude --continue` keeps the conversation), then ask one: "who's on the team?" Plain `tincan` shows
 who's around; `tincan setup` changes which agents are on tincan and how messages are handled.
 
 There's no server and no host: every machine talks to the others directly, and any teammate's machine can let a

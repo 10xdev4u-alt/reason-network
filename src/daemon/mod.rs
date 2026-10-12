@@ -55,7 +55,8 @@ pub async fn run(service: bool) -> Result<()> {
     {
         log(&format!("network not started: {e:#}"));
     }
-    if service && daemon.cfg.tray() {
+    // Normally the service's daemon; a daemon started some other way stands in for it while it runs.
+    if (service || crate::setup::service_installed()) && daemon.cfg.tray() {
         tokio::spawn(tray());
     }
     if daemon.cfg.reason {

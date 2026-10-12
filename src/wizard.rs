@@ -110,14 +110,14 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
 
     if start {
         let url = show_link(false).await?;
-        outro("Then restart agent sessions that were already running and ask one: \"who's on the team?\"")?;
+        outro("Agent sessions that were already open don't have tincan yet: reopen them (`claude --continue` keeps the conversation), then ask one: \"who's on the team?\"")?;
         // Outside the frame, so the terminal copies it whole.
         println!("\n{url}\n");
     } else {
         if let Ok(t) = Link::new(None).call::<TeamInfo>(Request::Team).await {
             note("Your team", render::team(&t).trim_end())?;
         }
-        outro("You're in. Restart agent sessions that were already running, then ask one: \"who's on the team?\"")?;
+        outro("You're in. Agent sessions that were already open don't have tincan yet: reopen them (`claude --continue` keeps the conversation), then ask one: \"who's on the team?\"")?;
     }
     Ok(())
 }
@@ -262,6 +262,6 @@ pub async fn invite() -> Result<()> {
 pub async fn setup_agents() -> Result<()> {
     intro(" tincan setup ")?;
     agents_and_preferences().await?;
-    outro("Restart agent sessions that were already running to pick up changes.")?;
+    outro("Agent sessions that were already open pick this up once you reopen them.")?;
     Ok(())
 }

@@ -184,7 +184,7 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             }
         }
         r.lines.push("added the tincan MCP server (user scope)".into());
-        r.notes.push("Claude Code: new sessions pick it up; restart running ones to join tincan.".into());
+        r.notes.push("Claude Code: new sessions get tincan; reopen running ones (`claude --continue` keeps the conversation).".into());
     }
     Ok(Some(r))
 }
@@ -465,6 +465,18 @@ fn reason(_exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 pub fn service_installed() -> bool {
     service_path().exists()
+}
+
+/// Asks the service manager to start the daemon now (rather than a stray one of our own, which would hold the
+/// lock and leave the service's daemon waiting, without its menu bar icon). True if it accepted.
+pub fn start_service() -> bool {
+    let out = if cfg!(target_os = "macos") {
+        let uid = unsafe { libc::getuid() };
+        Command::new("launchctl").args(["kickstart", &format!("gui/{uid}/{}", service_name())]).output()
+    } else {
+        Command::new("systemctl").args(["--user", "start", &format!("{}.service", service_name())]).output()
+    };
+    out.is_ok_and(|o| o.status.success())
 }
 
 fn service_path() -> PathBuf {
