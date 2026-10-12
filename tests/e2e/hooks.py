@@ -2,13 +2,19 @@
 
     cargo build && python3 tests/e2e/hooks.py
 """
-import json, os, subprocess, tempfile, time
+import json, os, socket, subprocess, tempfile, threading, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "tincan")
 D = tempfile.mkdtemp(prefix="tincan-hooks-")
 env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
 env.update(TINCAN_HOME=os.path.join(D, "home"), TINCAN_NO_MDNS="1", TINCAN_NO_SERVICE="1", TINCAN_MACHINE="box")
+# A Claude Code setup of our own (never this machine's real sessions, which tincan could deliver into).
+CLAUDE = os.path.join(D, "claude")
+os.makedirs(os.path.join(CLAUDE, "sessions"))
+with open(os.path.join(CLAUDE, ".claude.json"), "w") as f:
+    json.dump({"mcpServers": {"tincan": {"type": "stdio", "command": BIN, "args": ["mcp"]}}}, f)
+env["CLAUDE_CONFIG_DIR"] = CLAUDE
 results = []
 
 
@@ -145,6 +151,38 @@ check("…telling it how to reply with the CLI", "tincan send alex --from alex/f
 run("send", "alex", "--from", "alex/fix-flaky-billing-reason", "found it: a timezone bug")
 out = run("inbox")
 check("its reply comes from the Reason session", "── alex/fix-flaky-billing-reason" in out and "timezone bug" in out, out)
+
+# A Claude session that was open before tincan was set up: no restart needed. It's on the team at once, gets
+# messages through its own socket, and replies with the CLI.
+old_proj = os.path.join(D, "old-proj")
+os.makedirs(old_proj)
+sock_path = os.path.join(D, "cc.sock")
+got = []
+srv = socket.socket(socket.AF_UNIX)
+srv.bind(sock_path)
+srv.listen(4)
+def serve():
+    while True:
+        c, _ = srv.accept()
+        got.append(c.makefile().read())
+threading.Thread(target=serve, daemon=True).start()
+sleeper = subprocess.Popen(["sleep", "120"])
+with open(os.path.join(CLAUDE, "sessions", f"{sleeper.pid}.json"), "w") as f:
+    json.dump({"pid": sleeper.pid, "sessionId": "old-1", "cwd": old_proj, "name": "old-proj-1", "nameSource": "derived",
+               "status": "idle", "messagingSocketPath": sock_path}, f)
+time.sleep(3)
+out = run("who", "old-proj")
+check("an already-open Claude session is on the team, reachable right away", "old-proj-claude" in out and "push" in out, out)
+out = run("send", "old-proj-claude", "old session: can you hear me?")
+time.sleep(1.5)
+frame = "".join(got)
+check("…it's delivered straight into the session", "delivered into the session" in out and "can you hear me?" in frame, out + frame)
+check("…with how to reply using the CLI", "tincan send alex --from alex/old-proj-claude" in frame, frame)
+r = subprocess.run([BIN, "send", "alex", "loud and clear"], env=dict(env, CLAUDE_CODE_SESSION_ID="old-1", CLAUDECODE="1"),
+                   capture_output=True, text=True, timeout=30)
+out = run("inbox")
+check("…and its reply (run from that session) comes from it", "── alex/old-proj-claude" in out and "loud and clear" in out, r.stdout + r.stderr + out)
+sleeper.kill()
 
 # The daemon being down never breaks the agent.
 run("stop")

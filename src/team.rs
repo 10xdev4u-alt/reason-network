@@ -386,6 +386,25 @@ pub struct Ticket {
 }
 
 const TICKET_PREFIX: &str = "tincan1";
+/// In place of a length: an n0 relay, given by its region (`use1-1` for `https://use1-1.relay.n0.iroh.link./`).
+const N0_RELAY: u8 = 0xFF;
+const N0_RELAY_SUFFIX: &str = ".relay.n0.iroh.link./";
+
+/// A length byte, then the text (cut to 250 bytes, so a length never reads as a marker).
+fn put_text(b: &mut Vec<u8>, text: &str) {
+    let mut n = text.len().min(250);
+    while !text.is_char_boundary(n) {
+        n -= 1;
+    }
+    b.push(n as u8);
+    b.extend(&text.as_bytes()[..n]);
+}
+
+fn n0_relay(url: &str) -> Option<&str> {
+    let host = url.strip_prefix("https://")?.trim_end_matches('/');
+    let region = host.strip_suffix(".relay.n0.iroh.link.").or_else(|| host.strip_suffix(".relay.n0.iroh.link"))?;
+    (!region.is_empty() && region.len() < 32 && region.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')).then_some(region)
+}
 
 impl Ticket {
     /// `tincan1` + base64url of: team id (16 bytes), secret (16), name, team relay, first peer's relay hint (each
@@ -396,12 +415,19 @@ impl Ticket {
         b.extend(HEXLOWER.decode(self.team.as_bytes()).expect("team ids are hex"));
         b.extend(HEXLOWER.decode(self.secret.as_bytes()).expect("secrets are hex"));
         let name: String = self.name.chars().take(60).collect();
-        for field in [name.as_str(), self.relay.as_deref().unwrap_or(""), self.hint_relay.as_deref().unwrap_or("")] {
-            let n = field.len().min(255);
-            b.push(n as u8);
-            b.extend(&field.as_bytes()[..n]);
+        put_text(&mut b, &name);
+        for relay in [&self.relay, &self.hint_relay] {
+            let relay = relay.as_deref().unwrap_or("");
+            match n0_relay(relay) {
+                // One of n0's relays: just its region, which keeps links short.
+                Some(region) => {
+                    b.push(N0_RELAY);
+                    put_text(&mut b, region);
+                }
+                None => put_text(&mut b, relay),
+            }
         }
-        let ips: Vec<&SocketAddr> = self.hint_ips.iter().take(4).collect();
+        let ips: Vec<&SocketAddr> = self.hint_ips.iter().take(2).collect();
         b.push(ips.len() as u8);
         for a in ips {
             match a.ip() {
@@ -436,8 +462,12 @@ impl Ticket {
         let team = HEXLOWER.encode(take(16)?);
         let secret = HEXLOWER.encode(take(16)?);
         let mut text = || -> Result<String> {
-            let n = take(1)?[0] as usize;
-            Ok(String::from_utf8_lossy(take(n)?).into_owned())
+            let n = take(1)?[0];
+            if n == N0_RELAY {
+                let n = take(1)?[0] as usize;
+                return Ok(format!("https://{}{N0_RELAY_SUFFIX}", String::from_utf8_lossy(take(n)?)));
+            }
+            Ok(String::from_utf8_lossy(take(n as usize)?).into_owned())
         };
         let name = text()?;
         let relay = Some(text()?).filter(|r| !r.is_empty());
@@ -456,7 +486,8 @@ impl Ticket {
         while let Ok(k) = take(32) {
             peers.push(EndpointId::from_bytes(k.try_into().expect("32 bytes")).map_err(|_| damaged())?);
         }
-        if peers.is_empty() {
+        // A key cut short means the link was.
+        if peers.is_empty() || at != b.len() {
             return Err(damaged());
         }
         Ok(Ticket { team, name, secret, relay, hint_relay, hint_ips, peers })
@@ -656,6 +687,35 @@ mod tests {
         assert!(Ticket::decode(&enc[..enc.len() - 10]).is_err());
         assert!(Ticket::decode("tincan1!!!").is_err());
         assert!(Ticket::decode("hello").is_err());
+    }
+
+    #[test]
+    fn links_name_n0_relays_by_region_and_old_links_still_work() {
+        let a = key();
+        let mut t = Ticket {
+            team: "00112233445566778899aabbccddeeff".into(),
+            name: "vibes".into(),
+            secret: random_secret(),
+            relay: None,
+            hint_relay: Some("https://use1-1.relay.n0.iroh.link./".into()),
+            hint_ips: vec![],
+            peers: vec![a.public()],
+        };
+        let short = t.encode();
+        assert_eq!(Ticket::decode(&short).unwrap(), t);
+        // The same link as 0.5 wrote it, with the relay spelled out.
+        let mut b = HEXLOWER.decode(t.team.as_bytes()).unwrap();
+        b.extend(HEXLOWER.decode(t.secret.as_bytes()).unwrap());
+        for f in ["vibes", "", "https://use1-1.relay.n0.iroh.link./"] {
+            put_text(&mut b, f);
+        }
+        b.push(0);
+        b.extend(a.public().as_bytes());
+        let old = format!("{TICKET_PREFIX}{}", BASE64URL_NOPAD.encode(&b));
+        assert!(short.len() + 30 < old.len(), "{} vs {}", short.len(), old.len());
+        assert_eq!(Ticket::decode(&old).unwrap(), t);
+        t.hint_relay = Some("https://relay.example.com/".into());
+        assert_eq!(Ticket::decode(&t.encode()).unwrap(), t);
     }
 
     #[test]

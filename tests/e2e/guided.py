@@ -78,7 +78,7 @@ try:
     t.expect(r"Name your team")
     t.send("the boys" + ENTER)
     t.expect(r"Created team the boys\. You are alex on alex-box\.")
-    t.expect(r"Codex: updated")
+    t.expect(r"Set up Codex")
     t.expect(r"Team link for the boys")
     m = t.expect(r"\n(https://\S+/join/#tincan1[A-Za-z0-9_-]+)\n")
     link = m.group(1)

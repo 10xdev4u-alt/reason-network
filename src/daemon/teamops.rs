@@ -259,7 +259,7 @@ impl Daemon {
         let online = |id: &EndpointId| self.net().is_some_and(|n| n.is_online(id));
         let mut others: Vec<EndpointId> = team.active().map(|m| m.endpoint).filter(|e| *e != me).collect();
         others.sort_by_key(|id| !online(id));
-        let peers = std::iter::once(me).chain(others.into_iter().take(5)).collect();
+        let peers = std::iter::once(me).chain(others.into_iter().take(2)).collect();
         let here = self.net().map(|n| n.addr());
         Ticket {
             team: team.id.clone(),

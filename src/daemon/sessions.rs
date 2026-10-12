@@ -207,7 +207,7 @@ impl Daemon {
         };
         // Not marked read here: the hook confirms with `Delivered` once it has printed them.
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
-        let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, &self.person, Some(&agent_kind)));
+        let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, &self.person, Some(&agent_kind), false));
         Ok(HookReply { address: Some(address), text, ids })
     }
 

@@ -29,6 +29,8 @@ def env(who, strip_claude=True):
         for k in list(e):
             if k.startswith("CLAUDE"):
                 del e[k]
+    # Never this machine's real Claude sessions: tincan could deliver into them.
+    e["CLAUDE_CONFIG_DIR"] = os.path.join(D, "claude-config")
     return e
 
 

@@ -5,7 +5,8 @@
 //! show them a second time.
 
 use super::{Daemon, Inner, directory::Target, log};
-use crate::{agent, config::Policy, proto::*, render, util};
+use crate::{
+    claude,agent, config::Policy, proto::*, render, util};
 use anyhow::{Result, anyhow, bail};
 use iroh::EndpointId;
 use std::{
@@ -29,6 +30,8 @@ enum Channel {
     ClaudeSocket(u64),
     /// The agent's own CLI: `codex queue --thread <id> --message`, `reason session send <id> --message`.
     Command(&'static str, Vec<String>),
+    /// Straight into a Claude Code session's messaging socket (one without tincan's tools: it replies with the CLI).
+    ClaudeDirect(std::path::PathBuf),
     /// Hooks inject it at the next tool call or turn end.
     Hook,
     /// Only `check_inbox`.
@@ -187,11 +190,18 @@ impl Daemon {
             (Tier::Push, _, Some(id)) if l.reg.agent == "reason" && has("reason") => {
                 Channel::Command("reason", vec!["session".into(), "send".into(), id.clone(), "--message".into()])
             }
+            (Tier::Push, None, id) if l.reg.agent == agent::CLAUDE_CODE && !l.push_failed => {
+                match claude::socket_for(id.as_deref(), l.reg.pid) {
+                    Some(path) => Channel::ClaudeDirect(path),
+                    None => Channel::Pull,
+                }
+            }
             _ if l.last_hook.is_some() => Channel::Hook,
             _ => Channel::Pull,
         };
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
-        let text = render::for_agent(&msgs, &self.person, Some(&l.reg.agent));
+        let cli = matches!(channel, Channel::ClaudeDirect(_));
+        let text = render::for_agent(&msgs, &self.person, Some(&l.reg.agent), cli);
         let hook_note = if matches!(l.reg.agent.as_str(), "opencode" | "pi") {
             "queued: delivered within seconds once the session is idle"
         } else {
@@ -216,9 +226,36 @@ impl Daemon {
                 self.send_with(bin, args, key.to_string(), ids, text);
                 ("pushed".into(), format!("queued into the {} session: it runs after the current turn, or now if idle", agent::label(bin)))
             }
+            Channel::ClaudeDirect(path) => {
+                for id in &ids {
+                    g.in_flight.insert(id.clone(), Instant::now());
+                }
+                self.post_direct(key.to_string(), path, ids, text);
+                ("pushed".into(), "delivered into the session: it reads it between tool calls, or wakes up if idle".into())
+            }
             Channel::Hook => ("queued".into(), hook_note.into()),
             Channel::Pull => ("queued".into(), "queued: this agent only sees it when it checks its inbox".into()),
         }
+    }
+
+    /// Posts into a Claude Code session's messaging socket; read once it took it.
+    fn post_direct(self: &Arc<Self>, key: String, path: std::path::PathBuf, ids: Vec<String>, text: String) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let sock = agent::ClaudeSocket { path, token: None };
+            let res = tokio::task::spawn_blocking(move || agent::post_to_claude(&sock, &text)).await;
+            let mut g = this.inner.lock().unwrap();
+            for id in &ids {
+                g.in_flight.remove(id);
+            }
+            match res {
+                Ok(Ok(())) => {
+                    let _ = g.store.mark_read(&ids, util::now_ms());
+                }
+                Ok(Err(e)) => log(&format!("delivering to Claude session {key}: {e}")),
+                Err(e) => log(&format!("delivering to Claude session {key}: {e}")),
+            }
+        });
     }
 
     /// Hands `text` to the agent's own CLI (`args` end with its message flag).
@@ -361,7 +398,7 @@ impl Daemon {
                 messages
             };
             if !messages.is_empty() || tokio::time::Instant::now() >= deadline {
-                let text = render::for_agent(&messages, &self.person, agent.as_deref());
+                let text = render::for_agent(&messages, &self.person, agent.as_deref(), false);
                 return Ok(Inbox { messages, text });
             }
             let _ = tokio::time::timeout_at(deadline, arrived).await;

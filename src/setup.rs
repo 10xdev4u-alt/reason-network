@@ -158,12 +158,12 @@ fn changed(path: &Path, did: bool) -> String {
 fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let Some(bin) = agent::find_bin("claude") else { return Ok(None) };
     let mut r = Report { agent: "Claude Code", lines: Vec::new(), notes: Vec::new() };
-    let get = Command::new(&bin).args(["mcp", "get", "tincan"]).output()?;
+    let get = Command::new(&bin).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output()?;
     let existing = get.status.success();
     let current = existing && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
     if remove || (existing && !current) {
         if existing && !dry {
-            Command::new(&bin).args(["mcp", "remove", "tincan", "--scope", "user"]).output()?;
+            Command::new(&bin).args(["mcp", "remove", "tincan", "--scope", "user"]).stdin(std::process::Stdio::null()).output()?;
         }
         if remove {
             r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
@@ -178,13 +178,12 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
                 .args(["mcp", "add", "--scope", "user", "tincan", "--"])
                 .arg(exe)
                 .arg("mcp")
-                .output()?;
+                .stdin(std::process::Stdio::null()).output()?;
             if !out.status.success() {
                 return Err(anyhow!("claude mcp add failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
         }
         r.lines.push("added the tincan MCP server (user scope)".into());
-        r.notes.push("Claude Code: new sessions get tincan; reopen running ones (`claude --continue` keeps the conversation).".into());
     }
     Ok(Some(r))
 }
@@ -247,7 +246,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     r.lines.push(changed(&hooks_path, did));
     if did && !remove {
         r.notes.push(
-            "Codex: next time you start codex it asks about new hooks; choose \"Trust all and continue\" (or review them in /hooks). Until then Codex sessions only see messages when they check their inbox.".into(),
+            "Codex asks once to trust tincan's hooks: choose \"Trust all and continue\".".into(),
         );
     }
     Ok(Some(r))
@@ -325,7 +324,7 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&path, &v, dry)?;
     r.lines.push(changed(&path, did));
     if did && !remove {
-        r.notes.push("Gemini CLI: hooks and MCP servers only run in trusted folders (`/permissions trust` in a project).".into());
+        r.notes.push("Gemini CLI only runs tincan in trusted folders (`/permissions trust`).".into());
     }
     Ok(Some(r))
 }
@@ -472,9 +471,9 @@ pub fn service_installed() -> bool {
 pub fn start_service() -> bool {
     let out = if cfg!(target_os = "macos") {
         let uid = unsafe { libc::getuid() };
-        Command::new("launchctl").args(["kickstart", &format!("gui/{uid}/{}", service_name())]).output()
+        Command::new("launchctl").args(["kickstart", &format!("gui/{uid}/{}", service_name())]).stdin(std::process::Stdio::null()).output()
     } else {
-        Command::new("systemctl").args(["--user", "start", &format!("{}.service", service_name())]).output()
+        Command::new("systemctl").args(["--user", "start", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output()
     };
     out.is_ok_and(|o| o.status.success())
 }
@@ -501,7 +500,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         let target = format!("gui/{uid}/{}", service_name());
         if remove {
             if !dry {
-                let _ = Command::new("launchctl").args(["bootout", &target]).output();
+                let _ = Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
                 let _ = std::fs::remove_file(&path);
             }
             return Ok("removed the login service".into());
@@ -531,11 +530,11 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             xml(&service_path_env()),
         );
         let did = write_file(&path, &plist, dry)?;
-        let loaded = Command::new("launchctl").args(["print", &target]).output().is_ok_and(|o| o.status.success());
+        let loaded = Command::new("launchctl").args(["print", &target]).stdin(std::process::Stdio::null()).output().is_ok_and(|o| o.status.success());
         if !dry && (did || !loaded) {
-            let _ = Command::new("launchctl").args(["bootout", &target]).output();
+            let _ = Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
             crate::stop_daemon().await;
-            let out = Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(&path).output()?;
+            let out = Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(&path).stdin(std::process::Stdio::null()).output()?;
             if !out.status.success() {
                 return Err(anyhow!("launchctl bootstrap: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
@@ -544,7 +543,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     } else {
         if remove {
             if !dry {
-                let _ = Command::new("systemctl").args(["--user", "disable", "--now", &format!("{}.service", service_name())]).output();
+                let _ = Command::new("systemctl").args(["--user", "disable", "--now", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output();
                 let _ = std::fs::remove_file(&path);
             }
             return Ok("removed the login service".into());
@@ -558,8 +557,8 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         let did = write_file(&path, &unit, dry)?;
         if !dry {
             crate::stop_daemon().await;
-            Command::new("systemctl").args(["--user", "daemon-reload"]).output()?;
-            let out = Command::new("systemctl").args(["--user", "enable", "--now", &format!("{}.service", service_name())]).output()?;
+            Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output()?;
+            let out = Command::new("systemctl").args(["--user", "enable", "--now", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output()?;
             if !out.status.success() {
                 return Err(anyhow!("systemctl: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
@@ -604,7 +603,7 @@ const AGENTS: [Agent; 8] = [
         installed: || agent::find_bin("claude").is_some(),
         wired: |_| {
             agent::find_bin("claude")
-                .is_some_and(|b| Command::new(b).args(["mcp", "get", "tincan"]).output().is_ok_and(|o| o.status.success()))
+                .is_some_and(|b| Command::new(b).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output().is_ok_and(|o| o.status.success()))
         },
         apply: claude,
     },
@@ -687,6 +686,9 @@ pub fn detect(exe: &Path) -> Vec<Found> {
 pub struct Applied {
     pub lines: Vec<String>,
     pub notes: Vec<String>,
+    /// The agents set up (or removed) without trouble, and whether the service is installed now.
+    pub agents: Vec<&'static str>,
+    pub service: Option<bool>,
 }
 
 /// Wires tincan into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
@@ -702,9 +704,13 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
             Ok(Some(r)) => {
                 out.lines.push(format!("{}: {}", r.agent, r.lines.join("; ")));
                 out.notes.extend(r.notes);
+                out.agents.push(a.name);
             }
             Ok(None) => {}
-            Err(e) => out.lines.push(format!("{}: skipped ({e:#})", a.name)),
+            Err(e) => {
+                out.lines.push(format!("{}: skipped ({e:#})", a.name));
+                out.notes.push(format!("{} not set up: {e:#}", a.name));
+            }
         }
     }
     if let Some(on) = service {
@@ -713,8 +719,14 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
             return out;
         }
         match self::service(exe, !on, dry).await {
-            Ok(s) => out.lines.push(format!("service: {s}")),
-            Err(e) => out.lines.push(format!("service: not installed ({e:#}); the daemon still starts on demand")),
+            Ok(s) => {
+                out.lines.push(format!("service: {s}"));
+                out.service = Some(on);
+            }
+            Err(e) => {
+                out.lines.push(format!("service: not installed ({e:#}); the daemon still starts on demand"));
+                out.notes.push(format!("Not running in the background ({e:#}); tincan starts when you use it."));
+            }
         }
     }
     out

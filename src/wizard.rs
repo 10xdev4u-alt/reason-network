@@ -110,14 +110,14 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
 
     if start {
         let url = show_link(false).await?;
-        outro("Agent sessions that were already open don't have tincan yet: reopen them (`claude --continue` keeps the conversation), then ask one: \"who's on the team?\"")?;
+        outro("Done. Ask any of your agents: \"who's on the team?\"")?;
         // Outside the frame, so the terminal copies it whole.
         println!("\n{url}\n");
     } else {
         if let Ok(t) = Link::new(None).call::<TeamInfo>(Request::Team).await {
             note("Your team", render::team(&t).trim_end())?;
         }
-        outro("You're in. Agent sessions that were already open don't have tincan yet: reopen them (`claude --continue` keeps the conversation), then ask one: \"who's on the team?\"")?;
+        outro("You're in. Ask any of your agents: \"who's on the team?\"")?;
     }
     Ok(())
 }
@@ -131,15 +131,26 @@ async fn set_up_agents_with_defaults() -> Result<()> {
     sp.start("Setting up your agents...");
     crate::stop_daemon().await;
     let out = setup::apply(&exe, &ids, &[], Some(true), false).await;
-    sp.stop(if found.is_empty() { "No coding agents found on this machine (yet)" } else { "Set up your agents" });
-    for l in &out.lines {
-        log::success(l)?;
+    sp.stop(match out.agents.as_slice() {
+        [] => "No coding agents found on this machine (yet)".to_string(),
+        names => format!("Set up {}", and_list(names)),
+    });
+    if out.service == Some(true) {
+        log::success("Runs in the background, from login")?;
     }
     for n in &out.notes {
         log::warning(n)?;
     }
-    log::remark("Change any of this with `tincan setup`.")?;
     Ok(())
+}
+
+/// `a, b and c`.
+fn and_list(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// Which agents are on tincan, the background service, and how teammates' messages are handled.
@@ -194,13 +205,8 @@ pub async fn agents_and_preferences() -> Result<()> {
 pub async fn show_link(new: bool) -> Result<String> {
     let l: LinkInfo = Link::new(None).call(Request::Link { new }).await?;
     let copied = copy(&l.url);
-    note(
-        format!("Team link for {}", l.team),
-        format!(
-            "{}Send your friends the link below. It opens a page with one command: they\npaste it, type their name, and they're in. It keeps working for everyone\nuntil you run `tincan link --new`.",
-            if copied { "It's on your clipboard. " } else { "" },
-        ),
-    )?;
+    let title = if copied { format!("Team link for {} (on your clipboard)", l.team) } else { format!("Team link for {}", l.team) };
+    note(title, "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `tincan link --new`.")?;
     Ok(l.url)
 }
 
@@ -262,6 +268,6 @@ pub async fn invite() -> Result<()> {
 pub async fn setup_agents() -> Result<()> {
     intro(" tincan setup ")?;
     agents_and_preferences().await?;
-    outro("Agent sessions that were already open pick this up once you reopen them.")?;
+    outro("Done.")?;
     Ok(())
 }

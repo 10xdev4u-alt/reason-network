@@ -64,6 +64,36 @@ impl Daemon {
             gits.insert(cwd, info);
         }
 
+        // With Claude Code on tincan, every open Claude session is on it: sessions started before tincan was set
+        // up have no tincan tools, but take messages through their own socket and reply with the CLI.
+        if claude::wired() {
+            let now = util::now_ms();
+            for c in &claude {
+                let Some(id) = &c.session_id else { continue };
+                let key = format!("{}:{id}", agent::CLAUDE_CODE);
+                if !self.inner.lock().unwrap().live.contains_key(&key) {
+                    let cwd = c.cwd.clone().unwrap_or_else(|| "/".into());
+                    let git = gits.get(&cwd).cloned().unwrap_or_default();
+                    let named = matches!(c.name_source.as_deref(), Some("user" | "peer" | "hook" | "auto"));
+                    let reg = SessionReg {
+                        key: key.clone(),
+                        agent: agent::CLAUDE_CODE.into(),
+                        cwd,
+                        agent_session_id: Some(id.clone()),
+                        pid: Some(c.pid),
+                        tier: Tier::Push,
+                        name: if named { c.label() } else { None },
+                    };
+                    if let Err(e) = self.register(None, reg, git) {
+                        super::log(&format!("adding Claude session {id}: {e:#}"));
+                    }
+                }
+                // Seen alive just now (it goes when its process does).
+                if let Some(l) = self.inner.lock().unwrap().live.get_mut(&key) {
+                    l.last_hook = Some(now);
+                }
+            }
+        }
         // A Claude Code session someone renamed goes by that name here too.
         let renames: Vec<(String, String)> = {
             let g = self.inner.lock().unwrap();

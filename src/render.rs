@@ -195,8 +195,8 @@ pub fn send_result(r: &SendResult) -> String {
 }
 
 /// Messages framed for an agent's context: clearly peer input, with what it needs to reply. `agent` is the
-/// recipient's agent kind, if known.
-pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>) -> String {
+/// recipient's agent kind, if known; `cli` when it has no tincan tools and replies with the CLI.
+pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>, cli: bool) -> String {
     let mut out = String::new();
     for m in msgs {
         let mut attrs = format!("from=\"{}\"", attr(&m.from));
@@ -219,9 +219,15 @@ pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>) -> Str
     } else {
         format!("From {}, a teammate (human).", last.from)
     };
+    let claude = agent == Some(crate::agent::CLAUDE_CODE);
     let reply = match agent {
-        // Reason's agent has no tincan tools, but its commands run on this computer.
-        Some("reason") => format!("by running: tincan send {} --from {} \"<your reply>\"", last.from, last.to),
+        // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
+        _ if cli || agent == Some("reason") => format!(
+            "by running: tincan send {} --from {} \"<your reply>\"{}",
+            last.from,
+            last.to,
+            if claude { " (Claude's SendMessage can't reach tincan addresses)." } else { "" }
+        ),
         // Claude Code wraps pushed messages with "reply via SendMessage", which can't reach us.
         Some(crate::agent::CLAUDE_CODE) => {
             format!("with tincan's send_message to \"{}\" (Claude's SendMessage can't reach tincan addresses).", last.from)
@@ -309,7 +315,7 @@ mod tests {
             wake: true,
             sent_at: 0,
         };
-        let out = for_agent(&[m], "alex", None);
+        let out = for_agent(&[m], "alex", None, false);
         assert_eq!(out.matches("</tincan-message>").count(), 1);
         assert!(out.contains("repo=\"x&quot;&gt;&lt;evil&gt;\""));
     }

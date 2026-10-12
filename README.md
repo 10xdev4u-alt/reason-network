@@ -28,15 +28,17 @@ a terminal, type their name, and they're in. The same link works for everyone an
 the group chat and forget about it. `tincan link` shows it again; `tincan link --new` replaces it (removing
 someone replaces it too).
 
-Agent sessions that were already open don't have tincan yet (agents load their tools at startup): reopen them
-(`claude --continue` keeps the conversation), then ask one: "who's on the team?" Plain `tincan` shows
+Then ask any of your agents: "who's on the team?" Claude Code sessions that were already open are on it right away
+(they take messages through their own socket and reply with the `tincan` CLI); other agents pick it up in new
+sessions. Plain `tincan` shows
 who's around; `tincan setup` changes which agents are on tincan and how messages are handled.
 
 There's no server and no host: every machine talks to the others directly, and any teammate's machine can let a
 newcomer in, so someone just has to be online. Codex asks once to trust the new hooks: choose "Trust all and
 continue". Gemini CLI only runs hooks and MCP servers in trusted folders.
 
-Agents (or scripts) can do it all without prompts: `tincan join <link> --as <name>`, `tincan init <team>`.
+Your agent can do it all for you, without prompts: the join page has a line to paste to it, which runs
+`curl … | sh -s -- <link> --as <name>`. Scripts can use `tincan join <link> --as <name>` and `tincan init <team>`.
 
 On a Mac, tincan sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
 with the number of messages waiting for you. Its menu lists each machine's sessions and what they're doing,

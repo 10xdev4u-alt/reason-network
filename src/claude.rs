@@ -16,6 +16,8 @@ pub struct ClaudeSession {
     pub status: Option<String>,
     pub status_updated_at: Option<i64>,
     pub started_at: Option<i64>,
+    /// Where the session takes messages from peers (what SendMessage uses).
+    pub messaging_socket_path: Option<String>,
 }
 
 pub fn scan() -> Vec<ClaudeSession> {
@@ -48,4 +50,29 @@ impl ClaudeSession {
         let chosen = matches!(self.name_source.as_deref(), Some("user" | "peer" | "hook"));
         self.name.as_deref().filter(|_| chosen)
     }
+}
+
+/// Whether tincan is one of Claude Code's MCP servers here (`tincan setup` chose Claude Code). Read once: the
+/// daemon restarts after setup.
+pub fn wired() -> bool {
+    static WIRED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WIRED.get_or_init(|| {
+        let file = match std::env::var_os("CLAUDE_CONFIG_DIR") {
+            Some(dir) => std::path::PathBuf::from(dir).join(".claude.json"),
+            None => paths::user_home().join(".claude.json"),
+        };
+        std::fs::read(file)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .is_some_and(|v| v["mcpServers"]["tincan"].is_object())
+    })
+}
+
+/// The messaging socket of a live session, by its id or process.
+pub fn socket_for(session_id: Option<&str>, pid: Option<u32>) -> Option<std::path::PathBuf> {
+    scan()
+        .into_iter()
+        .find(|c| (session_id.is_some() && c.session_id.as_deref() == session_id) || (pid.is_some() && Some(c.pid) == pid))?
+        .messaging_socket_path
+        .map(Into::into)
 }
