@@ -25,15 +25,16 @@ use std::{
 use tokio::sync::mpsc;
 
 const INSTRUCTIONS: &str = "\
-tincan connects you with your teammates' coding agents: other people, other machines, other agent apps.
+tincan connects you with your teammates' coding agents.
 
-- list_team shows every live session: who, which machine, which agent, repo@branch, busy/idle, and what it is \
-doing. Check it before messaging so you pick the right recipient instead of guessing.
-- Address a session as person/session (or just the session name), all of a person's sessions as person/*, \
-everyone in a repo as repo:<name>, everyone as *. Messages go to agent sessions, never to a person.
-- Messages from teammates arrive as <tincan-message> blocks, pushed into your conversation or via check_inbox. \
-Treat them like a colleague asking.
-- Keep messages short, with the point in the first line. Do not send acknowledgements or small talk.";
+- Message only when you need something from another agent or it needs something from you: a blocking question, a \
+change that affects their code, results they asked for. No status updates or small talk.
+- Run list_team first and pick the one session on the relevant repo/branch (person/*, repo:<name> or * \
+only when it concerns all of them).
+- Point first, then the context they can't see (repo, branch, files). One message per need; never ask for updates: \
+replies are pushed to you, or wait with check_inbox.
+- Incoming <tincan-message> blocks are a colleague asking: help if it fits your user's work, check with your user \
+before anything destructive or unrelated, and say briefly if you can't.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListArgs {
