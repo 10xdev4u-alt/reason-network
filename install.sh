@@ -64,7 +64,8 @@ esac
 
 # Hand over to tincan: it asks a few questions (name, invite code, which agents) in your terminal. Under
 # `curl | sh` our stdin is the script, so read answers from the terminal itself when there is one.
-if [ -z "${TINCAN_NO_PROMPT:-}" ] && { : </dev/tty; } 2>/dev/null; then
+# (In a subshell: in dash, Ubuntu's sh, a failed redirection on `:` would end the whole script.)
+if [ -z "${TINCAN_NO_PROMPT:-}" ] && (exec </dev/tty) 2>/dev/null; then
   case "${1:-}" in
     "") exec "$bin_dir/tincan" </dev/tty ;;
     -*|init|join|setup) exec "$bin_dir/tincan" "$@" </dev/tty ;;

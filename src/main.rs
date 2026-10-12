@@ -409,7 +409,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
 
 /// The running daemon's pid, from its lock file.
 fn daemon_pid() -> Option<u32> {
-    std::fs::read_to_string(paths::lock()).ok()?.trim().parse().ok().filter(|p| util::pid_alive(*p))
+    client::running_daemon()
 }
 
 /// Waits (briefly) for a daemon that is restarting to exit, so the next request reaches the new one. Call it

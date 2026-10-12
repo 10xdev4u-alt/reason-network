@@ -184,6 +184,20 @@ out = run("inbox")
 check("…and its reply (run from that session) comes from it", "── alex/old-proj-claude" in out and "loud and clear" in out, r.stdout + r.stderr + out)
 sleeper.kill()
 
+# An agent's MCP server outlives daemon restarts without collecting zombies or storming restarts.
+mcp = subprocess.Popen([BIN, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+time.sleep(4)
+for _ in range(3):
+    run("stop")
+    time.sleep(3)
+time.sleep(3)
+zombies = subprocess.run(["ps", "-axo", "ppid=,stat="], capture_output=True, text=True).stdout.split("\n")
+mine = [z for z in zombies if z.split() and z.split()[0] == str(mcp.pid) and "Z" in z.split()[1]]
+check("an MCP server collects no zombies across daemon restarts", not mine, f"{len(mine)} zombies")
+starts = open(os.path.join(env["TINCAN_HOME"], "daemon.log")).read().count("already running")
+check("…and doesn't race to start daemons", starts <= 3, f"{starts} duplicate starts")
+mcp.kill()
+
 # The daemon being down never breaks the agent.
 run("stop")
 bad = dict(env, TINCAN_HOME="/nonexistent/dir/that/cannot/exist")

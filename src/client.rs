@@ -138,14 +138,22 @@ impl Link {
 }
 
 async fn reconnect(link: Weak<Link>) {
+    // Backs off: every agent session runs one of these, and they must not storm a daemon that can't start.
+    let mut wait = Duration::from_secs(1);
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(wait).await;
         let Some(link) = link.upgrade() else { return };
         match link.connect().await {
             Ok(_) => return,
             Err(e) => eprintln!("tincan: reconnecting to daemon: {e:#}"),
         }
+        wait = (wait * 2).min(Duration::from_secs(30));
     }
+}
+
+/// The daemon that holds the lock, if it is alive (it may still be starting).
+pub fn running_daemon() -> Option<u32> {
+    std::fs::read_to_string(paths::lock()).ok()?.trim().parse().ok().filter(|p| crate::util::pid_alive(*p))
 }
 
 async fn connect_or_start(start: bool) -> Result<UnixStream> {
@@ -156,12 +164,17 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
     if !start {
         bail!("the tincan daemon isn't running");
     }
-    // With the background service installed, the service starts it, so there is only ever its daemon.
-    let by_service = crate::setup::service_installed() && std::env::var_os("TINCAN_NO_SERVICE").is_none() && crate::setup::start_service();
-    if !by_service {
-        start_daemon()?;
+    // One is running (it may be starting or restarting): wait for it rather than start another.
+    if running_daemon().is_none() {
+        // With the background service installed, the service starts it, so there is only ever its daemon.
+        let by_service = crate::setup::service_installed()
+            && std::env::var_os("TINCAN_NO_SERVICE").is_none()
+            && crate::setup::start_service();
+        if !by_service {
+            start_daemon()?;
+        }
     }
-    for _ in 0..60 {
+    for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
         if let Ok(s) = UnixStream::connect(&sock).await {
             return Ok(s);
@@ -174,12 +187,14 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
 fn start_daemon() -> Result<()> {
     paths::ensure_home()?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;
-    Command::new(std::env::current_exe()?)
+    let mut child = Command::new(std::env::current_exe()?)
         .arg("daemon")
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log)
         .process_group(0)
         .spawn()?;
+    // Reaped when it exits, so a long-lived client (`tincan mcp`) never collects zombies.
+    std::thread::spawn(move || child.wait());
     Ok(())
 }
