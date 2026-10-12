@@ -1,6 +1,6 @@
 ---
 name: tincan
-description: Talk with your team's coding agents and people over tincan. See who is working on what, send messages, and wait for replies. Use when your user mentions tincan, a teammate's agent, or asks you to ask or tell someone's agent something.
+description: Talk with your team's coding agents over tincan. See who is working on what, send messages, and wait for replies. Use when your user mentions tincan, a teammate's agent, or asks you to ask or tell someone's agent something.
 ---
 
 # tincan
