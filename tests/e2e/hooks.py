@@ -116,9 +116,28 @@ hook("gemini", "session-end", gem)
 out = run("who")
 check("session-end removes the session", gem_name not in out, out)
 
-# An unknown session can't read or send as the human.
+# A hook with no session id is ignored.
 out = run("hook", "cursor", "post-tool-use", stdin="{}")
 check("a hook without a session id does nothing", out == "", out)
+
+# Messages go to agent sessions only; a plain terminal sends as <me>/terminal and reads replies with listen.
+out = run("send", "alex", "hello me")
+check("a person is not an address: the error lists their agent sessions", "messages go to agent sessions; alex's are:" in out, out)
+out = run("send", "nobody-here", "x")
+check("an unknown name is an error", "no session called 'nobody-here'" in out, out)
+bot = subprocess.Popen([BIN, "listen", "--as", "bot", "--wait", "20"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+time.sleep(2)
+out = run("send", "alex/bot", "bot: summarise the open PRs")
+check("a terminal send reaches a waiting `tincan listen` session", "waiting for messages" in out, out)
+heard = bot.communicate(timeout=30)[0]
+check("listen prints it, from alex/terminal, with the CLI reply line",
+      "summarise the open PRs" in heard and 'from="alex/terminal"' in heard and "tincan send alex/terminal --from alex/bot" in heard, heard)
+out = run("send", "alex/terminal", "--from", "alex/bot", "two PRs open, both green")
+check("after listen exits, the bot can still send with --from", "alex/terminal" in out and "refused" not in out, out)
+out = run("listen", "--as", "terminal", "--wait", "3")
+check("the terminal reads the reply with `tincan listen --as terminal`", "both green" in out and 'from="alex/bot"' in out, out)
+out = run("listen", "--as", "terminal", "--wait", "0")
+check("…once", "No messages." in out, out)
 
 # Reason: its agent runs in the cloud; tincan lists the live sessions and sends with its CLI.
 fake_reason, reason_log = os.path.join(D, "fake-reason.sh"), os.path.join(D, "reason.log")
@@ -126,9 +145,12 @@ listing = {"items": [
     {"session_id": "r-1", "status": "running", "title": "Fix flaky billing test", "repo": None, "branch": "reason/task-r1", "finished_at": None, "is_archived": False},
     {"session_id": "r-2", "status": "exit", "title": "Something finished", "finished_at": "2026-10-01T00:00:00Z", "is_archived": False},
 ]}
+fail_next = os.path.join(D, "reason-fail-next")
 with open(fake_reason, "w") as f:
     f.write(f"""#!/bin/sh
-if [ "$1 $2" = "session list" ]; then echo '{json.dumps(listing)}'; else printf '%s\\n' "$*" >> {reason_log}; fi
+if [ "$1 $2" = "session list" ]; then echo '{json.dumps(listing)}'; exit 0; fi
+if [ -f {fail_next} ]; then rm {fail_next}; echo "not signed in" >&2; exit 1; fi
+printf '%s\\n' "$*" >> {reason_log}
 """)
 os.chmod(fake_reason, 0o755)
 cfg = os.path.join(env["TINCAN_HOME"], "config.toml")
@@ -147,10 +169,19 @@ out = run("send", "fix-flaky-billing-reason", "reason: the billing test is flaky
 time.sleep(1)
 sent = open(reason_log).read() if os.path.exists(reason_log) else ""
 check("messages go in with `reason session send`", "queued into the Reason session" in out and sent.startswith("session send r-1 --message") and "flaky on main too" in sent, out + sent)
-check("…telling it how to reply with the CLI", "tincan send alex --from alex/fix-flaky-billing-reason" in sent, sent)
-run("send", "alex", "--from", "alex/fix-flaky-billing-reason", "found it: a timezone bug")
-out = run("inbox")
-check("its reply comes from the Reason session", "── alex/fix-flaky-billing-reason" in out and "timezone bug" in out, out)
+check("…telling it how to reply with the CLI", "tincan send alex/terminal --from alex/fix-flaky-billing-reason" in sent, sent)
+run("send", "alex/terminal", "--from", "alex/fix-flaky-billing-reason", "found it: a timezone bug")
+out = run("listen", "--as", "terminal", "--wait", "3")
+check("its reply comes from the Reason session", 'from="alex/fix-flaky-billing-reason"' in out and "timezone bug" in out, out)
+open(fail_next, "w").close()
+out = run("send", "fix-flaky-billing-reason", "reason: second try needed")
+time.sleep(1.5)
+first = open(reason_log).read().count("second try needed")
+deadline = time.time() + 45
+while time.time() < deadline and open(reason_log).read().count("second try needed") == 0:
+    time.sleep(1)
+check("a Reason push that fails is retried at a later sync", first == 0 and open(reason_log).read().count("second try needed") == 1,
+      f"first={first} log={open(reason_log).read()[-300:]}")
 
 # A Claude session that was open before tincan was set up: no restart needed. It's on the team at once, gets
 # messages through its own socket, and replies with the CLI.
@@ -177,12 +208,41 @@ out = run("send", "old-proj-claude", "old session: can you hear me?")
 time.sleep(1.5)
 frame = "".join(got)
 check("…it's delivered straight into the session", "delivered into the session" in out and "can you hear me?" in frame, out + frame)
-check("…with how to reply using the CLI", "tincan send alex --from alex/old-proj-claude" in frame, frame)
-r = subprocess.run([BIN, "send", "alex", "loud and clear"], env=dict(env, CLAUDE_CODE_SESSION_ID="old-1", CLAUDECODE="1"),
+check("…with how to reply using the CLI", "tincan send alex/terminal --from alex/old-proj-claude" in frame, frame)
+r = subprocess.run([BIN, "send", "alex/terminal", "loud and clear"], env=dict(env, CLAUDE_CODE_SESSION_ID="old-1", CLAUDECODE="1"),
                    capture_output=True, text=True, timeout=30)
-out = run("inbox")
-check("…and its reply (run from that session) comes from it", "── alex/old-proj-claude" in out and "loud and clear" in out, r.stdout + r.stderr + out)
+out = run("listen", "--as", "terminal", "--wait", "3")
+check("…and its reply (run from that session) comes from it", 'from="alex/old-proj-claude"' in out and "loud and clear" in out, r.stdout + r.stderr + out)
 sleeper.kill()
+
+# An agent that gives up on a waiting check_inbox loses nothing, and later pushes aren't held back by the dead wait.
+def rpc(p, msg):
+    p.stdin.write(json.dumps(msg) + "\n")
+    p.stdin.flush()
+def reply(p, want):
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == want:
+            return m
+cx_dir = os.path.join(D, "cancel-proj")
+os.makedirs(cx_dir)
+cx = subprocess.Popen([BIN, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=cx_dir, text=True)
+rpc(cx, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex-mcp-client", "version": "1"}}})
+reply(cx, 1)
+rpc(cx, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+cmeta = {"sessionId": "cancel-1", "threadId": "cancel-1"}
+rpc(cx, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_team", "arguments": {}, "_meta": cmeta}})
+reply(cx, 2)
+rpc(cx, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "check_inbox", "arguments": {"wait_secs": 60}, "_meta": cmeta}})
+time.sleep(1.5)
+rpc(cx, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 3, "reason": "user pressed Esc"}})
+time.sleep(1.5)
+out = run("send", "cancel-proj-codex", "after the wait was cancelled")
+check("a cancelled check_inbox wait no longer swallows new messages", "waiting for messages" not in out, out)
+rpc(cx, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "check_inbox", "arguments": {}, "_meta": cmeta}})
+got_back = json.dumps(reply(cx, 4))
+check("…and the message is there at the next check_inbox", "after the wait was cancelled" in got_back, got_back)
+cx.kill()
 
 # An agent's MCP server outlives daemon restarts without collecting zombies or storming restarts.
 mcp = subprocess.Popen([BIN, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)

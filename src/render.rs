@@ -1,4 +1,4 @@
-//! Text shown to agents (tool results, injected messages) and to humans (CLI).
+//! Text shown to agents (tool results, injected messages) and in the CLI.
 
 use crate::{proto::*, util};
 use std::fmt::Write;
@@ -186,7 +186,7 @@ pub fn team(t: &TeamInfo) -> String {
 pub fn send_result(r: &SendResult) -> String {
     let mut out = String::new();
     for rc in &r.recipients {
-        let _ = writeln!(out, "→ {}: {}", rc.address, rc.note);
+        let _ = writeln!(out, "→ {}: {}", rc.address, util::one_line(&rc.note, 300));
     }
     if let [id] = r.ids.as_slice() {
         let _ = writeln!(out, "message id {id}");
@@ -196,7 +196,7 @@ pub fn send_result(r: &SendResult) -> String {
 
 /// Messages framed for an agent's context: clearly peer input, with what it needs to reply. `agent` is the
 /// recipient's agent kind, if known; `cli` when it has no tincan tools and replies with the CLI.
-pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>, cli: bool) -> String {
+pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     let mut out = String::new();
     for m in msgs {
         let mut attrs = format!("from=\"{}\"", attr(&m.from));
@@ -210,11 +210,9 @@ pub fn for_agent(msgs: &[Message], own_person: &str, agent: Option<&str>, cli: b
         out.push_str("\n</tincan-message>\n");
     }
     let Some(last) = msgs.last() else { return out };
-    let who = match last.from.split_once('/') {
-        Some((person, _)) => format!("From {person}'s agent."),
-        None if last.from == own_person => format!("From you ({own_person}), via the tincan CLI."),
-        None => format!("From {} (the person).", last.from),
-    };
+    // Every message comes from an agent session (`person/session`).
+    let person = last.from.split_once('/').map_or(last.from.as_str(), |(p, _)| p);
+    let who = format!("From {person}'s agent.");
     // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
     let reply = if cli || agent == Some("reason") {
         format!("Reply if useful: tincan send {} --from {} \"<reply>\"", last.from, last.to)
@@ -270,7 +268,7 @@ pub fn for_human(msgs: &[Message]) -> String {
         }
         let meta = if meta.is_empty() { String::new() } else { format!(" ({})", meta.join(", ")) };
         let _ = writeln!(out, "── {}{meta} · {} ago · {}", m.from, util::ago(m.sent_at, now), m.id);
-        let _ = writeln!(out, "{}\n", m.body.trim());
+        let _ = writeln!(out, "{}\n", util::printable(m.body.trim()));
     }
     out
 }
@@ -302,7 +300,7 @@ mod tests {
             wake: true,
             sent_at: 0,
         };
-        let out = for_agent(&[m], "alex", None, false);
+        let out = for_agent(&[m], None, false);
         assert_eq!(out.matches("</tincan-message>").count(), 1);
         assert!(out.contains("repo=\"x&quot;&gt;&lt;evil&gt;\""));
     }

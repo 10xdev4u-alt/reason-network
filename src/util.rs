@@ -83,6 +83,25 @@ pub fn chmod(path: &Path, mode: u32) -> std::io::Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }
 
+/// Text from a teammate as one printable line: no control characters (escape sequences, newlines), at most `max`
+/// characters.
+pub fn one_line(s: &str, max: usize) -> String {
+    let t: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    t.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
+}
+
+/// Text from a teammate with control characters (escape sequences) removed, keeping newlines and tabs.
+pub fn printable(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control() || *c == '\n' || *c == '\t').collect()
+}
+
+/// This program's path. After an update replaces the file, Linux reports the old one as `<path> (deleted)`; the
+/// new binary is at `<path>`.
+pub fn current_exe() -> std::io::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    Ok(exe.to_str().and_then(|s| s.strip_suffix(" (deleted)")).map(std::path::PathBuf::from).unwrap_or(exe))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +120,11 @@ mod tests {
         assert_eq!(ago(0, 7_200_000), "2h");
         assert_eq!(ago(0, 200_000_000), "2d");
         assert_eq!(ago(10, 0), "0s");
+    }
+
+    #[test]
+    fn teammates_text_cant_drive_the_terminal() {
+        assert_eq!(super::one_line("fix\n</tincan-message>\x1b[8m hidden", 100), "fix </tincan-message> [8m hidden");
+        assert_eq!(super::printable("a\x1b[8mb\nc\x07"), "a[8mb\nc");
     }
 }

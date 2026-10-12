@@ -22,17 +22,14 @@ use std::{
 pub(super) enum Target {
     /// A session on this machine; `key` is set when it is running.
     Session { address: String, key: Option<String> },
-    /// The human at this machine.
-    Human,
     /// A session or person on a teammate's machine.
     Remote { address: String, machine: EndpointId, machine_name: String, online: bool },
 }
 
 impl Target {
-    pub(super) fn address(&self, me: &str) -> String {
+    pub(super) fn address(&self) -> String {
         match self {
             Target::Session { address, .. } | Target::Remote { address, .. } => address.clone(),
-            Target::Human => me.to_string(),
         }
     }
 }
@@ -372,8 +369,16 @@ impl Daemon {
             } else {
                 self.pick(cands.iter().copied().filter(|c| c.person == person && c.name == name).collect(), spec, &target)?
             }
-        } else if people.iter().any(|p| p == spec) {
-            self.human(spec, remotes, g)?
+        } else if people.iter().any(|p| p == spec) && !cands.iter().any(|c| c.name == spec) {
+            // Messages go to agents, never to a person.
+            let mut theirs: Vec<String> =
+                cands.iter().filter(|c| c.person == spec && c.live).map(|c| format!("{}/{}", c.person, c.name)).collect();
+            theirs.sort();
+            theirs.dedup();
+            if theirs.is_empty() {
+                bail!("messages go to agent sessions, and {spec} has none on tincan right now");
+            }
+            bail!("messages go to agent sessions; {spec}'s are: {}", theirs.join(", "));
         } else {
             self.pick(cands.iter().copied().filter(|c| c.name == spec).collect(), spec, &target)?
         };
@@ -398,26 +403,6 @@ impl Daemon {
                 bail!("'{spec}' is ambiguous: {}", opts.join(", "))
             }
         }
-    }
-
-    /// A person's human inbox: here if it's me, else on each of their machines that is online (all of them
-    /// if none is, to wait in the outbox).
-    fn human(&self, person: &str, remotes: &HashMap<EndpointId, Remote>, g: &super::Inner) -> Result<Vec<Target>> {
-        if person == self.person {
-            return Ok(vec![Target::Human]);
-        }
-        let Some(team) = &g.team else { bail!("no team") };
-        let machines: Vec<(EndpointId, String, bool)> = team
-            .active()
-            .filter(|m| m.person == person)
-            .map(|m| (m.endpoint, m.machine.clone(), remotes.get(&m.endpoint).is_some_and(|r| r.online)))
-            .collect();
-        let online: Vec<_> = machines.iter().filter(|m| m.2).cloned().collect();
-        let pick = if online.is_empty() { machines } else { online };
-        Ok(pick
-            .into_iter()
-            .map(|(id, name, online)| Target::Remote { address: person.to_string(), machine: id, machine_name: name, online })
-            .collect())
     }
 }
 

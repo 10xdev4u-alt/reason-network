@@ -27,7 +27,7 @@ struct Report {
 }
 
 pub fn exe() -> Result<PathBuf> {
-    Ok(std::env::current_exe()?.canonicalize()?)
+    Ok(crate::util::current_exe()?.canonicalize()?)
 }
 
 /// The command line agents run through a shell: `'/path/to/tincan' hook codex stop`.
@@ -84,6 +84,10 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
     // Write then rename, so an agent never reads a half-written file.
     let tmp = PathBuf::from(format!("{}.tmp-tincan", path.display()));
     std::fs::write(&tmp, content)?;
+    // Keep its permissions (a config holding tokens may be 0600).
+    if let Ok(meta) = std::fs::metadata(path) {
+        std::fs::set_permissions(&tmp, meta.permissions())?;
+    }
     std::fs::rename(&tmp, path)?;
     Ok(true)
 }

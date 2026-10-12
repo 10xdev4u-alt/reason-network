@@ -155,8 +155,15 @@ impl TeamState {
     }
 
     /// A copy without the team link, for a machine that was removed.
-    pub fn without_link(&self) -> TeamState {
-        TeamState { link: None, ..self.clone() }
+    /// What a removed machine is shown: who's in the team, without the team link or any invite.
+    pub fn without_secrets(&self) -> TeamState {
+        TeamState { link: None, invites: BTreeMap::new(), ..self.clone() }
+    }
+
+    /// Whether `endpoint` may be an active machine of `person`, on `signer`'s word.
+    fn may_take(&self, person: &str, endpoint: &EndpointId, signer: &EndpointId) -> bool {
+        self.active().any(|m| m.endpoint == *signer && m.person == person)
+            || !self.active().any(|m| m.person == person && m.endpoint != *endpoint)
     }
 
     pub fn name(&self) -> &str {
@@ -246,6 +253,10 @@ impl TeamState {
         }
         match &inv.person {
             Some(p) if p != person => bail!("this invite is for {p}'s own machines"),
+            // Only a person's own machines can add another of theirs (see `may_take`).
+            Some(p) if self.member(&key.public()).is_none_or(|m| &m.person != p) => {
+                bail!("only one of {p}'s machines can let this one in; try again while one is online")
+            }
             Some(_) => {}
             None if self.active().any(|m| m.person == person && m.endpoint != joiner) => {
                 bail!("'{person}' is already in this team; join with another name (--as)")
@@ -297,6 +308,11 @@ impl TeamState {
             // A machine may sign its own departure, never its own return (the founder's very first entry aside).
             let self_admit = e.by == e.body.endpoint && e.body.active;
             if self_admit && !(e.by == self.founder && cur.is_none()) {
+                continue;
+            }
+            // A person's name belongs to their machines: a machine can't take a name another active machine has,
+            // unless a machine of that person vouches for it (adding another of their own machines).
+            if e.body.active && !self.may_take(&e.body.person, &e.body.endpoint, &e.by) {
                 continue;
             }
             if admitted.contains(&e.by) && e.verify(&self.id, "member") {
@@ -668,6 +684,26 @@ mod tests {
     }
 
     #[test]
+    fn a_teammate_cannot_take_someone_elses_name() {
+        let (a, b, fake, mine) = (key(), key(), key(), key());
+        let mut s = TeamState::found("vibes", "alex", "mbp", &a);
+        let link = s.link_secret().unwrap().to_string();
+        s.redeem(&a, &link, "alice", b.public()).unwrap();
+        s.put_member(&a, b.public(), "alice", "xps", true);
+        // alice's machine signs a new machine in as alex, on its copy, and sends it over.
+        let mut evil = s.clone();
+        evil.put_member(&b, fake.public(), "alex", "evil", true);
+        s.merge(&evil).unwrap();
+        assert!(!s.is_active(&fake.public()), "alice's machine made itself a second alex");
+        assert_eq!(s.active().filter(|m| m.person == "alex").count(), 1);
+        // alex adding another of alex's machines is fine.
+        let mut own = s.clone();
+        own.put_member(&a, mine.public(), "alex", "mini", true);
+        s.merge(&own).unwrap();
+        assert!(s.is_active(&mine.public()));
+    }
+
+    #[test]
     fn ticket_roundtrip() {
         let (a, b) = (key(), key());
         let t = Ticket {
@@ -731,7 +767,8 @@ mod tests {
         // A joiner learns the link, and can show it too.
         let joined = TeamState::verified(&s).unwrap();
         assert_eq!(joined.link_secret(), Some(link.as_str()));
-        assert_eq!(s.without_link().link, None);
+        assert_eq!(s.without_secrets().link, None);
+        assert!(s.without_secrets().invites.is_empty());
         s.new_link(&b);
         assert!(s.redeem(&a, &link, "dee", d.public()).is_err(), "the old link stops working");
         let fresh = s.link_secret().unwrap().to_string();

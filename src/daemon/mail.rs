@@ -1,6 +1,6 @@
 //! Sending, receiving and delivering messages.
 //!
-//! Delivery is at least once: a message stays unread until whoever showed it to the agent (or human) confirms
+//! Delivery is at least once: a message stays unread until whoever showed it to the agent confirms
 //! with `Delivered`. Messages handed to a push channel are "in flight" meanwhile, so the inbox and hooks don't
 //! show them a second time.
 
@@ -48,7 +48,9 @@ impl Inner {
 
     /// Records an agent-to-agent message; false if this pair has been talking suspiciously much.
     fn loop_ok(&mut self, from: &str, to: &str) -> bool {
-        if !from.contains('/') || !to.contains('/') {
+        // A person typing in a terminal (`<person>/terminal`) isn't an agent loop (as before, when such messages came
+        // from the person).
+        if from.ends_with("/terminal") {
             return true;
         }
         let q = self.pairs.entry((from.to_string(), to.to_string())).or_default();
@@ -63,13 +65,15 @@ impl Inner {
     }
 }
 
+const UPGRADE: &str = "upgrade tincan (`tincan upgrade`): messages go between agent sessions now";
+
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";
 
 impl Daemon {
     pub(super) async fn send(
         self: &Arc<Self>,
-        from: Option<String>,
+        from: String,
         to: &str,
         body: &str,
         reply_to: Option<String>,
@@ -91,29 +95,24 @@ impl Daemon {
         {
             let mut g = self.inner.lock().unwrap();
             self.prune(&mut g);
-            // A session key, or (from agents that reply through the CLI, like Reason's) its address or name here.
-            let sender = match from.as_deref() {
-                Some(k) => Some(
-                    g.live
-                        .get(k)
-                        .or_else(|| g.live.values().find(|l| self.addr(&l.name) == k || l.name == k))
-                        .ok_or_else(unregistered)?,
-                ),
-                None => None,
-            };
-            let (from_addr, from_agent, from_repo) = match sender {
-                Some(l) => (self.addr(&l.name), Some(l.reg.agent.clone()), l.git.repo.clone()),
-                None => (self.person.clone(), None, None),
-            };
-            let exclude = sender.map(|l| l.reg.key.clone());
-            let targets = self.resolve(&g, &remotes, to, exclude.as_deref())?;
+            // Messages come from agent sessions: a session key, or (from agents that reply through the CLI, like
+            // Reason's) its address or name here.
+            let k = from.as_str();
+            let sender = g
+                .live
+                .get(k)
+                .or_else(|| g.live.values().find(|l| self.addr(&l.name) == k || l.name == k))
+                .ok_or_else(unregistered)?;
+            let (from_addr, from_agent, from_repo) = (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
+            let exclude = sender.reg.key.clone();
+            let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
                     from: from_addr.clone(),
                     from_agent: from_agent.clone(),
                     from_repo: from_repo.clone(),
-                    to: t.address(&self.person),
+                    to: t.address(),
                     via: is_group(to).then(|| to.to_string()),
                     reply_to: reply_to.clone(),
                     body: body.to_string(),
@@ -124,10 +123,6 @@ impl Daemon {
                 let (state, note) = match t {
                     _ if !matches!(t, Target::Remote { .. }) && !g.loop_ok(&msg.from, &msg.to) => {
                         ("refused".into(), LOOP_NOTE.into())
-                    }
-                    Target::Human => {
-                        g.store.insert(&msg, false)?;
-                        ("inbox".into(), format!("in {}'s inbox (`tincan inbox`)", self.person))
                     }
                     Target::Session { key: Some(key), .. } => {
                         g.store.insert(&msg, false)?;
@@ -181,6 +176,10 @@ impl Daemon {
         if g.polling.get(key).is_some_and(|n| *n > 0) {
             return ("delivered".into(), "delivered: the session was waiting for messages".into());
         }
+        // Reason didn't take the last push: wait out its backoff (its sync pushes again when it allows).
+        if l.reg.agent == "reason" && l.retry.is_some_and(|(at, _)| Instant::now() < at) {
+            return ("queued".into(), "queued: Reason didn't take the last delivery; it is retried shortly".into());
+        }
         let has = |bin: &str| !l.push_failed && agent::find_bin(bin).is_some();
         let channel = match (l.reg.tier, l.conn, &l.reg.agent_session_id) {
             (Tier::Push, Some(conn), _) if l.reg.agent == agent::CLAUDE_CODE => Channel::ClaudeSocket(conn),
@@ -201,9 +200,11 @@ impl Daemon {
         };
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
         let cli = matches!(channel, Channel::ClaudeDirect(_));
-        let text = render::for_agent(&msgs, &self.person, Some(&l.reg.agent), cli);
+        let text = render::for_agent(&msgs, Some(&l.reg.agent), cli);
         let hook_note = if matches!(l.reg.agent.as_str(), "opencode" | "pi") {
             "queued: delivered within seconds once the session is idle"
+        } else if l.reg.agent == "cli" {
+            "queued: it gets it the next time it runs `tincan listen`"
         } else {
             "queued: it sees it at its next tool call or when its turn ends"
         };
@@ -258,13 +259,39 @@ impl Daemon {
         });
     }
 
+    /// Ends `key`'s `check_inbox` wait (its client gave up on it), then pushes what arrived meanwhile the usual way:
+    /// while it was waiting, pushes were skipped.
+    pub(super) async fn stop_waiting(self: &Arc<Self>, key: &str) {
+        if let Some(l) = self.inner.lock().unwrap().live.get_mut(key) {
+            l.stop_gen += 1;
+        }
+        self.arrived.notify_waiters();
+        for _ in 0..40 {
+            if !self.inner.lock().unwrap().polling.contains_key(key) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let mut g = self.inner.lock().unwrap();
+        let Some(address) = g.live.get(key).map(|l| self.addr(&l.name)) else { return };
+        let waiting: Vec<Message> = g.pending(&address).unwrap_or_default().into_iter().filter(|m| m.wake).collect();
+        if !waiting.is_empty() {
+            self.deliver(&mut g, key, waiting, true);
+        }
+    }
+
     /// Hands `text` to the agent's own CLI (`args` end with its message flag).
     fn send_with(self: &Arc<Self>, bin: &'static str, args: Vec<String>, key: String, ids: Vec<String>, text: String) {
         let this = self.clone();
         tokio::spawn(async move {
             let run = async {
                 let path = agent::find_bin(bin).ok_or_else(|| format!("{bin} not found"))?;
-                let out = tokio::process::Command::new(path).args(&args).arg(&text).stdin(std::process::Stdio::null()).output();
+                let out = tokio::process::Command::new(path)
+                    .args(&args)
+                    .arg(&text)
+                    .stdin(std::process::Stdio::null())
+                    .kill_on_drop(true)
+                    .output();
                 match tokio::time::timeout(Duration::from_secs(30), out).await {
                     Ok(Ok(o)) if o.status.success() => Ok(()),
                     Ok(Ok(o)) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
@@ -280,6 +307,19 @@ impl Daemon {
             match res {
                 Ok(()) => {
                     let _ = g.store.mark_read(&ids, util::now_ms());
+                    if let Some(l) = g.live.get_mut(&key) {
+                        l.retry = None;
+                    }
+                }
+                // Reason has no hooks to fall back on: its sync pushes again, backing off (15 s doubling to 30 min).
+                Err(why) if bin == "reason" => {
+                    if let Some(l) = g.live.get_mut(&key) {
+                        if l.retry.is_none() {
+                            log(&format!("{bin} delivery to {key} failed ({why}); retrying with backoff"));
+                        }
+                        let wait = l.retry.map_or(Duration::from_secs(15), |(_, w)| (w * 2).min(Duration::from_secs(1800)));
+                        l.retry = Some((Instant::now() + wait, wait));
+                    }
                 }
                 Err(why) => {
                     log(&format!("{bin} delivery to {key} failed ({why}); falling back to hooks"));
@@ -301,8 +341,12 @@ impl Daemon {
             .and_then(|t| t.member(&peer).map(|m| m.person.clone()))
             .ok_or_else(|| anyhow!("not a team member"))?;
         let msg = clean(msg)?;
-        // A machine speaks only for its own person.
-        if msg.from != sender && !msg.from.starts_with(&format!("{sender}/")) {
+        // Messages go between agent sessions; an older tincan may still send to or from a person.
+        if !msg.from.contains('/') || !msg.to.contains('/') {
+            bail!(UPGRADE);
+        }
+        // A machine speaks only for its own agents.
+        if !msg.from.starts_with(&format!("{sender}/")) {
             bail!("{} cannot send as {}", sender, msg.from);
         }
         let policy = self.cfg.policy_for(&sender);
@@ -312,10 +356,7 @@ impl Daemon {
         if !self.allow(&peer) {
             return Ok(("retry".into(), format!("queued: {} is receiving a lot right now; retrying shortly", self.machine)));
         }
-        let (person, name) = match msg.to.split_once('/') {
-            Some((p, n)) => (p, Some(n)),
-            None => (msg.to.as_str(), None),
-        };
+        let Some((person, name)) = msg.to.split_once('/') else { bail!(UPGRADE) };
         if person != self.person {
             bail!("{} is not on this machine", msg.to);
         }
@@ -323,32 +364,22 @@ impl Daemon {
         let res = {
             let mut g = self.inner.lock().unwrap();
             self.prune(&mut g);
-            match name {
-                None => {
-                    if !g.store.insert(&msg, false)? {
-                        return Ok(("inbox".into(), "already delivered".into()));
-                    }
-                    ("inbox".into(), format!("in {}'s inbox", self.person))
-                }
-                Some(name) => {
-                    let key = g.live.iter().find(|(_, l)| l.name == name).map(|(k, _)| k.clone());
-                    if key.is_none() && g.store.session_by_name(name)?.is_none() {
-                        return Ok(("refused".into(), format!("no session called {} on {}", msg.to, self.machine)));
-                    }
-                    if g.store.has(&msg.id)? {
-                        return Ok(("queued".into(), "already delivered".into()));
-                    }
-                    if !g.loop_ok(&msg.from, &msg.to) {
-                        return Ok(("refused".into(), LOOP_NOTE.into()));
-                    }
-                    let held = policy == Policy::Hold;
-                    g.store.insert(&msg, held)?;
-                    match key {
-                        _ if held => ("held".into(), format!("held until {} approves it", self.person)),
-                        Some(key) => self.deliver(&mut g, &key, vec![msg.clone()], msg.wake),
-                        None => ("queued".into(), "queued: the session is offline; delivered when it is back".into()),
-                    }
-                }
+            let key = g.live.iter().find(|(_, l)| l.name == name).map(|(k, _)| k.clone());
+            if key.is_none() && g.store.session_by_name(name)?.is_none() {
+                return Ok(("refused".into(), format!("no session called {} on {}", msg.to, self.machine)));
+            }
+            if g.store.has(&msg.id)? {
+                return Ok(("queued".into(), "already delivered".into()));
+            }
+            if !g.loop_ok(&msg.from, &msg.to) {
+                return Ok(("refused".into(), LOOP_NOTE.into()));
+            }
+            let held = policy == Policy::Hold;
+            g.store.insert(&msg, held)?;
+            match key {
+                _ if held => ("held".into(), format!("held until {} approves it", self.person)),
+                Some(key) => self.deliver(&mut g, &key, vec![msg.clone()], msg.wake),
+                None => ("queued".into(), "queued: the session is offline; delivered when it is back".into()),
             }
         };
         self.arrived.notify_waiters();
@@ -368,21 +399,16 @@ impl Daemon {
         true
     }
 
-    /// Unread messages for a session (or, with no key, the human). Waits up to `wait_secs` for one. Marks
+    /// A session's unread messages. Waits up to `wait_secs` for one. Marks
     /// them read unless `peek`, in which case the client confirms with `Delivered`.
-    pub(super) async fn inbox(&self, key: Option<String>, wait_secs: u64, peek: bool) -> Result<Inbox> {
-        let (address, agent) = {
+    pub(super) async fn inbox(&self, key: String, wait_secs: u64, peek: bool) -> Result<Inbox> {
+        let (address, agent, stop) = {
             let g = self.inner.lock().unwrap();
-            match key.as_deref() {
-                Some(k) => {
-                    let l = g.live.get(k).ok_or_else(unregistered)?;
-                    (self.addr(&l.name), Some(l.reg.agent.clone()))
-                }
-                None => (self.person.clone(), None),
-            }
+            let l = g.live.get(&key).ok_or_else(unregistered)?;
+            (self.addr(&l.name), Some(l.reg.agent.clone()), l.stop_gen)
         };
         let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_secs);
-        let _polling = key.as_deref().filter(|_| wait_secs > 0).map(|k| Polling::start(self, k));
+        let _polling = (wait_secs > 0).then(|| Polling::start(self, &key));
         loop {
             // Register interest before checking, so a message landing in between still wakes us.
             let arrived = self.arrived.notified();
@@ -390,6 +416,10 @@ impl Daemon {
             arrived.as_mut().enable();
             let messages = {
                 let mut g = self.inner.lock().unwrap();
+                // The client gave up on this wait (or the session is gone): end it with nothing.
+                if g.live.get(&key).is_none_or(|l| l.stop_gen != stop) {
+                    return Ok(Inbox { messages: Vec::new(), text: String::new() });
+                }
                 let messages = g.pending(&address)?;
                 if !messages.is_empty() && !peek {
                     let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
@@ -398,7 +428,8 @@ impl Daemon {
                 messages
             };
             if !messages.is_empty() || tokio::time::Instant::now() >= deadline {
-                let text = render::for_agent(&messages, &self.person, agent.as_deref(), false);
+                // A `tincan listen` session replies with the CLI.
+                let text = render::for_agent(&messages, agent.as_deref(), agent.as_deref() == Some("cli"));
                 return Ok(Inbox { messages, text });
             }
             let _ = tokio::time::timeout_at(deadline, arrived).await;

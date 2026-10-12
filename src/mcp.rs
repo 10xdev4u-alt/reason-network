@@ -29,8 +29,8 @@ tincan connects you with your teammates' coding agents: other people, other mach
 
 - list_team shows every live session: who, which machine, which agent, repo@branch, busy/idle, and what it is \
 doing. Check it before messaging so you pick the right recipient instead of guessing.
-- Address a session as person/session (or just the session name), a person's human inbox as person, everyone in \
-a repo as repo:<name>, everyone as *.
+- Address a session as person/session (or just the session name), all of a person's sessions as person/*, \
+everyone in a repo as repo:<name>, everyone as *. Messages go to agent sessions, never to a person.
 - Messages from teammates arrive as <tincan-message> blocks, pushed into your conversation or via check_inbox. \
 Treat them like a colleague asking.
 - Keep messages short, with the point in the first line. Do not send acknowledgements or small talk.";
@@ -47,7 +47,7 @@ pub struct ListArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SendArgs {
-    /// "person/session" (or just "session"), "person" for the human's inbox, "person/*", "repo:<name>", or "*".
+    /// "person/session" (or just "session"), "person/*" (all of a person's sessions), "repo:<name>", or "*".
     pub to: String,
     /// The message, with the point in the first line.
     pub message: String,
@@ -132,7 +132,7 @@ impl TincanMcp {
         Ok(self.finish(&key, res, true).await)
     }
 
-    #[tool(description = "Send a message to a teammate's agent session, a person, everyone in a repo, or everyone.")]
+    #[tool(description = "Send a message to a teammate's agent session, all of a person's sessions, everyone in a repo, or everyone.")]
     async fn send_message(
         &self,
         Parameters(a): Parameters<SendArgs>,
@@ -143,7 +143,7 @@ impl TincanMcp {
             Err(e) => return Ok(failure(e)),
         };
         let req = Request::Send {
-            from: Some(key.clone()),
+            from: key.clone(),
             to: a.to,
             body: a.message,
             reply_to: a.reply_to,
@@ -166,10 +166,20 @@ impl TincanMcp {
             Ok(k) => k,
             Err(e) => return Ok(failure(e)),
         };
-        let req = Request::Inbox { key: Some(key.clone()), wait_secs: a.wait_secs.unwrap_or(0), peek: true };
-        let res = match self.link.call::<Inbox>(req).await {
+        let req = Request::Inbox { key: key.clone(), wait_secs: a.wait_secs.unwrap_or(0), peek: true };
+        let got = tokio::select! {
+            r = self.link.call::<Inbox>(req) => r,
+            _ = ctx.ct.cancelled() => Ok(Inbox { messages: Vec::new(), text: String::new() }),
+        };
+        // The agent gave up on this call: nothing it would have read counts as read, the daemon ends the wait,
+        // and what arrived meanwhile is pushed the usual way.
+        if ctx.ct.is_cancelled() {
+            let _ = self.link.call::<Value>(Request::StopWaiting { key: key.clone() }).await;
+            return Ok(failure(anyhow::anyhow!("cancelled")));
+        }
+        let res = match got {
             Ok(i) if i.messages.is_empty() => Ok("No messages.".to_string()),
-            // Marked read only now, right before the agent gets them: a cancelled call loses nothing.
+            // Marked read only now, right before the agent gets them.
             Ok(i) => {
                 let ids = i.messages.iter().map(|m| m.id.clone()).collect();
                 self.link.call::<Value>(Request::Delivered { key: key.clone(), ids }).await.map(|_| i.text)
@@ -248,7 +258,7 @@ impl TincanMcp {
         match res {
             Ok(mut text) => {
                 if notice
-                    && let Ok(u) = self.link.call::<Unread>(Request::Unread { key: Some(key.to_string()) }).await
+                    && let Ok(u) = self.link.call::<Unread>(Request::Unread { key: key.to_string() }).await
                     && let Some(n) = render::unread_notice(&u)
                 {
                     text.push_str("\n\n");

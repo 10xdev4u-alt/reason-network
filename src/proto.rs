@@ -74,6 +74,9 @@ pub struct HookCall {
     /// What the session is doing, from agents that say so themselves (the opencode plugin).
     #[serde(default)]
     pub doing: Option<String>,
+    /// The session's name, for sessions that pick one (`tincan listen --as`).
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,10 +100,9 @@ pub enum Request {
         #[serde(default)]
         all: bool,
     },
-    /// `from` is a session key, or absent for the human at this machine.
+    /// From an agent session: its key (or, for agents that reply through the CLI, its address or name).
     Send {
-        #[serde(default)]
-        from: Option<String>,
+        from: String,
         to: String,
         body: String,
         #[serde(default)]
@@ -108,20 +110,23 @@ pub enum Request {
         #[serde(default = "yes")]
         wake: bool,
     },
-    /// `key` is a session key, or absent for the human's inbox. With `peek` nothing is marked read: the client
-    /// acknowledges with `Delivered` after showing the messages, so nothing is lost if it goes away first.
+    /// A session's unread messages. With `peek` nothing is marked read: the client acknowledges with `Delivered`
+    /// after showing the messages, so nothing is lost if it goes away first.
     Inbox {
-        #[serde(default)]
-        key: Option<String>,
+        key: String,
         #[serde(default)]
         wait_secs: u64,
         #[serde(default)]
         peek: bool,
     },
-    /// Unread messages for a session, or (`None`) for the human here.
+    /// A session's unread messages, counted.
     Unread {
-        #[serde(default)]
-        key: Option<String>,
+        key: String,
+    },
+    /// The client gave up on this session's `Inbox` wait (the agent cancelled it): end it, and push what it was
+    /// waiting for the usual way.
+    StopWaiting {
+        key: String,
     },
     /// The client injected these messages into its agent's conversation.
     Delivered {
@@ -224,7 +229,7 @@ pub enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
-    /// `person/session` for an agent, `person` for a human.
+    /// The agent session it came from (`person/session`).
     pub from: String,
     pub from_agent: Option<String>,
     pub from_repo: Option<String>,

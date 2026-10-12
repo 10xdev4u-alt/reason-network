@@ -207,7 +207,7 @@ impl ProtocolHandler for PeerProto {
                 && let Some(state) = daemon.team_state()
                 && let Ok(Ok((mut send, _recv))) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await
             {
-                let _ = write_frame(&mut send, &Wire::State { state: Box::new(state.without_link()) }).await;
+                let _ = write_frame(&mut send, &Wire::State { state: Box::new(state.without_secrets()) }).await;
                 let _ = send.finish();
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
@@ -547,7 +547,7 @@ impl Net {
             }
             Wire::State { state } => daemon.merge_state(&state),
             Wire::Presence { presence } => {
-                let rem = Remote { presence, last_seen: util::now_ms(), online: true };
+                let rem = Remote { presence: tidy_presence(presence), last_seen: util::now_ms(), online: true };
                 daemon.save_presence(&peer, &rem);
                 self.remote.lock().unwrap().insert(peer, rem);
             }
@@ -571,4 +571,23 @@ impl Net {
         }
         Ok(())
     }
+}
+
+/// A teammate's presence, cut down to what is safe to show agents and terminals: names as slugs, everything else
+/// one printable line of bounded length.
+fn tidy_presence(mut p: Presence) -> Presence {
+    let line = |s: &str, max: usize| util::one_line(s, max);
+    p.sessions.truncate(200);
+    for s in &mut p.sessions {
+        s.name = util::slug(&s.name).chars().take(64).collect();
+        s.agent = util::slug(&s.agent).chars().take(32).collect();
+        s.status = line(&s.status, 16);
+        s.cwd = line(&s.cwd, 200);
+        s.repo = s.repo.as_deref().map(|r| line(r, 100));
+        s.branch = s.branch.as_deref().map(|b| line(b, 100));
+        s.doing = s.doing.as_deref().map(|d| line(d, 200)).filter(|d| !d.is_empty());
+    }
+    p.sessions.retain(|s| !s.name.is_empty());
+    p.known = p.known.iter().take(100).map(|n| util::slug(n).chars().take(64).collect()).filter(|n: &String| !n.is_empty()).collect();
+    p
 }

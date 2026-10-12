@@ -78,6 +78,7 @@ async fn handle(
         mail,
         transcript: str_at("transcript_path"),
         doing,
+        name: None,
     });
     let reply: HookReply = link.call(req).await.ok()?;
     let ids = reply.ids;

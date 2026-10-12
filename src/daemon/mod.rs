@@ -74,7 +74,7 @@ pub async fn run(service: bool) -> Result<()> {
 
 /// Keeps the menu bar icon up while we run. It exits 0 when the user hides it, and on its own when we exit.
 async fn tray() {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = util::current_exe() else { return };
     for _ in 0..5 {
         match tokio::process::Command::new(&exe).arg("tray").stdin(std::process::Stdio::null()).status().await {
             Ok(st) if st.success() => return,
@@ -133,6 +133,10 @@ struct Live {
     push_failed: bool,
     /// The agent's transcript (from its hooks), which says what the session is doing.
     transcript: Option<std::path::PathBuf>,
+    /// A push that failed is retried from this time on, after waiting this long (doubling up to 30 min).
+    retry: Option<(Instant, Duration)>,
+    /// Bumped to end this session's `check_inbox` wait (its client gave up on it).
+    stop_gen: u64,
 }
 
 fn load_key() -> Result<SecretKey> {
@@ -204,20 +208,34 @@ impl Daemon {
             }
         });
         let mut lines = BufReader::new(rd).lines();
+        // Inbox long-polls end with their connection; anything else finishes (a half-done `leave` would not).
+        let mut waits = tokio::task::JoinSet::new();
         while let Ok(Some(line)) = lines.next_line().await {
+            while waits.try_join_next().is_some() {}
+            let f = match serde_json::from_str::<Frame<Request>>(&line) {
+                Ok(f) => f,
+                Err(e) => {
+                    let _ = tx.send(serde_json::to_string(&Reply::err(0, anyhow!("bad request: {e}"))).expect("reply serializes"));
+                    continue;
+                }
+            };
+            let wait = matches!(f.body, Request::Inbox { .. });
             let (this, tx) = (self.clone(), tx.clone());
             // Each request runs on its own task: an inbox long-poll must not block the connection.
-            tokio::spawn(async move {
-                let reply = match serde_json::from_str::<Frame<Request>>(&line) {
-                    Ok(f) => match this.handle(conn, f.body).await {
-                        Ok(v) => Reply::ok(f.id, v),
-                        Err(e) => Reply::err(f.id, e),
-                    },
-                    Err(e) => Reply::err(0, anyhow!("bad request: {e}")),
+            let task = async move {
+                let reply = match this.handle(conn, f.body).await {
+                    Ok(v) => Reply::ok(f.id, v),
+                    Err(e) => Reply::err(f.id, e),
                 };
                 let _ = tx.send(serde_json::to_string(&reply).expect("reply serializes"));
-            });
+            };
+            if wait {
+                waits.spawn(task);
+            } else {
+                tokio::spawn(task);
+            }
         }
+        waits.abort_all();
         self.drop_conn(conn);
         writer.abort();
     }
@@ -232,7 +250,11 @@ impl Daemon {
             Request::Who { me, filter, all } => json!(self.who(me, filter, all).await?),
             Request::Send { from, to, body, reply_to, wake } => json!(self.send(from, &to, &body, reply_to, wake).await?),
             Request::Inbox { key, wait_secs, peek } => json!(self.inbox(key, wait_secs.min(MAX_WAIT), peek).await?),
-            Request::Unread { key } => json!(self.unread(key.as_deref())?),
+            Request::Unread { key } => json!(self.unread(&key)?),
+            Request::StopWaiting { key } => {
+                self.stop_waiting(&key).await;
+                Value::Null
+            }
             Request::Delivered { ids, .. } => {
                 let mut g = self.inner.lock().unwrap();
                 g.store.mark_read(&ids, util::now_ms())?;

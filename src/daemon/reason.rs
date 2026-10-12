@@ -31,6 +31,7 @@ impl Daemon {
         let out = tokio::process::Command::new(bin)
             .args(["session", "list", "--limit", "20", "--json"])
             .stdin(std::process::Stdio::null())
+            .kill_on_drop(true)
             .output();
         let out = tokio::time::timeout(Duration::from_secs(30), out).await??;
         if !out.status.success() {
@@ -73,6 +74,14 @@ impl Daemon {
                 let status = if s["status"].as_str() == Some("running") { "busy" } else { "idle" };
                 if l.status.as_ref().is_none_or(|(st, _)| st != status) {
                     l.status = Some((status.to_string(), now));
+                }
+            }
+            // Mail a failed push left behind goes out again.
+            let address = g.live.get(&key).map(|l| self.addr(&l.name));
+            if let Some(address) = address {
+                let waiting: Vec<_> = g.pending(&address)?.into_iter().filter(|m| m.wake).collect();
+                if !waiting.is_empty() {
+                    self.deliver(&mut g, &key, waiting, true);
                 }
             }
         }

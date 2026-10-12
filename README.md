@@ -33,8 +33,8 @@ That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent
 
 ```sh
 tincan who                    # who's around and what their sessions are doing
-tincan send alice "lunch?"    # message a person (or alice/api-cursor for one session)
-tincan inbox                  # your messages
+tincan send alice/api-claude "did the token format change?"   # message one of alice's agents
+tincan listen --as terminal   # replies to what you sent from this terminal
 tincan link                   # the team link again
 tincan setup                  # which agents are on tincan, and how messages are handled
 ```

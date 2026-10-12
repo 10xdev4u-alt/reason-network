@@ -65,7 +65,9 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Send a message to a session (`person/session`), a person, `repo:<name>` or `*`
+    /// Send a message to an agent session (`person/session`), all of a person's (`person/*`), `repo:<name>` or `*`.
+    /// It comes from the agent session whose shell runs it, `--from <session>`, or from a plain terminal,
+    /// `<you>/terminal` (read replies with `tincan listen --as terminal`)
     Send {
         to: String,
         /// The message; read from stdin when omitted or `-`
@@ -75,20 +77,9 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
-        /// Send as this agent session here (for agents that reply through the CLI)
-        #[arg(long, hide = true)]
+        /// Send as this agent session here (e.g. one made with `tincan listen --as <name>`)
+        #[arg(long)]
         from: Option<String>,
-    },
-    /// Read your messages (or, inside an agent's shell, that session's)
-    Inbox {
-        /// Wait up to this many seconds for a message
-        #[arg(long, default_value_t = 0)]
-        wait: u64,
-        /// Show without marking as read
-        #[arg(long)]
-        peek: bool,
-        #[arg(long)]
-        json: bool,
     },
     /// Set what the current agent session is doing (run from inside the agent's shell)
     Status {
@@ -195,6 +186,16 @@ enum Cmd {
     },
     /// Restart the daemon
     Stop,
+    /// Wait for the next message to a named session, print it, and exit (for agents without tincan's tools, e.g.
+    /// cloud agents: run it again after replying)
+    Listen {
+        /// The session's name; reachable as <you>/<name>
+        #[arg(long = "as", default_value = "agent")]
+        name: String,
+        /// Give up after this many seconds
+        #[arg(long, default_value_t = 600)]
+        wait: u64,
+    },
     /// Run the MCP server on stdio (what agents launch)
     Mcp,
     /// The menu bar icon (macOS; the background service starts it)
@@ -231,6 +232,23 @@ async fn main() -> Result<()> {
 }
 
 /// The agent session this shell belongs to, if it runs inside one.
+/// A session driven from the command line (`tincan listen --as <id>`, or `terminal` for plain-terminal sends): kept
+/// alive like a hook-known session, so it stays reachable between commands.
+async fn cli_session(link: &std::sync::Arc<Link>, id: &str, event: &str) -> Result<HookReply> {
+    let req = Request::Hook(HookCall {
+        agent: "cli".into(),
+        event: event.into(),
+        session_id: id.into(),
+        cwd: Some(agent::cwd()),
+        pid: None,
+        mail: false,
+        transcript: None,
+        doing: None,
+        name: Some(id.into()),
+    });
+    link.call(req).await
+}
+
 fn current_session() -> Option<String> {
     let agent = agent::detect_env()?;
     Some(format!("{agent}:{}", agent::env_session_id(agent)?))
@@ -257,25 +275,17 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 body.clear();
                 std::io::stdin().read_to_string(&mut body)?;
             }
-            let req = Request::Send { from: from.or_else(current_session), to, body, reply_to, wake: !fyi };
+            // Messages come from agent sessions: this agent's, `--from`'s, or from a plain terminal, `<you>/terminal`.
+            let from = match from.or_else(current_session) {
+                Some(f) => f,
+                None => {
+                    cli_session(&link, "terminal", "stop").await?;
+                    "cli:terminal".to_string()
+                }
+            };
+            let req = Request::Send { from, to, body, reply_to, wake: !fyi };
             let r: SendResult = link.call(req).await?;
             print!("{}", render::send_result(&r));
-        }
-        Cmd::Inbox { wait, peek, json } => {
-            let key = current_session();
-            let i: Inbox = link.call(Request::Inbox { key: key.clone(), wait_secs: wait, peek: true }).await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&i.messages)?);
-            } else if i.messages.is_empty() {
-                println!("No messages.");
-            } else {
-                print!("{}", render::for_human(&i.messages));
-            }
-            // Marked read only once shown.
-            if !peek && !i.messages.is_empty() {
-                let ids = i.messages.iter().map(|m| m.id.clone()).collect();
-                link.call::<serde_json::Value>(Request::Delivered { key: key.unwrap_or_default(), ids }).await?;
-            }
         }
         Cmd::Status { doing, name } => {
             let Some(key) = current_session() else {
@@ -344,6 +354,29 @@ async fn cli(cmd: Cmd) -> Result<()> {
             println!("  curl -fsSL {} | sh -s -- {}\n", install_url(), i.code);
             println!("(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.", i.code, i.hours);
             println!("If this machine will be offline, use the long form instead: tincan join {}", i.ticket);
+            if me {
+                println!("\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my tincan team as {}: {}", default_person(None), join_url(&i.ticket));
+            }
+        }
+        Cmd::Listen { name, wait } => {
+            let id = util::slug(&name);
+            if id.is_empty() {
+                bail!("a session name needs letters or digits");
+            }
+            let address = cli_session(&link, &id, "stop").await?.address.unwrap_or_default();
+            let key = format!("cli:{id}");
+            let i: Inbox = link.call(Request::Inbox { key: key.clone(), wait_secs: wait, peek: true }).await?;
+            if i.messages.is_empty() && wait == 0 {
+                println!("No messages. You are {address}.");
+            } else if i.messages.is_empty() {
+                println!("No messages in {wait}s. You are {address}; run this again to keep listening.");
+            } else {
+                println!("{}", i.text);
+                let ids = i.messages.iter().map(|m| m.id.clone()).collect();
+                link.call::<serde_json::Value>(Request::Delivered { key, ids }).await?;
+                // Busy until it listens again.
+                let _ = cli_session(&link, &id, "prompt").await;
+            }
         }
         Cmd::Team => {
             let t: TeamInfo = link.call(Request::Team).await?;
@@ -384,7 +417,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Setup { dry_run, remove, no_service } => setup::run(dry_run, remove, no_service).await?,
         Cmd::Doctor => setup::doctor().await?,
         Cmd::Upgrade => {
-            let dir = std::env::current_exe()?.parent().map(|d| d.display().to_string()).unwrap_or_default();
+            let dir = util::current_exe()?.parent().map(|d| d.display().to_string()).unwrap_or_default();
             let status = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(format!("curl -fsSL {} | sh", install_url()))

@@ -165,36 +165,50 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
         bail!("the tincan daemon isn't running");
     }
     // One is running (it may be starting or restarting): wait for it rather than start another.
+    let mut child = None;
     if running_daemon().is_none() {
         // With the background service installed, the service starts it, so there is only ever its daemon.
         let by_service = crate::setup::service_installed()
             && std::env::var_os("TINCAN_NO_SERVICE").is_none()
             && crate::setup::start_service();
         if !by_service {
-            start_daemon()?;
+            child = Some(start_daemon()?);
         }
     }
+    let failed = || anyhow!("could not start the tincan daemon; see {}", paths::log().display());
+    let mut connected = None;
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
         if let Ok(s) = UnixStream::connect(&sock).await {
-            return Ok(s);
+            connected = Some(s);
+            break;
+        }
+        // It exited: either another daemon got there first (keep waiting for it) or it can't start (give up now).
+        if let Some(c) = child.as_mut()
+            && c.try_wait().ok().flatten().is_some()
+        {
+            child = None;
+            if running_daemon().is_none() {
+                return Err(failed());
+            }
         }
     }
-    bail!("could not start the tincan daemon; see {}", paths::log().display())
+    // Reaped when it exits, so a long-lived client (`tincan mcp`) never collects zombies.
+    if let Some(mut c) = child {
+        std::thread::spawn(move || c.wait());
+    }
+    connected.ok_or_else(failed)
 }
 
 /// Starts `tincan daemon` detached from this process group, logging to `~/.tincan/daemon.log`.
-fn start_daemon() -> Result<()> {
+fn start_daemon() -> Result<std::process::Child> {
     paths::ensure_home()?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;
-    let mut child = Command::new(std::env::current_exe()?)
+    Ok(Command::new(crate::util::current_exe()?)
         .arg("daemon")
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log)
         .process_group(0)
-        .spawn()?;
-    // Reaped when it exits, so a long-lived client (`tincan mcp`) never collects zombies.
-    std::thread::spawn(move || child.wait());
-    Ok(())
+        .spawn()?)
 }

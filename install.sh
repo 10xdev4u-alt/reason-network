@@ -42,15 +42,14 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 say "Downloading tincan for $target..."
 curl -fsSL "$base/tincan-$target.tar.gz" -o "$tmp/tincan.tar.gz" || die "download failed ($base/tincan-$target.tar.gz)"
-if curl -fsSL "$base/tincan-$target.tar.gz.sha256" -o "$tmp/sum" 2>/dev/null; then
-  want="$(cut -d' ' -f1 < "$tmp/sum")"
-  if command -v shasum >/dev/null 2>&1; then
-    got="$(shasum -a 256 "$tmp/tincan.tar.gz" | cut -d' ' -f1)"
-  else
-    got="$(sha256sum "$tmp/tincan.tar.gz" | cut -d' ' -f1)"
-  fi
-  [ "$want" = "$got" ] || die "checksum mismatch; not installing"
+curl -fsSL "$base/tincan-$target.tar.gz.sha256" -o "$tmp/sum" || die "checksum download failed; not installing"
+want="$(cut -d' ' -f1 < "$tmp/sum")"
+if command -v shasum >/dev/null 2>&1; then
+  got="$(shasum -a 256 "$tmp/tincan.tar.gz" | cut -d' ' -f1)"
+else
+  got="$(sha256sum "$tmp/tincan.tar.gz" | cut -d' ' -f1)"
 fi
+[ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch; not installing"
 tar -xzf "$tmp/tincan.tar.gz" -C "$tmp"
 mkdir -p "$bin_dir"
 install -m 755 "$tmp/tincan" "$bin_dir/tincan"

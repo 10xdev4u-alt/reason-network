@@ -31,7 +31,7 @@ vibes    alex        alex-mbp     api-claude   (claude-code, acme/api@feat/auth,
 ```
 
 - **Team**: a named group with a membership roster. Joined once per machine with an invite.
-- **Person**: a human. Owns one or more machines. Can be messaged directly (lands in their human inbox).
+- **Person**: a human. Owns one or more machines. Not an address: messages go to agent sessions only.
 - **Machine**: one daemon, one iroh key. Identity = `EndpointId` (ed25519 public key).
 - **Session**: one live agent conversation. Has a name, agent kind, cwd, repo, branch, status, a one-line
   `doing`, and a delivery tier (below).
@@ -43,7 +43,6 @@ vibes    alex        alex-mbp     api-claude   (claude-code, acme/api@feat/auth,
 | `alice/api-cursor` | one session |
 | `alice/api-cursor@xps` | that session on machine `xps` (when alice has two sessions of that name) |
 | `api-cursor` | a session, when the name is unique in the team |
-| `alice` | the human (person inbox: CLI, desktop notification) |
 | `alice/*` | every live session of alice's |
 | `repo:acme/api` or `repo:api` | every live session working in that repo |
 | `*` | everyone |
@@ -71,7 +70,9 @@ One static Rust binary, `tincan`, with subcommands:
 - `tincan mcp`: stdio MCP server spawned by the agent. Thin client of the daemon. **Must handle many
   sessions per process**: Codex, opencode and Cursor share one MCP process across threads/tabs.
 - `tincan hook <agent>`: hook handler (status, context injection, stop-continuation, wake).
-- `tincan who | send | inbox | status | init | invite | join | setup | doctor`: the human CLI.
+- `tincan who | send | listen | status | init | invite | join | setup | doctor`: the CLI. `send` goes out as
+  the agent session whose shell runs it, `--from <session>`, or from a plain terminal as `<you>/terminal`;
+  `listen --as <name>` waits for the next message to `<you>/<name>`.
 
 Why Rust: iroh 1.x (QUIC dialed by public key, hole punching, HTTPS relays, mDNS) and rmcp (official MCP
 SDK) both exist and work today. Zig has neither, which is why agent-rpc's MCP shim had to be TypeScript.
@@ -203,7 +204,7 @@ not approve. Nothing changes how an agent works when it isn't messaging.
 - Only roster machines can connect (iroh handshake proves the key; hook rejects the rest).
 - Peer text is framed as peer input. Agents are told not to treat it as user instructions.
 - Per-machine inbound policy: `accept` (default within the team), `hold` (you approve with
-  `tincan inbox --held` or a notification), `refuse`; overridable per person. Claude Code adds its own
+  `tincan held` / `tincan approve`), `refuse`; overridable per person. Claude Code adds its own
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.

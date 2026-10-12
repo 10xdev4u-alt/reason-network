@@ -33,7 +33,6 @@ mod mac {
         team: Option<String>,
         me: String,
         machines: Vec<(MachineInfo, Vec<SessionInfo>, usize)>,
-        unread: Unread,
     }
 
     enum Update {
@@ -111,8 +110,7 @@ mod mac {
             if changed {
                 let v = shown.as_deref();
                 let online = v.is_some_and(|v| v.machines.iter().any(|(m, ..)| m.online && !m.is_me));
-                let count = v.map_or(0, |v| v.unread.count);
-                let title = flash.map(|(t, _)| t.to_string()).or_else(|| (count > 0).then(|| count.to_string()));
+                let title = flash.map(|(t, _)| t.to_string());
                 set_icon(&tray, online, title.as_deref(), mtm);
             }
             // Our daemon exited (we were handed to launchd): go with it.
@@ -122,7 +120,7 @@ mod mac {
         }
     }
 
-    /// Two speech bubbles, filled while a teammate is connected, plus an optional title (the unread count).
+    /// Two speech bubbles, filled while a teammate is connected, plus an optional title (a brief notice).
     fn set_icon(tray: &TrayIcon, online: bool, title: Option<&str>, mtm: MainThreadMarker) {
         let name = if online { "bubble.left.and.bubble.right.fill" } else { "bubble.left.and.bubble.right" };
         if let Some(button) = tray.ns_status_item().and_then(|i| i.button(mtm)) {
@@ -182,12 +180,6 @@ mod mac {
             items.push(Box::new(sub));
         }
         items.push(Box::new(sep()));
-        if v.unread.count > 0 {
-            let s = if v.unread.count == 1 { "" } else { "s" };
-            items.push(Box::new(info(&format!("{} message{s} for you from {}", v.unread.count, v.unread.from.join(", ")))));
-            items.push(Box::new(info("Read them with `tincan inbox`")));
-            items.push(Box::new(sep()));
-        }
         if v.team.is_some() {
             items.push(Box::new(MenuItem::with_id("link", "Copy team link", true, None)));
         }
@@ -251,7 +243,6 @@ mod mac {
 
     async fn view(link: &std::sync::Arc<Link>) -> Result<View> {
         let d: Directory = link.call(Request::Who { me: None, filter: None, all: false }).await?;
-        let unread: Unread = link.call(Request::Unread { key: None }).await?;
         let machines = d
             .machines
             .iter()
@@ -263,7 +254,7 @@ mod mac {
             })
             .collect();
         let me = format!("{} on {}", d.person, d.machine);
-        let key = serde_json::to_string(&(&d.team, &me, &machines, &unread))?;
-        Ok(View { key, team: d.team, me, machines, unread })
+        let key = serde_json::to_string(&(&d.team, &me, &machines))?;
+        Ok(View { key, team: d.team, me, machines })
     }
 }

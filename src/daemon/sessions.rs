@@ -73,6 +73,8 @@ impl Daemon {
                     last_hook: None,
                     push_failed: false,
                     transcript: None,
+                    retry: None,
+                    stop_gen: 0,
                 },
             );
         }
@@ -125,13 +127,10 @@ impl Daemon {
         Ok(Registered { name: live.name.clone(), unread: g.store.unread_count(&address)?, address })
     }
 
-    pub(super) fn unread(&self, key: Option<&str>) -> Result<Unread> {
+    pub(super) fn unread(&self, key: &str) -> Result<Unread> {
         let mut g = self.inner.lock().unwrap();
-        let address = match key.map(|k| g.live.get(k)) {
-            None => self.person.clone(),
-            Some(Some(l)) => self.addr(&l.name),
-            Some(None) => return Ok(Unread { count: 0, from: Vec::new() }),
-        };
+        let Some(l) = g.live.get(key) else { return Ok(Unread { count: 0, from: Vec::new() }) };
+        let address = self.addr(&l.name);
         let msgs = g.pending(&address)?;
         let mut from: Vec<String> = Vec::new();
         for m in &msgs {
@@ -144,7 +143,7 @@ impl Daemon {
 
     /// A hook fired in an agent: keep its session alive, track busy/idle, hand back mail to inject.
     pub(super) async fn hook(self: &Arc<Self>, h: HookCall) -> Result<HookReply> {
-        let HookCall { agent, event, session_id, cwd, pid, mail, transcript, doing } = h;
+        let HookCall { agent, event, session_id, cwd, pid, mail, transcript, doing, name } = h;
         let (agent, event) = (agent.as_str(), event.as_str());
         let key = format!("{agent}:{session_id}");
         let now = util::now_ms();
@@ -170,7 +169,7 @@ impl Daemon {
                 agent_session_id: Some(session_id.clone()),
                 pid,
                 tier: Tier::Pull,
-                name: None,
+                name,
             };
             self.register_quiet(None, reg, git)?;
         }
@@ -207,7 +206,7 @@ impl Daemon {
         };
         // Not marked read here: the hook confirms with `Delivered` once it has printed them.
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
-        let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, &self.person, Some(&agent_kind), false));
+        let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, Some(&agent_kind), false));
         Ok(HookReply { address: Some(address), text, ids })
     }
 
