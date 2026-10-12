@@ -138,6 +138,12 @@ out = run("listen", "--as", "terminal", "--wait", "3")
 check("the terminal reads the reply with `tincan listen --as terminal`", "both green" in out and 'from="alex/bot"' in out, out)
 out = run("listen", "--as", "terminal", "--wait", "0")
 check("…once", "No messages." in out, out)
+out = run("send", "alex/bot", "")
+check("an empty message is an error", "empty message" in out, out)
+r = subprocess.run([BIN, "send", "alex/bot", "from a shell tincan doesn't know"], env=dict(env, CLAUDECODE="1", CLAUDE_CODE_SESSION_ID="not-on-tincan"),
+                   capture_output=True, text=True, timeout=30)
+out = run("listen", "--as", "bot", "--wait", "3")
+check("an agent shell tincan doesn't know sends as <me>/terminal", 'from="alex/terminal"' in out and "a shell tincan doesn't know" in out, r.stdout + r.stderr + out)
 
 # Reason: its agent runs in the cloud; tincan lists the live sessions and sends with its CLI.
 fake_reason, reason_log = os.path.join(D, "fake-reason.sh"), os.path.join(D, "reason.log")

@@ -259,6 +259,9 @@ fn default_person(p: Option<String>) -> String {
 }
 
 async fn cli(cmd: Cmd) -> Result<()> {
+    // Like other command-line tools, stop quietly when whatever reads our output goes away. (`listen` marks
+    // messages read only after printing them, so nothing is lost.)
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let link = Link::new(None);
     match cmd {
         Cmd::Who { filter, all, json } => {
@@ -271,20 +274,30 @@ async fn cli(cmd: Cmd) -> Result<()> {
         }
         Cmd::Send { to, message, reply_to, fyi, from } => {
             let mut body = message.join(" ");
-            if body.is_empty() || body == "-" {
+            if message.is_empty() || body == "-" {
                 body.clear();
                 std::io::stdin().read_to_string(&mut body)?;
             }
-            // Messages come from agent sessions: this agent's, `--from`'s, or from a plain terminal, `<you>/terminal`.
-            let from = match from.or_else(current_session) {
-                Some(f) => f,
+            if body.trim().is_empty() {
+                bail!("empty message");
+            }
+            // Messages come from agent sessions: `--from`'s, this agent's, or from a plain terminal, `<you>/terminal`.
+            // An agent shell tincan doesn't know (its tools aren't loaded) counts as a terminal.
+            let send = |from: String| Request::Send { from, to: to.clone(), body: body.clone(), reply_to: reply_to.clone(), wake: !fyi };
+            let explicit = from.is_some();
+            let r: SendResult = match from.or_else(current_session) {
+                Some(f) => match link.call(send(f)).await {
+                    Err(e) if !explicit && e.to_string().contains("isn't registered") => {
+                        cli_session(&link, "terminal", "stop").await?;
+                        link.call(send("cli:terminal".into())).await?
+                    }
+                    r => r?,
+                },
                 None => {
                     cli_session(&link, "terminal", "stop").await?;
-                    "cli:terminal".to_string()
+                    link.call(send("cli:terminal".into())).await?
                 }
             };
-            let req = Request::Send { from, to, body, reply_to, wake: !fyi };
-            let r: SendResult = link.call(req).await?;
             print!("{}", render::send_result(&r));
         }
         Cmd::Status { doing, name } => {
@@ -450,7 +463,7 @@ fn daemon_pid() -> Option<u32> {
 async fn wait_exit(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     for _ in 0..50 {
-        if !util::pid_alive(pid) {
+        if daemon_pid() != Some(pid) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

@@ -383,6 +383,10 @@ impl Daemon {
             }
         };
         self.arrived.notify_waiters();
+        // The sender's session can be answered right away, before its machine's next presence names it.
+        if let (Some(net), Some((_, from))) = (self.net(), msg.from.split_once('/')) {
+            net.note_session(&peer, from);
+        }
         Ok(res)
     }
 

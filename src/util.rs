@@ -70,8 +70,14 @@ pub fn lock(path: &Path, wait: bool) -> std::io::Result<Option<File>> {
     use std::io::Write;
     let mut f = File::options().create(true).truncate(false).write(true).open(path)?;
     let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
-    if unsafe { libc::flock(f.as_raw_fd(), flags) } != 0 {
-        return Ok(None);
+    // A client checking whether a daemon runs holds the lock for an instant: try again before giving up.
+    let mut tries = 0;
+    while unsafe { libc::flock(f.as_raw_fd(), flags) } != 0 {
+        tries += 1;
+        if tries == 3 {
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
     f.set_len(0)?;
     write!(f, "{}", std::process::id())?;

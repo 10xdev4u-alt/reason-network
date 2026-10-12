@@ -552,18 +552,30 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             }
             return Ok("removed the login service".into());
         }
+        // Containers and WSL often have no user systemd: say so plainly, and leave no unit behind.
+        let user_systemd = Command::new("systemctl")
+            .args(["--user", "show-environment"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !user_systemd {
+            return Err(anyhow!("systemctl --user isn't available here"));
+        }
         let home_env = tincan_home.map(|h| format!("Environment=\"TINCAN_HOME={h}\"\n")).unwrap_or_default();
         let unit = format!(
-            "[Unit]\nDescription=tincan daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=tincan daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
-            service_path_env()
+            service_path_env(),
+            paths::log().display()
         );
         let did = write_file(&path, &unit, dry)?;
         if !dry {
+            paths::ensure_home()?;
             crate::stop_daemon().await;
             Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output()?;
             let out = Command::new("systemctl").args(["--user", "enable", "--now", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output()?;
             if !out.status.success() {
+                let _ = std::fs::remove_file(&path);
                 return Err(anyhow!("systemctl: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
             // Keep running after logout (servers, SSH boxes). Best effort: some systems want a password.
@@ -728,8 +740,7 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
                 out.service = Some(on);
             }
             Err(e) => {
-                out.lines.push(format!("service: not installed ({e:#}); the daemon still starts on demand"));
-                out.notes.push(format!("Not running in the background ({e:#}); tincan starts when you use it."));
+                out.notes.push(format!("Not running in the background: {e:#}; tincan starts when you use it."));
             }
         }
     }

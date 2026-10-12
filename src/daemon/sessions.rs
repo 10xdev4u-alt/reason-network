@@ -77,6 +77,7 @@ impl Daemon {
                     stop_gen: 0,
                 },
             );
+            self.presence_changed();
         }
         let l = &g.live[&key];
         g.store.upsert_session(&remembered(l, now))?;
@@ -154,6 +155,7 @@ impl Daemon {
             {
                 let _ = g.store.touch_session(&l.name, now);
                 log(&format!("session {} ({key}) ended", self.addr(&l.name)));
+                self.presence_changed();
             }
             return Ok(HookReply::default());
         }
@@ -243,6 +245,7 @@ impl Daemon {
             if let Some(l) = g.live.remove(&key) {
                 let _ = g.store.touch_session(&l.name, now);
                 log(&format!("session {} ({key}) left", self.addr(&l.name)));
+                self.presence_changed();
             }
         }
     }

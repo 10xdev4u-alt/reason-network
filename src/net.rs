@@ -100,6 +100,8 @@ pub struct Net {
     acks: Mutex<HashMap<String, oneshot::Sender<(String, String)>>>,
     dialing: Mutex<HashSet<EndpointId>>,
     wake: Notify,
+    /// A local session came or went: announce it now, not at the next tick.
+    changed: Notify,
     next_link: AtomicU64,
 }
 
@@ -271,6 +273,7 @@ impl Net {
             acks: Default::default(),
             dialing: Default::default(),
             wake: Notify::new(),
+            changed: Notify::new(),
             next_link: AtomicU64::new(1),
         });
         tokio::spawn(net.clone().dial_loop());
@@ -434,12 +437,34 @@ impl Net {
 
     /// Every 2s: tell teammates if anything here changed (and at least every minute). Every 30s: resend what
     /// the outbox still holds for connected machines (lost in a reconnect, or deferred by a busy receiver).
+    /// A local session came or went: teammates hear about it right away.
+    pub fn presence_changed(&self) {
+        self.changed.notify_one();
+    }
+
+    /// `peer` just sent from its session `name`: make it addressable at once, before its next presence.
+    pub fn note_session(&self, peer: &EndpointId, name: &str) {
+        let mut remote = self.remote.lock().unwrap();
+        let rem = remote.entry(*peer).or_insert_with(|| Remote {
+            presence: Presence { sessions: Vec::new(), known: Vec::new() },
+            last_seen: util::now_ms(),
+            online: true,
+        });
+        let p = &mut rem.presence;
+        if !p.sessions.iter().any(|s| s.name == name) && !p.known.iter().any(|k| k == name) {
+            p.known.push(name.to_string());
+        }
+    }
+
     async fn presence_loop(self: Arc<Self>) {
         let mut last: Option<Presence> = None;
         let mut sent = Instant::now();
         let mut flushed = Instant::now();
         loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                _ = self.changed.notified() => {}
+            }
             let Some(daemon) = self.daemon.upgrade() else { return };
             let p = daemon.presence().await;
             if last.as_ref() != Some(&p) || sent.elapsed() > Duration::from_secs(60) {

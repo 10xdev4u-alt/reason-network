@@ -153,7 +153,18 @@ async fn reconnect(link: Weak<Link>) {
 
 /// The daemon that holds the lock, if it is alive (it may still be starting).
 pub fn running_daemon() -> Option<u32> {
-    std::fs::read_to_string(paths::lock()).ok()?.trim().parse().ok().filter(|p| crate::util::pid_alive(*p))
+    holder(&paths::lock())
+}
+
+/// Who holds the lock at `path`. Asked of the lock, not the pid: a daemon that exited holds none, even when a
+/// parent that never reaps (a container's `sleep` as PID 1) leaves it a zombie whose pid still "exists".
+fn holder(path: &std::path::Path) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    let f = std::fs::File::open(path).ok()?;
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
 async fn connect_or_start(start: bool) -> Result<UnixStream> {
@@ -211,4 +222,22 @@ fn start_daemon() -> Result<std::process::Child> {
         .stderr(log)
         .process_group(0)
         .spawn()?)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_daemon_runs_only_while_it_holds_the_lock() {
+        let dir = std::env::temp_dir().join(format!("tincan-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("daemon.lock");
+        // A pid left behind by a daemon that exited (or a zombie): the lock is free.
+        std::fs::write(&path, std::process::id().to_string()).unwrap();
+        assert_eq!(super::holder(&path), None);
+        let held = crate::util::lock(&path, false).unwrap().expect("free lock");
+        assert_eq!(super::holder(&path), Some(std::process::id()));
+        drop(held);
+        assert_eq!(super::holder(&path), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

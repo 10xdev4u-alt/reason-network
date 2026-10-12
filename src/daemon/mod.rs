@@ -189,6 +189,13 @@ impl Daemon {
         self.net.read().unwrap().clone()
     }
 
+    /// A session here came or went: teammates hear about it right away.
+    fn presence_changed(&self) {
+        if let Some(net) = self.net() {
+            net.presence_changed();
+        }
+    }
+
     async fn serve(self: Arc<Self>, stream: UnixStream) {
         let (rd, mut wr) = stream.into_split();
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();

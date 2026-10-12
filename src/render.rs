@@ -212,7 +212,11 @@ pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     let Some(last) = msgs.last() else { return out };
     // Every message comes from an agent session (`person/session`).
     let person = last.from.split_once('/').map_or(last.from.as_str(), |(p, _)| p);
-    let who = format!("From {person}'s agent.");
+    let who = if last.from.ends_with("/terminal") {
+        format!("From {person}, typed in a terminal.")
+    } else {
+        format!("From {person}'s agent.")
+    };
     // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
     let reply = if cli || agent == Some("reason") {
         format!("Reply if useful: tincan send {} --from {} \"<reply>\"", last.from, last.to)
