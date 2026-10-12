@@ -253,3 +253,30 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 [agent-peer](https://github.com/mkhuda/agent-peer), [ccbridge](https://github.com/sourabhnirvani/ccbridge),
 [agent-bridge](https://github.com/trananhhh/agent-bridge), [intermcp](https://github.com/Guo-astro/intermcp),
 [claude-message-mcp](https://github.com/aeriondyseti/claude-message-mcp), [Paseo](https://paseo.sh).
+
+## Config
+
+`~/.tincan/config.toml`:
+
+| Key | Default | |
+|---|---|---|
+| `person` | `$USER` | your name (set by `init`/`join`) |
+| `share_paths` | `false` | show teammates full working directories |
+| `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have tincan loaded |
+| `tray` | `true` | macOS: show the menu bar icon while the background service runs |
+| `lan` | `true` | find teammates on the local network (mDNS) |
+| `auto_update` | `true` | install new releases when they come out (checked every few hours) |
+| `reason` | `false` | list your live Reason sessions (set by `tincan setup`) |
+| `inbound` | accept | see above |
+
+## Troubleshooting
+
+- **`tincan doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
+- **An agent doesn't have the tincan tools:** restart that session; agents load MCP servers at startup.
+- **A teammate shows as offline:** their machine is asleep or tincan isn't running there (`tincan doctor` on
+  their side). Messages wait in your outbox and go out when they're back.
+- **macOS asks to let tincan find devices on your local network:** allow it for direct LAN connections. If you
+  don't, tincan still works over the internet.
+- **Codex sessions don't show up until they use a tincan tool:** Codex hasn't been told to trust the hooks yet;
+  run `/hooks` in Codex.
+- Logs: `~/.tincan/daemon.log`.
