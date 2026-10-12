@@ -18,6 +18,8 @@ pub struct Config {
     pub tray: bool,
     /// List your live Reason sessions and deliver to them (`reason session list`/`send`).
     pub reason: bool,
+    /// Install new releases when they come out (the daemon checks every few hours).
+    pub auto_update: bool,
     pub inbound: Inbound,
 }
 
@@ -41,7 +43,7 @@ pub enum Policy {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, reason: false, inbound: Inbound::default() }
+        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, reason: false, auto_update: true, inbound: Inbound::default() }
     }
 }
 

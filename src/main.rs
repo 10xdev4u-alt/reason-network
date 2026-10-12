@@ -389,6 +389,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 .arg("-c")
                 .arg(format!("curl -fsSL {} | sh", install_url()))
                 .env("TINCAN_BIN_DIR", dir)
+                .env("TINCAN_NO_PROMPT", "1")
                 .status()?;
             if !status.success() {
                 bail!("upgrade failed");

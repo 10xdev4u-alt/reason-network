@@ -7,7 +7,7 @@
 #   curl -fsSL <this url> | sh -s -- init <team> --as <name>     install and start a team, without questions
 #
 # Environment: TINCAN_BIN_DIR (default ~/.local/bin), TINCAN_VERSION (default latest), TINCAN_REPO,
-# TINCAN_DOWNLOAD_BASE (a mirror serving the release files).
+# TINCAN_DOWNLOAD_BASE (a mirror serving the release files), TINCAN_NO_PROMPT (never ask anything: updates).
 set -eu
 
 repo="${TINCAN_REPO:-asdf9384/tincan}"
@@ -64,7 +64,7 @@ esac
 
 # Hand over to tincan: it asks a few questions (name, invite code, which agents) in your terminal. Under
 # `curl | sh` our stdin is the script, so read answers from the terminal itself when there is one.
-if { : </dev/tty; } 2>/dev/null; then
+if [ -z "${TINCAN_NO_PROMPT:-}" ] && { : </dev/tty; } 2>/dev/null; then
   case "${1:-}" in
     "") exec "$bin_dir/tincan" </dev/tty ;;
     -*|init|join|setup) exec "$bin_dir/tincan" "$@" </dev/tty ;;
