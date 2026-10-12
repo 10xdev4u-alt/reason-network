@@ -56,6 +56,9 @@ continue". Gemini CLI only runs hooks and MCP servers in trusted folders.
 
 Or let your agent do it: tell it "join my tincan team: <link>" (the join page has that line ready to copy).
 
+Already installed tincan on its own? Run `tincan join '<link>'` (or the link's command again). If you started a
+team by yourself first, joining swaps it for the new one; if others are in your team, `tincan leave` first.
+
 On a Mac, tincan sits in the menu bar while it runs: two speech bubbles, filled while a teammate is connected,
 with the number of messages waiting for you. Its menu lists each machine's sessions and what they're doing,
 and copies the team link. "Hide menu bar icon" turns it off (`tincan setup` turns it back on).

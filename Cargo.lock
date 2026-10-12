@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "tincan"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "blake3",

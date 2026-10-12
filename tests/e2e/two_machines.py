@@ -90,7 +90,15 @@ check("joiner sees alex connected", re.search(r"alex\s+laptop\s+(direct|relay)",
 out = cli("alex", "team")
 check("founder sees alice connected", re.search(r"alice\s+desktop\s+(direct|relay)", out) is not None, out)
 out = cli("alice", "join", link.group(1), "--as", "bob", "--no-setup")
-check("second join is refused (already in a team)", "already in team" in out, out)
+check("joining a second team is refused while yours has others, and says how to switch",
+      "already in team 'vibes' (with alex)" in out and "tincan leave" in out, out)
+# Installed on its own and started a team by itself first: the team link still just works.
+sam = dict(env("alice"), TINCAN_HOME=os.path.join(D, "sam"), TINCAN_MACHINE="mini")
+r = subprocess.run([BIN, "init", "solo", "--as", "sam", "--no-setup"], env=sam, capture_output=True, text=True, timeout=90)
+r = subprocess.run([BIN, "join", link.group(1), "--as", "sam", "--no-setup"], env=sam, capture_output=True, text=True, timeout=90)
+check("a team of one is swapped for the team you join", "Joined team vibes as sam on mini." in r.stdout, r.stdout + r.stderr)
+subprocess.run([BIN, "leave"], env=sam, capture_output=True, timeout=60)
+subprocess.run([BIN, "stop"], env=sam, capture_output=True)
 os.makedirs(os.path.join(D, "bob"), exist_ok=True)
 bob = dict(env("alice"), TINCAN_HOME=os.path.join(D, "bob"), TINCAN_MACHINE="nuc")
 out = cli("alex", "invite", "--code")

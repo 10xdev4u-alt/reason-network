@@ -179,9 +179,33 @@ impl Daemon {
 
     /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `tincan1…` ticket.
     pub(super) async fn join_team(self: &Arc<Self>, invite_text: &str, person: &str) -> Result<TeamInfo> {
+        let mut solo = false;
         if let Some(t) = self.team_state() {
-            bail!("already in team '{}'; run `tincan leave` first", t.name());
+            let me = self.key.public();
+            let mut others: Vec<String> = t.active().filter(|m| m.endpoint != me).map(|m| m.person.clone()).collect();
+            others.dedup();
+            if !others.is_empty() {
+                bail!(
+                    "already in team '{}' (with {}). To switch, run `tincan leave`, then join again",
+                    t.name(),
+                    others.join(", ")
+                );
+            }
+            // A team of one that nobody joined: switching loses nothing. It stays until the join succeeds.
+            solo = true;
+            let old = self.net.write().unwrap().take();
+            if let Some(net) = old {
+                net.shutdown().await;
+            }
         }
+        let res = self.join_with(invite_text, person).await;
+        if res.is_err() && solo {
+            let _ = self.start_net().await;
+        }
+        res
+    }
+
+    async fn join_with(self: &Arc<Self>, invite_text: &str, person: &str) -> Result<TeamInfo> {
         let person = util::slug(person);
         if person.is_empty() {
             bail!("your name needs letters or digits");

@@ -89,6 +89,17 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
                     sp.stop(format!("Joined team {} as {} on {}.", t.name, t.person, t.machine));
                     break;
                 }
+                Err(e) if e.to_string().starts_with("already in team") => {
+                    let why = e.to_string();
+                    sp.error(format!("You're {}.", why.split(". To switch").next().unwrap_or(&why)));
+                    if !confirm("Leave it and join this team instead?").initial_value(false).interact()? {
+                        return Err(anyhow!("not joined; you're still in your old team"));
+                    }
+                    let pid = crate::daemon_pid();
+                    link.call::<String>(Request::Leave { force: false }).await?;
+                    crate::wait_exit(pid).await;
+                    invite = Some(text);
+                }
                 Err(e) if e.to_string().contains("already in this team") => {
                     sp.error(format!("Someone in the team is already called {person}."));
                     person = util::slug(&input("Pick another name").validate(|s: &String| name_ok(s)).interact::<String>()?);
