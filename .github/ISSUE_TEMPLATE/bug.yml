@@ -1,0 +1,21 @@
+name: Bug
+description: Something in tincan doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: tincan doctor
+      description: The output of `tincan doctor` on the machine with the problem (and the other machine, if it's about two).
+      render: text
+  - type: input
+    attributes:
+      label: Setup
+      description: tincan version (`tincan --version`), OS, and the coding agents involved.
+      placeholder: tincan 0.9.0, macOS 15, Claude Code and Codex
+    validations:
+      required: true

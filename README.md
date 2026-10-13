@@ -84,12 +84,7 @@ tincan setup --remove && tincan leave && rm -rf ~/.tincan ~/.local/bin/tincan
 
 On Windows, in PowerShell: `tincan setup --remove; tincan leave; Remove-Item -Recurse -Force ~\.tincan, ~\.local\bin\tincan*`
 
-## Development
+## Contributing
 
-```sh
-cargo test
-cargo build && python3 tests/e2e/two_machines.py   # two machines over iroh (needs internet)
-python3 tests/e2e/hooks.py && python3 tests/e2e/guided.py
-```
-
-Push a `v*` tag to release. Licensed MIT OR Apache-2.0.
+Issues, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), or ask in
+[Discussions](https://github.com/larstalian/tincan/discussions). Licensed MIT OR Apache-2.0.
