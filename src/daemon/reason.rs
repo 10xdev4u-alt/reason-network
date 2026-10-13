@@ -54,7 +54,12 @@ impl Daemon {
             if !self.inner.lock().unwrap().live.contains_key(&key) {
                 let git = GitInfo { root: None, repo: text("repo"), branch: text("branch") };
                 // Named for its repo, else for the first words of its title (kept once chosen).
-                let name = git.repo.is_none().then(|| title.as_deref().map(first_words)).flatten().map(|t| format!("{t}-reason"));
+                let name = git
+                    .repo
+                    .is_none()
+                    .then(|| title.as_deref().map(first_words))
+                    .flatten()
+                    .map(|t| format!("{t}-reason"));
                 let reg = SessionReg {
                     key: key.clone(),
                     agent: "reason".into(),
@@ -86,7 +91,12 @@ impl Daemon {
             }
         }
         let mut g = self.inner.lock().unwrap();
-        let gone: Vec<String> = g.live.iter().filter(|(k, l)| l.reg.agent == "reason" && !seen.contains(*k)).map(|(k, _)| k.clone()).collect();
+        let gone: Vec<String> = g
+            .live
+            .iter()
+            .filter(|(k, l)| l.reg.agent == "reason" && !seen.contains(*k))
+            .map(|(k, _)| k.clone())
+            .collect();
         for key in gone {
             if let Some(l) = g.live.remove(&key) {
                 let _ = g.store.touch_session(&l.name, now);

@@ -225,7 +225,9 @@ impl Daemon {
             let f = match serde_json::from_str::<Frame<Request>>(&line) {
                 Ok(f) => f,
                 Err(e) => {
-                    let _ = tx.send(serde_json::to_string(&Reply::err(0, anyhow!("bad request: {e}"))).expect("reply serializes"));
+                    let _ = tx.send(
+                        serde_json::to_string(&Reply::err(0, anyhow!("bad request: {e}"))).expect("reply serializes"),
+                    );
                     continue;
                 }
             };
@@ -258,7 +260,9 @@ impl Daemon {
             }
             Request::SetStatus { key, doing, name } => json!(self.set_status(&key, doing, name)?),
             Request::Who { me, filter, all } => json!(self.who(me, filter, all).await?),
-            Request::Send { from, to, body, reply_to, wake } => json!(self.send(from, &to, &body, reply_to, wake).await?),
+            Request::Send { from, to, body, reply_to, wake } => {
+                json!(self.send(from, &to, &body, reply_to, wake).await?)
+            }
             Request::Inbox { key, wait_secs, peek } => json!(self.inbox(key, wait_secs.min(MAX_WAIT), peek).await?),
             Request::Unread { key } => json!(self.unread(&key)?),
             Request::StopWaiting { key } => {

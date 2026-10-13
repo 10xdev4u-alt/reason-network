@@ -5,8 +5,7 @@
 //! show them a second time.
 
 use super::{Daemon, Inner, directory::Target, log};
-use crate::{
-    claude,agent, config::Policy, proto::*, render, util};
+use crate::{agent, claude, config::Policy, proto::*, render, util};
 use anyhow::{Result, anyhow, bail};
 use iroh::EndpointId;
 use std::{
@@ -84,7 +83,11 @@ impl Daemon {
             bail!("empty message");
         }
         if body.len() > MAX_BODY {
-            bail!("message is {} KB; the limit is {} KB (send a path or link instead)", body.len() / 1024, MAX_BODY / 1024);
+            bail!(
+                "message is {} KB; the limit is {} KB (send a path or link instead)",
+                body.len() / 1024,
+                MAX_BODY / 1024
+            );
         }
         let now = util::now_ms();
         let net = self.net();
@@ -103,7 +106,8 @@ impl Daemon {
                 .get(k)
                 .or_else(|| g.live.values().find(|l| self.addr(&l.name) == k || l.name == k))
                 .ok_or_else(unregistered)?;
-            let (from_addr, from_agent, from_repo) = (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
+            let (from_addr, from_agent, from_repo) =
+                (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
             let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
             for t in targets {
@@ -135,7 +139,10 @@ impl Daemon {
                     Target::Remote { machine, machine_name, online, .. } => {
                         g.store.outbox_add(&machine.to_string(), &msg)?;
                         remote_jobs.push((res.recipients.len(), machine, machine_name.clone(), online, msg.clone()));
-                        ("queued".into(), format!("queued: not connected to {machine_name} right now; it goes out as soon as it is"))
+                        (
+                            "queued".into(),
+                            format!("queued: not connected to {machine_name} right now; it goes out as soon as it is"),
+                        )
                     }
                 };
                 res.recipients.push(Recipient { address: msg.to.clone(), state, note });
@@ -166,7 +173,13 @@ impl Daemon {
     }
 
     /// Hands messages to a session here by the fastest way it has. Returns the state and a note for the sender.
-    pub(super) fn deliver(self: &Arc<Self>, g: &mut Inner, key: &str, msgs: Vec<Message>, wake: bool) -> (String, String) {
+    pub(super) fn deliver(
+        self: &Arc<Self>,
+        g: &mut Inner,
+        key: &str,
+        msgs: Vec<Message>,
+        wake: bool,
+    ) -> (String, String) {
         let Some(l) = g.live.get(key) else {
             return ("queued".into(), "queued: the session is offline; delivered when it is back".into());
         };
@@ -218,21 +231,33 @@ impl Daemon {
                 for id in ids {
                     g.in_flight.insert(id, Instant::now());
                 }
-                ("pushed".into(), "delivered into the session: it reads it between tool calls, or wakes up if idle".into())
+                (
+                    "pushed".into(),
+                    "delivered into the session: it reads it between tool calls, or wakes up if idle".into(),
+                )
             }
             Channel::Command(bin, args) => {
                 for id in &ids {
                     g.in_flight.insert(id.clone(), Instant::now());
                 }
                 self.send_with(bin, args, key.to_string(), ids, text);
-                ("pushed".into(), format!("queued into the {} session: it runs after the current turn, or now if idle", agent::label(bin)))
+                (
+                    "pushed".into(),
+                    format!(
+                        "queued into the {} session: it runs after the current turn, or now if idle",
+                        agent::label(bin)
+                    ),
+                )
             }
             Channel::ClaudeDirect(sock) => {
                 for id in &ids {
                     g.in_flight.insert(id.clone(), Instant::now());
                 }
                 self.post_direct(key.to_string(), sock, ids, text);
-                ("pushed".into(), "delivered into the session: it reads it between tool calls, or wakes up if idle".into())
+                (
+                    "pushed".into(),
+                    "delivered into the session: it reads it between tool calls, or wakes up if idle".into(),
+                )
             }
             Channel::Hook => ("queued".into(), hook_note.into()),
             Channel::Pull => ("queued".into(), "queued: this agent only sees it when it checks its inbox".into()),
@@ -243,7 +268,7 @@ impl Daemon {
     fn post_direct(self: &Arc<Self>, key: String, sock: agent::ClaudeSocket, ids: Vec<String>, text: String) {
         let this = self.clone();
         tokio::spawn(async move {
-            let res =tokio::task::spawn_blocking(move || agent::post_to_claude(&sock, &text)).await;
+            let res = tokio::task::spawn_blocking(move || agent::post_to_claude(&sock, &text)).await;
             let mut g = this.inner.lock().unwrap();
             for id in &ids {
                 g.in_flight.remove(id);
@@ -316,7 +341,8 @@ impl Daemon {
                         if l.retry.is_none() {
                             log(&format!("{bin} delivery to {key} failed ({why}); retrying with backoff"));
                         }
-                        let wait = l.retry.map_or(Duration::from_secs(15), |(_, w)| (w * 2).min(Duration::from_secs(1800)));
+                        let wait =
+                            l.retry.map_or(Duration::from_secs(15), |(_, w)| (w * 2).min(Duration::from_secs(1800)));
                         l.retry = Some((Instant::now() + wait, wait));
                     }
                 }
@@ -353,7 +379,10 @@ impl Daemon {
             return Ok(("refused".into(), format!("{} doesn't accept messages from {sender}", self.person)));
         }
         if !self.allow(&peer) {
-            return Ok(("retry".into(), format!("queued: {} is receiving a lot right now; retrying shortly", self.machine)));
+            return Ok((
+                "retry".into(),
+                format!("queued: {} is receiving a lot right now; retrying shortly", self.machine),
+            ));
         }
         let Some((person, name)) = msg.to.split_once('/') else { bail!(UPGRADE) };
         if person != self.person {
@@ -498,7 +527,9 @@ fn tidy(s: &str, extra: &str, max: usize) -> Option<String> {
 
 /// Validates a message from a peer and strips its metadata down to safe characters.
 fn clean(m: Message) -> Result<Message> {
-    let ok = |s: &str, extra: &str| !s.is_empty() && s.len() <= 120 && s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
+    let ok = |s: &str, extra: &str| {
+        !s.is_empty() && s.len() <= 120 && s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
+    };
     if !ok(&m.id, "") || !ok(&m.from, "-/") || !ok(&m.to, "-/") {
         bail!("malformed message");
     }

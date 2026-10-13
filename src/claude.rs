@@ -70,9 +70,9 @@ pub fn wired() -> bool {
 
 /// The messaging socket of a live session, by its id or process.
 pub fn socket_for(session_id: Option<&str>, pid: Option<u32>) -> Option<ClaudeSocket> {
-    let c = scan()
-        .into_iter()
-        .find(|c| (session_id.is_some() && c.session_id.as_deref() == session_id) || (pid.is_some() && Some(c.pid) == pid))?;
+    let c = scan().into_iter().find(|c| {
+        (session_id.is_some() && c.session_id.as_deref() == session_id) || (pid.is_some() && Some(c.pid) == pid)
+    })?;
     Some(ClaudeSocket { path: c.messaging_socket_path?.into(), token: peer_token(c.pid) })
 }
 

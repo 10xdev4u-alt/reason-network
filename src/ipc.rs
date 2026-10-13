@@ -28,7 +28,11 @@ pub async fn connect() -> io::Result<Stream> {
     let pipe = loop {
         match ClientOptions::new().open(paths::socket()) {
             // Every instance is taken for a moment while the daemon opens the next one.
-            Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32) && tries < 20 => tries += 1,
+            Err(e)
+                if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32) && tries < 20 =>
+            {
+                tries += 1
+            }
             r => break r?,
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;

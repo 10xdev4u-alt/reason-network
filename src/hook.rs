@@ -13,7 +13,8 @@ pub async fn run(agent_name: &str, event: &str, session: Option<String>, state: 
     let input = if session.is_none() { read_stdin(Duration::from_secs(3)) } else { String::new() };
     let link = Link::new(None);
     let Ok(Some((out, key, ids))) =
-        tokio::time::timeout(Duration::from_secs(8), handle(&link, agent_name, event, &input, session, state, doing)).await
+        tokio::time::timeout(Duration::from_secs(8), handle(&link, agent_name, event, &input, session, state, doing))
+            .await
     else {
         return;
     };
@@ -50,10 +51,15 @@ async fn handle(
     let agent = agent::from_client_name(agent_name).unwrap_or(agent_name);
     let str_at = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
 
-    let session_id = session.or_else(|| str_at("session_id")).or_else(|| str_at("conversation_id")).or_else(|| str_at("sessionId"))?;
+    let session_id = session
+        .or_else(|| str_at("session_id"))
+        .or_else(|| str_at("conversation_id"))
+        .or_else(|| str_at("sessionId"))?;
     let cwd = str_at("cwd")
         .or_else(|| v["workspace_roots"][0].as_str().map(str::to_string))
-        .or_else(|| ["CURSOR_PROJECT_DIR", "GEMINI_CWD", "CLAUDE_PROJECT_DIR"].iter().find_map(|k| std::env::var(k).ok()))
+        .or_else(|| {
+            ["CURSOR_PROJECT_DIR", "GEMINI_CWD", "CLAUDE_PROJECT_DIR"].iter().find_map(|k| std::env::var(k).ok())
+        })
         .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string()));
     let ev = match (event, state.as_deref()) {
         ("session-start", _) => "start",
@@ -118,7 +124,15 @@ fn format_for(agent: &str, event: &str, ev: &str, text: &str) -> String {
     if !cfg!(windows) {
         return out;
     }
-    out.chars().map(|c| if c.is_ascii() { c.to_string() } else { c.encode_utf16(&mut [0; 2]).iter().map(|u| format!("\\u{u:04x}")).collect() }).collect()
+    out.chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_string()
+            } else {
+                c.encode_utf16(&mut [0; 2]).iter().map(|u| format!("\\u{u:04x}")).collect()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

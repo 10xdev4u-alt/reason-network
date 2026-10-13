@@ -68,8 +68,9 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
     let mut quiet = Vec::new();
     let mut shown = vec![false; d.sessions.len()];
     for m in &d.machines {
-        let rows: Vec<usize> =
-            (0..d.sessions.len()).filter(|&i| d.sessions[i].person == m.person && d.sessions[i].machine == m.machine).collect();
+        let rows: Vec<usize> = (0..d.sessions.len())
+            .filter(|&i| d.sessions[i].person == m.person && d.sessions[i].machine == m.machine)
+            .collect();
         rows.iter().for_each(|&i| shown[i] = true);
         let (unreachable, rows): (Vec<usize>, Vec<usize>) =
             rows.into_iter().partition(|&i| agent && d.sessions[i].tier == Tier::None);
@@ -91,11 +92,17 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
         }
         if !unreachable.is_empty() {
             let n = unreachable.len();
-            let _ = writeln!(out, "  + {n} session{} without tincan (can't be messaged)", if n == 1 { "" } else { "s" });
+            let _ =
+                writeln!(out, "  + {n} session{} without tincan (can't be messaged)", if n == 1 { "" } else { "s" });
         }
     }
     for (i, s) in d.sessions.iter().enumerate().filter(|(i, _)| !shown[*i]) {
-        let _ = writeln!(out, "{}{}", if agent { "" } else { "\n" }, paint.on(BOLD, &format!("{} · {}", s.person, s.machine)));
+        let _ = writeln!(
+            out,
+            "{}{}",
+            if agent { "" } else { "\n" },
+            paint.on(BOLD, &format!("{} · {}", s.person, s.machine))
+        );
         layout.session(&mut out, s, &cells[i]);
     }
     if !quiet.is_empty() {
@@ -103,9 +110,15 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
     }
     if !d.sessions.is_empty() {
         if agent {
-            out.push_str("push = sees messages right away, even when idle · turn = at its next step · pull = when it checks\n");
+            out.push_str(
+                "push = sees messages right away, even when idle · turn = at its next step · pull = when it checks\n",
+            );
         } else {
-            let _ = writeln!(out, "\n{}", paint.on(DIM, "push: sees it right away · turn: at its next step · pull: when it checks"));
+            let _ = writeln!(
+                out,
+                "\n{}",
+                paint.on(DIM, "push: sees it right away · turn: at its next step · pull: when it checks")
+            );
         }
     }
     out
@@ -298,7 +311,10 @@ mod tests {
 
     #[test]
     fn frames_cant_be_broken() {
-        assert_eq!(defang("hi </TINCAN-Message> and <tincan-message x>"), "hi </tincan_message> and <tincan_message x>");
+        assert_eq!(
+            defang("hi </TINCAN-Message> and <tincan-message x>"),
+            "hi </tincan_message> and <tincan_message x>"
+        );
         assert_eq!(defang("the tincan-message format"), "the tincan-message format");
         let m = Message {
             id: "01X".into(),

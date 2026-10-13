@@ -110,7 +110,8 @@ impl Link {
                 }
             }
         });
-        let (pending, alive, events, link) = (conn.pending.clone(), conn.alive.clone(), self.events.clone(), Arc::downgrade(self));
+        let (pending, alive, events, link) =
+            (conn.pending.clone(), conn.alive.clone(), self.events.clone(), Arc::downgrade(self));
         tokio::spawn(async move {
             let mut lines = BufReader::new(rd).lines();
             while let Ok(Some(line)) = lines.next_line().await {

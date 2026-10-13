@@ -181,7 +181,10 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let current = existing && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
     if remove || (existing && !current) {
         if existing && !dry {
-            Command::new(&bin).args(["mcp", "remove", "tincan", "--scope", "user"]).stdin(std::process::Stdio::null()).output()?;
+            Command::new(&bin)
+                .args(["mcp", "remove", "tincan", "--scope", "user"])
+                .stdin(std::process::Stdio::null())
+                .output()?;
         }
         if remove {
             r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
@@ -196,7 +199,8 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
                 .args(["mcp", "add", "--scope", "user", "tincan", "--"])
                 .arg(exe)
                 .arg("mcp")
-                .stdin(std::process::Stdio::null()).output()?;
+                .stdin(std::process::Stdio::null())
+                .output()?;
             if !out.status.success() {
                 return Err(anyhow!("claude mcp add failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
@@ -263,9 +267,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&hooks_path, &v, dry)?;
     r.lines.push(changed(&hooks_path, did));
     if did && !remove {
-        r.notes.push(
-            "Codex asks once to trust tincan's hooks: choose \"Trust all and continue\".".into(),
-        );
+        r.notes.push("Codex asks once to trust tincan's hooks: choose \"Trust all and continue\".".into());
     }
     Ok(Some(r))
 }
@@ -328,9 +330,7 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             json!({ "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "gemini" }, "timeout": 660000, "trust": true }),
         );
     }
-    let group = |event: &str, timeout: u64| {
-        json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("tincan-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] })
-    };
+    let group = |event: &str, timeout: u64| json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("tincan-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] });
     let groups = vec![
         ("SessionStart", group("session-start", 10000)),
         ("BeforeAgent", group("user-prompt-submit", 10000)),
@@ -427,7 +427,8 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             r.lines.push(format!("removed {}", crate::util::tilde(&plugin.display().to_string())));
         }
     } else {
-        let code = include_str!("opencode-plugin.ts").replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+        let code = include_str!("opencode-plugin.ts")
+            .replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&plugin, write_file(&plugin, &code, dry)?));
     }
     Ok(Some(r))
@@ -451,7 +452,8 @@ fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             r.lines.push(format!("removed {}", crate::util::tilde(&ext.display().to_string())));
         }
     } else {
-        let code = include_str!("pi-extension.ts").replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+        let code = include_str!("pi-extension.ts")
+            .replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&ext, write_file(&ext, &code, dry)?));
     }
     Ok(Some(r))
@@ -492,9 +494,15 @@ pub fn service_installed() -> bool {
 pub fn start_service() -> bool {
     let out = if cfg!(target_os = "macos") {
         let uid = unsafe { libc::getuid() };
-        Command::new("launchctl").args(["kickstart", &format!("gui/{uid}/{}", service_name())]).stdin(std::process::Stdio::null()).output()
+        Command::new("launchctl")
+            .args(["kickstart", &format!("gui/{uid}/{}", service_name())])
+            .stdin(std::process::Stdio::null())
+            .output()
     } else {
-        Command::new("systemctl").args(["--user", "start", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output()
+        Command::new("systemctl")
+            .args(["--user", "start", &format!("{}.service", service_name())])
+            .stdin(std::process::Stdio::null())
+            .output()
     };
     out.is_ok_and(|o| o.status.success())
 }
@@ -512,7 +520,9 @@ fn service_path() -> PathBuf {
 #[cfg(unix)]
 fn service_path_env() -> String {
     let h = home().display().to_string();
-    format!("{h}/.local/bin:{h}/.bun/bin:{h}/.npm-global/bin:{h}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    format!(
+        "{h}/.local/bin:{h}/.bun/bin:{h}/.npm-global/bin:{h}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    )
 }
 
 #[cfg(unix)]
@@ -524,12 +534,15 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         let target = format!("gui/{uid}/{}", service_name());
         if remove {
             if !dry {
-                let _ = Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
+                let _ =
+                    Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
                 let _ = std::fs::remove_file(&path);
             }
             return Ok("removed the login service".into());
         }
-        let home_env = tincan_home.map(|h| format!("\n    <key>TINCAN_HOME</key><string>{}</string>", xml(&h))).unwrap_or_default();
+        let home_env = tincan_home
+            .map(|h| format!("\n    <key>TINCAN_HOME</key><string>{}</string>", xml(&h)))
+            .unwrap_or_default();
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -554,20 +567,35 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             xml(&service_path_env()),
         );
         let did = write_file(&path, &plist, dry)?;
-        let loaded = Command::new("launchctl").args(["print", &target]).stdin(std::process::Stdio::null()).output().is_ok_and(|o| o.status.success());
+        let loaded = Command::new("launchctl")
+            .args(["print", &target])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|o| o.status.success());
         if !dry && (did || !loaded) {
             let _ = Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
             crate::stop_daemon().await;
-            let out = Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(&path).stdin(std::process::Stdio::null()).output()?;
+            let out = Command::new("launchctl")
+                .args(["bootstrap", &format!("gui/{uid}")])
+                .arg(&path)
+                .stdin(std::process::Stdio::null())
+                .output()?;
             if !out.status.success() {
                 return Err(anyhow!("launchctl bootstrap: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
         }
-        Ok(if did || !loaded { "installed the login service (launchd)".into() } else { "login service already running".into() })
+        Ok(if did || !loaded {
+            "installed the login service (launchd)".into()
+        } else {
+            "login service already running".into()
+        })
     } else {
         if remove {
             if !dry {
-                let _ = Command::new("systemctl").args(["--user", "disable", "--now", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output();
+                let _ = Command::new("systemctl")
+                    .args(["--user", "disable", "--now", &format!("{}.service", service_name())])
+                    .stdin(std::process::Stdio::null())
+                    .output();
                 let _ = std::fs::remove_file(&path);
             }
             return Ok("removed the login service".into());
@@ -593,14 +621,18 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             paths::ensure_home()?;
             crate::stop_daemon().await;
             Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output()?;
-            let out = Command::new("systemctl").args(["--user", "enable", "--now", &format!("{}.service", service_name())]).stdin(std::process::Stdio::null()).output()?;
+            let out = Command::new("systemctl")
+                .args(["--user", "enable", "--now", &format!("{}.service", service_name())])
+                .stdin(std::process::Stdio::null())
+                .output()?;
             if !out.status.success() {
                 let _ = std::fs::remove_file(&path);
                 return Err(anyhow!("systemctl: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
             // Keep running after logout (servers, SSH boxes). Best effort: some systems want a password.
             if let Ok(user) = std::env::var("USER") {
-                let _ = Command::new("loginctl").args(["enable-linger", &user]).stdin(std::process::Stdio::null()).output();
+                let _ =
+                    Command::new("loginctl").args(["enable-linger", &user]).stdin(std::process::Stdio::null()).output();
             }
         }
         Ok(if did { "installed the login service (systemd --user)".into() } else { "login service already set".into() })
@@ -632,7 +664,11 @@ pub fn start_service() -> bool {
 /// Our Run entry, as `reg query` shows it.
 #[cfg(windows)]
 fn run_entry() -> Option<String> {
-    let out = Command::new("reg").args(["query", RUN_KEY, "/v", &service_name()]).stdin(std::process::Stdio::null()).output().ok()?;
+    let out = Command::new("reg")
+        .args(["query", RUN_KEY, "/v", &service_name()])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -696,8 +732,13 @@ const AGENTS: [Agent; 8] = [
         hint: "messages arrive instantly",
         installed: || agent::find_bin("claude").is_some(),
         wired: |_| {
-            agent::find_bin("claude")
-                .is_some_and(|b| Command::new(b).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output().is_ok_and(|o| o.status.success()))
+            agent::find_bin("claude").is_some_and(|b| {
+                Command::new(b)
+                    .args(["mcp", "get", "tincan"])
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .is_ok_and(|o| o.status.success())
+            })
         },
         apply: claude,
     },
@@ -707,7 +748,10 @@ const AGENTS: [Agent; 8] = [
         hint: "instant; asks once to trust the hooks",
         installed: || agent::find_bin("codex").is_some() || codex_home().exists(),
         // TOML keeps a Windows path as it is ('C:\…').
-        wired: |exe| has(codex_home().join("config.toml"), &exe.display().to_string()) && has(codex_home().join("hooks.json"), "hook codex"),
+        wired: |exe| {
+            has(codex_home().join("config.toml"), &exe.display().to_string())
+                && has(codex_home().join("hooks.json"), "hook codex")
+        },
         apply: codex,
     },
     Agent {
@@ -830,10 +874,18 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
 pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
     let exe = exe()?;
     let found = detect(&exe);
-    let verb = if dry { "Would change" } else if remove { "Removing tincan" } else { "Setting up tincan" };
+    let verb = if dry {
+        "Would change"
+    } else if remove {
+        "Removing tincan"
+    } else {
+        "Setting up tincan"
+    };
     println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
     if found.is_empty() && !remove {
-        println!("  no supported agents found (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason)");
+        println!(
+            "  no supported agents found (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason)"
+        );
     }
     let ids: Vec<&str> = found.iter().map(|f| f.id).collect();
     let (install, removing): (&[&str], &[&str]) = if remove { (&[], &ids) } else { (&ids, &[]) };
@@ -864,12 +916,18 @@ pub async fn doctor() -> Result<()> {
             if let Some(relay) = &t.relay
                 && t.relay_connected == Some(false)
             {
-                println!("  ! can't reach the team's relay {relay}: until it's up, teammates are only found on this network");
+                println!(
+                    "  ! can't reach the team's relay {relay}: until it's up, teammates are only found on this network"
+                );
             }
             if others > 0 && online == 0 {
-                println!("  ! no teammate connected: check your internet, or that their machines are on (`tincan doctor` there)");
+                println!(
+                    "  ! no teammate connected: check your internet, or that their machines are on (`tincan doctor` there)"
+                );
                 // Nothing tells a machine that was off when the team changed relays where the team went.
-                println!("  ! if the team changed relays while this machine was off, set the same one here: `tincan relay <url>`");
+                println!(
+                    "  ! if the team changed relays while this machine was off, set the same one here: `tincan relay <url>`"
+                );
                 println!("    (or `default` for n0's); `tincan team` on a teammate's machine shows which");
             }
         }
@@ -906,8 +964,14 @@ mod tests {
             "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/x/tincan hook codex post-tool-use" }] }],
         }))
         .unwrap();
-        let ours = |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/tincan hook codex {e} ") }] });
-        merge_hook_groups(&mut hooks, "codex", vec![("Stop", ours("stop")), ("PostToolUse", ours("post-tool-use"))], false);
+        let ours =
+            |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/tincan hook codex {e} ") }] });
+        merge_hook_groups(
+            &mut hooks,
+            "codex",
+            vec![("Stop", ours("stop")), ("PostToolUse", ours("post-tool-use"))],
+            false,
+        );
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 2, "keeps other tools' hooks");
         assert_eq!(hooks["PostToolUse"].as_array().unwrap().len(), 1, "replaces the old tincan hook");
         merge_hook_groups(&mut hooks, "codex", vec![], true);
@@ -925,8 +989,14 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn quoting() {
-        assert_eq!(shell_cmd(Path::new(r"C:\Users\alex\.local\bin\tincan.exe"), "mcp"), r"C:\Users\alex\.local\bin\tincan.exe mcp");
-        assert_eq!(shell_cmd(Path::new(r"C:\Users\Alex O'Neil\tincan.exe"), "mcp"), r"& 'C:\Users\Alex O''Neil\tincan.exe' mcp");
+        assert_eq!(
+            shell_cmd(Path::new(r"C:\Users\alex\.local\bin\tincan.exe"), "mcp"),
+            r"C:\Users\alex\.local\bin\tincan.exe mcp"
+        );
+        assert_eq!(
+            shell_cmd(Path::new(r"C:\Users\Alex O'Neil\tincan.exe"), "mcp"),
+            r"& 'C:\Users\Alex O''Neil\tincan.exe' mcp"
+        );
         assert_eq!(me(Path::new(r"C:\a\tincan.exe")), r"C:\\a\\tincan.exe");
     }
 }

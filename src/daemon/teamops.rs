@@ -3,9 +3,9 @@
 use super::{Daemon, Inner, log};
 use crate::{
     config::Config,
+    invite,
     net::{self, JoinRequest, Net, Remote, Wire},
     proto::*,
-    invite,
     team::{TeamState, Ticket},
     util,
 };
@@ -56,7 +56,11 @@ impl Daemon {
         {
             let g = self.inner.lock().unwrap();
             for m in team.active() {
-                if let Some(rem) = g.store.get(&format!("presence:{}", m.endpoint))?.and_then(|s| serde_json::from_str::<Remote>(&s).ok()) {
+                if let Some(rem) = g
+                    .store
+                    .get(&format!("presence:{}", m.endpoint))?
+                    .and_then(|s| serde_json::from_str::<Remote>(&s).ok())
+                {
                     remote.insert(m.endpoint, rem);
                 }
             }
@@ -67,7 +71,11 @@ impl Daemon {
         // Invite codes made here that are still good: listen for them again.
         let codes: Vec<(String, i64)> = {
             let g = self.inner.lock().unwrap();
-            g.store.prefixed("code:")?.into_iter().filter_map(|(k, v)| Some((k.strip_prefix("code:")?.to_string(), v.parse().ok()?))).collect()
+            g.store
+                .prefixed("code:")?
+                .into_iter()
+                .filter_map(|(k, v)| Some((k.strip_prefix("code:")?.to_string(), v.parse().ok()?)))
+                .collect()
         };
         for (code, expires) in codes {
             if team.invite_unused(&invite::secret(&code)) {
@@ -160,7 +168,12 @@ impl Daemon {
     }
 
     /// Starts a team, with its own relay from the first moment if `relay` is given.
-    pub(super) async fn create_team(self: &Arc<Self>, name: &str, person: &str, relay: Option<String>) -> Result<TeamInfo> {
+    pub(super) async fn create_team(
+        self: &Arc<Self>,
+        name: &str,
+        person: &str,
+        relay: Option<String>,
+    ) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
             bail!("already in team '{}'; run `tincan leave` first", t.name());
         }
@@ -180,7 +193,14 @@ impl Daemon {
         }
         self.become_person(&person)?;
         self.restart_soon();
-        Ok(TeamInfo { name: name.into(), relay, relay_connected: None, person, machine: self.machine.clone(), machines: Vec::new() })
+        Ok(TeamInfo {
+            name: name.into(),
+            relay,
+            relay_connected: None,
+            person,
+            machine: self.machine.clone(),
+            machines: Vec::new(),
+        })
     }
 
     /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `tincan1…` ticket.
@@ -218,7 +238,9 @@ impl Daemon {
         }
         // A code points at the key the inviting machine listens on for it; a ticket lists machines.
         let (team, secret, relay, peers) = match invite::normalize(invite_text) {
-            Some(code) => (String::new(), invite::secret(&code), None, vec![EndpointAddr::new(invite::key(&code).public())]),
+            Some(code) => {
+                (String::new(), invite::secret(&code), None, vec![EndpointAddr::new(invite::key(&code).public())])
+            }
             None if invite_text.contains("tincan1") => {
                 let t = Ticket::decode(invite_text)?;
                 let addrs = t.addrs();
@@ -253,7 +275,8 @@ impl Daemon {
     }
 
     fn become_person(&self, person: &str) -> Result<()> {
-        let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
+        let mut cfg =
+            Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
         cfg.person = Some(person.to_string());
         cfg.save()
     }
@@ -261,7 +284,8 @@ impl Daemon {
     /// Makes an invite: a code (this machine listens for it until it is used or expires) and the equivalent
     /// long ticket (which any teammate's machine can redeem).
     pub(super) async fn invite(&self, me: bool, hours: u64) -> Result<InviteInfo> {
-        let net = self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `tincan init` or `tincan join`)"))?;
+        let net =
+            self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `tincan init` or `tincan join`)"))?;
         net.online(Duration::from_secs(5)).await;
         let hours = hours.clamp(1, 24 * 30);
         let code = invite::generate();
@@ -335,7 +359,9 @@ impl Daemon {
     }
 
     pub(super) fn team_info(&self) -> Result<TeamInfo> {
-        let team = self.team_state().ok_or_else(|| anyhow!("not in a team yet: `tincan init <team>` or `tincan join <invite>`"))?;
+        let team = self
+            .team_state()
+            .ok_or_else(|| anyhow!("not in a team yet: `tincan init <team>` or `tincan join <invite>`"))?;
         Ok(TeamInfo {
             name: team.name().into(),
             relay: team.meta.body.relay.clone(),
@@ -389,7 +415,11 @@ impl Daemon {
                 .active()
                 .filter(|m| match who.split_once('/') {
                     Some((p, mach)) => m.person == p && m.machine == mach,
-                    None => m.person == who || m.machine == who || (who.len() >= 6 && m.endpoint.to_string().starts_with(who)),
+                    None => {
+                        m.person == who
+                            || m.machine == who
+                            || (who.len() >= 6 && m.endpoint.to_string().starts_with(who))
+                    }
                 })
                 .map(|m| (m.endpoint, m.person.clone(), m.machine.clone()))
                 .collect();
@@ -467,8 +497,11 @@ impl Daemon {
         };
         let me = self.key.public();
         let online = |id: &EndpointId| self.net().is_some_and(|n| n.is_online(id));
-        let away: Vec<String> =
-            state.active().filter(|m| m.endpoint != me && !online(&m.endpoint)).map(|m| format!("{}/{}", m.person, m.machine)).collect();
+        let away: Vec<String> = state
+            .active()
+            .filter(|m| m.endpoint != me && !online(&m.endpoint))
+            .map(|m| format!("{}/{}", m.person, m.machine))
+            .collect();
         if let Some(net) = self.net() {
             net.broadcast(&Wire::State { state: Box::new(state) });
             tokio::time::sleep(Duration::from_millis(800)).await;
@@ -481,7 +514,10 @@ impl Daemon {
         let mut out = format!("{now} Team links from before stop working: `tincan link` shows the new one.");
         // A machine that is off can't hear about it, and won't find the team where it looks when it's back.
         if !away.is_empty() {
-            out += &format!("\nOffline now: {}. When back, each needs `{cmd}` too, unless it already uses that relay.", away.join(", "));
+            out += &format!(
+                "\nOffline now: {}. When back, each needs `{cmd}` too, unless it already uses that relay.",
+                away.join(", ")
+            );
         }
         Ok(out)
     }

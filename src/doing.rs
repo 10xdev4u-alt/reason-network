@@ -29,7 +29,8 @@ pub struct Source {
 /// `title · task in progress`, either alone, or nothing.
 pub fn of(s: &Source) -> Option<String> {
     let claude = s.agent == agent::CLAUDE_CODE;
-    let transcript = s.transcript.clone().or_else(|| claude.then(|| claude_transcript(s.session.as_deref()?)).flatten());
+    let transcript =
+        s.transcript.clone().or_else(|| claude.then(|| claude_transcript(s.session.as_deref()?)).flatten());
     let seen = transcript.as_deref().map(scan).unwrap_or_default();
     let task = claude.then(|| claude_task(s.session.as_deref()?)).flatten().or(seen.task.flatten());
     let title = seen.title.or_else(|| (s.agent == "codex").then(|| codex_title(s.session.as_deref()?)).flatten());
@@ -109,7 +110,12 @@ fn scan(path: &Path) -> Seen {
     let Ok(meta) = std::fs::metadata(path) else { return Seen::default() };
     let (len, modified) = (meta.len(), meta.modified().ok());
     let mut tails = TAILS.get_or_init(Default::default).lock().unwrap();
-    let t = tails.entry(path.to_path_buf()).or_insert(Tail { modified: None, offset: 0, whole: false, seen: Seen::default() });
+    let t = tails.entry(path.to_path_buf()).or_insert(Tail {
+        modified: None,
+        offset: 0,
+        whole: false,
+        seen: Seen::default(),
+    });
     // Nothing new to read (by its length too: Windows' file times are too coarse to tell appends apart).
     if t.modified == modified && t.offset == len {
         return t.seen.clone();
@@ -173,7 +179,9 @@ fn claude_task(session: &str) -> Option<String> {
         .filter_map(|e| serde_json::from_slice::<Value>(&std::fs::read(e.path()).ok()?).ok())
         .filter(in_progress)
         .max_by_key(|t| t.get("id").and_then(Value::as_str).and_then(|i| i.parse::<u64>().ok()))
-        .and_then(|t| ["activeForm", "subject"].iter().find_map(|k| t.get(*k).and_then(Value::as_str)).map(str::to_string))
+        .and_then(|t| {
+            ["activeForm", "subject"].iter().find_map(|k| t.get(*k).and_then(Value::as_str)).map(str::to_string)
+        })
 }
 
 /// Codex names its threads in `~/.codex/session_index.jsonl` (appended to; the last entry wins).
@@ -181,7 +189,9 @@ fn codex_title(thread: &str) -> Option<String> {
     /// Thread names as of the file's modification time.
     type Names = (Option<SystemTime>, HashMap<String, String>);
     static INDEX: OnceLock<Mutex<Names>> = OnceLock::new();
-    let path = std::env::var_os("CODEX_HOME").map_or_else(|| paths::user_home().join(".codex"), PathBuf::from).join("session_index.jsonl");
+    let path = std::env::var_os("CODEX_HOME")
+        .map_or_else(|| paths::user_home().join(".codex"), PathBuf::from)
+        .join("session_index.jsonl");
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok()?;
     let mut index = INDEX.get_or_init(Default::default).lock().unwrap();
     if index.0 != Some(modified) {
@@ -190,9 +200,10 @@ fn codex_title(thread: &str) -> Option<String> {
         file.seek(SeekFrom::Start(len.saturating_sub(1 << 20))).ok()?;
         let mut text = String::new();
         file.read_to_string(&mut text).ok()?;
-        let names = text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| {
-            Some((v.get("id")?.as_str()?.to_string(), v.get("thread_name")?.as_str()?.to_string()))
-        });
+        let names = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|v| Some((v.get("id")?.as_str()?.to_string(), v.get("thread_name")?.as_str()?.to_string())));
         *index = (Some(modified), names.collect());
     }
     index.1.get(thread).cloned()
@@ -240,7 +251,11 @@ mod tests {
         let p = dir.join("t.jsonl");
         std::fs::write(&p, "{\"type\":\"ai-title\",\"aiTitle\":\"First\"}\n{\"partial\":").unwrap();
         assert_eq!(scan(&p).title.as_deref(), Some("First"));
-        std::fs::write(&p, "{\"type\":\"ai-title\",\"aiTitle\":\"First\"}\n{\"type\":\"ai-title\",\"aiTitle\":\"Second\"}\n").unwrap();
+        std::fs::write(
+            &p,
+            "{\"type\":\"ai-title\",\"aiTitle\":\"First\"}\n{\"type\":\"ai-title\",\"aiTitle\":\"Second\"}\n",
+        )
+        .unwrap();
         assert_eq!(scan(&p).title.as_deref(), Some("Second"));
         // Gemini: one JSON document, rewritten.
         let g = dir.join("chat.json");

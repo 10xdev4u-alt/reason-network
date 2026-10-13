@@ -121,7 +121,10 @@ pub fn find_bin(name: &str) -> Option<PathBuf> {
     let extra = [home.join(r".local\bin"), home.join(r"AppData\Roaming\npm"), home.join(r".bun\bin")];
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd"] } else { &[""] };
     let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path).chain(extra).flat_map(|d| exts.iter().map(move |ext| d.join(format!("{name}{ext}")))).find(|p| executable(p))
+    std::env::split_paths(&path)
+        .chain(extra)
+        .flat_map(|d| exts.iter().map(move |ext| d.join(format!("{name}{ext}"))))
+        .find(|p| executable(p))
 }
 
 #[cfg(unix)]

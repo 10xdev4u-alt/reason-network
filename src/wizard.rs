@@ -32,18 +32,29 @@ fn name_ok(s: &str) -> Result<(), &'static str> {
 }
 
 fn invite_ok(s: &str) -> Result<(), &'static str> {
-    if s.contains("tincan1") || invite::normalize(s).is_some() { Ok(()) } else { Err("paste the team link your friend sent") }
+    if s.contains("tincan1") || invite::normalize(s).is_some() {
+        Ok(())
+    } else {
+        Err("paste the team link your friend sent")
+    }
 }
 
 fn ask_name() -> Result<String> {
-    let name: String =
-        input("What should teammates call you?").default_input(&Config::load().person()).validate(|s: &String| name_ok(s)).interact()?;
+    let name: String = input("What should teammates call you?")
+        .default_input(&Config::load().person())
+        .validate(|s: &String| name_ok(s))
+        .interact()?;
     Ok(util::slug(&name))
 }
 
 /// Start or join a team. With an invite (a team link, from the installer), it only asks for your name.
 /// `start`: `Some(true)` from `tincan init`, `Some(false)` from `tincan join`, `None` to ask.
-pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<String>, person: Option<String>) -> Result<()> {
+pub async fn onboard(
+    start: Option<bool>,
+    team: Option<String>,
+    invite: Option<String>,
+    person: Option<String>,
+) -> Result<()> {
     intro(" tincan ")?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
@@ -71,7 +82,10 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
         };
         let sp = spinner();
         sp.start("Creating the team...");
-        let t: TeamInfo = link.call(Request::CreateTeam { name, person, relay: None }).await.inspect_err(|e| sp.error(format!("{e:#}")))?;
+        let t: TeamInfo = link
+            .call(Request::CreateTeam { name, person, relay: None })
+            .await
+            .inspect_err(|e| sp.error(format!("{e:#}")))?;
         crate::wait_exit(crate::daemon_pid()).await;
         sp.stop(format!("Created team {}. You are {} on {}.", t.name, t.person, t.machine));
     } else {
@@ -79,7 +93,10 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
         loop {
             let text: String = match invite.take() {
                 Some(t) => t,
-                None => input("Paste the team link").placeholder("https://…/join/#tincan1…").validate(|s: &String| invite_ok(s)).interact()?,
+                None => input("Paste the team link")
+                    .placeholder("https://…/join/#tincan1…")
+                    .validate(|s: &String| invite_ok(s))
+                    .interact()?,
             };
             let sp = spinner();
             sp.start("Joining...");
@@ -102,7 +119,8 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
                 }
                 Err(e) if e.to_string().contains("already in this team") => {
                     sp.error(format!("Someone in the team is already called {person}."));
-                    person = util::slug(&input("Pick another name").validate(|s: &String| name_ok(s)).interact::<String>()?);
+                    person =
+                        util::slug(&input("Pick another name").validate(|s: &String| name_ok(s)).interact::<String>()?);
                     invite = Some(text);
                 }
                 Err(e) => {
@@ -169,17 +187,23 @@ pub async fn agents_and_preferences() -> Result<()> {
     let exe = setup::exe()?;
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
-        log::warning("No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `tincan setup`.")?;
+        log::warning(
+            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `tincan setup`.",
+        )?;
         Vec::new()
     } else {
         let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
-        let mut pick = multiselect("Which agents should be on tincan?  (space to toggle, enter to confirm)").required(false).initial_values(initial);
+        let mut pick = multiselect("Which agents should be on tincan?  (space to toggle, enter to confirm)")
+            .required(false)
+            .initial_values(initial);
         for f in &found {
             pick = pick.item(f.id, f.name, f.hint);
         }
         pick.interact()?
     };
-    let service = confirm("Keep tincan running in the background, so teammates can always reach you?").initial_value(true).interact()?;
+    let service = confirm("Keep tincan running in the background, so teammates can always reach you?")
+        .initial_value(true)
+        .interact()?;
     let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
     cfg.inbound.default = select("When a teammate's agent messages one of yours")
         .item(Policy::Accept, "Deliver it", "recommended")
@@ -216,8 +240,15 @@ pub async fn agents_and_preferences() -> Result<()> {
 pub async fn show_link(new: bool) -> Result<String> {
     let l: LinkInfo = Link::new(None).call(Request::Link { new }).await?;
     let copied = copy(&l.url);
-    let title = if copied { format!("Team link for {} (on your clipboard)", l.team) } else { format!("Team link for {}", l.team) };
-    note(title, "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `tincan link --new`.")?;
+    let title = if copied {
+        format!("Team link for {} (on your clipboard)", l.team)
+    } else {
+        format!("Team link for {}", l.team)
+    };
+    note(
+        title,
+        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `tincan link --new`.",
+    )?;
     Ok(l.url)
 }
 
@@ -239,8 +270,11 @@ pub async fn show_code(me: bool) -> Result<()> {
 /// Puts text on the clipboard, if there's a clipboard tool. True if it worked.
 pub fn copy(text: &str) -> bool {
     use std::io::Write;
-    let tools: &[(&str, &[&str])] =
-        if cfg!(windows) { &[("clip", &[])] } else { &[("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])] };
+    let tools: &[(&str, &[&str])] = if cfg!(windows) {
+        &[("clip", &[])]
+    } else {
+        &[("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])]
+    };
     tools.iter().any(|(bin, args)| {
         let Ok(mut child) = std::process::Command::new(bin)
             .args(*args)

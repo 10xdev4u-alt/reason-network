@@ -119,7 +119,8 @@ pub async fn bind(key: SecretKey, relay: Option<&str>, lan: bool) -> Result<Endp
     };
     // The team's own relay and nothing of n0's: none of its relays, no publishing or looking up addresses in its DNS.
     // Teammates are dialed through the relay instead.
-    let url: RelayUrl = url.parse().map_err(|_| anyhow!("not a relay url: {url} (expected e.g. https://relay.example.com)"))?;
+    let url: RelayUrl =
+        url.parse().map_err(|_| anyhow!("not a relay url: {url} (expected e.g. https://relay.example.com)"))?;
     let mut b = Endpoint::builder(presets::Minimal).secret_key(key.clone()).relay_mode(RelayMode::custom([url]));
     if lan {
         b = b.address_lookup(NoRelays(MdnsAddressLookup::builder().build(key.public())?));
@@ -220,7 +221,10 @@ pub async fn join(endpoint: &Endpoint, peers: &[EndpointAddr], req: &JoinRequest
 
 /// Nothing is known yet about where that machine is.
 fn unpublished(e: &anyhow::Error) -> bool {
-    matches!(e.downcast_ref::<ConnectError>(), Some(ConnectError::Connect { source: ConnectWithOptsError::NoAddress { .. }, .. }))
+    matches!(
+        e.downcast_ref::<ConnectError>(),
+        Some(ConnectError::Connect { source: ConnectWithOptsError::NoAddress { .. }, .. })
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -296,7 +300,12 @@ impl ProtocolHandler for JoinProto {
 }
 
 impl Net {
-    pub fn start(daemon: &Arc<Daemon>, endpoint: Endpoint, relay: Option<&str>, remote: HashMap<EndpointId, Remote>) -> Arc<Net> {
+    pub fn start(
+        daemon: &Arc<Daemon>,
+        endpoint: Endpoint,
+        relay: Option<&str>,
+        remote: HashMap<EndpointId, Remote>,
+    ) -> Arc<Net> {
         let net = Arc::new_cyclic(|weak: &Weak<Net>| Net {
             me: endpoint.id(),
             router: Mutex::new(Some(
@@ -352,7 +361,13 @@ impl Net {
     }
 
     /// Listens for a joiner on an invite code's own key until `expires` (ms) or until it is used.
-    pub async fn listen_invite(self: &Arc<Self>, key: SecretKey, expires: i64, relay: Option<&str>, lan: bool) -> Result<()> {
+    pub async fn listen_invite(
+        self: &Arc<Self>,
+        key: SecretKey,
+        expires: i64,
+        relay: Option<&str>,
+        lan: bool,
+    ) -> Result<()> {
         let endpoint = bind(key, relay, lan).await?;
         let id = endpoint.id();
         let router = Router::builder(endpoint).accept(JOIN_ALPN, JoinProto(Arc::downgrade(self), Some(id))).spawn();
@@ -663,6 +678,12 @@ fn tidy_presence(mut p: Presence) -> Presence {
         s.doing = s.doing.as_deref().map(|d| line(d, 200)).filter(|d| !d.is_empty());
     }
     p.sessions.retain(|s| !s.name.is_empty());
-    p.known = p.known.iter().take(100).map(|n| util::slug(n).chars().take(64).collect()).filter(|n: &String| !n.is_empty()).collect();
+    p.known = p
+        .known
+        .iter()
+        .take(100)
+        .map(|n| util::slug(n).chars().take(64).collect())
+        .filter(|n: &String| !n.is_empty())
+        .collect();
     p
 }

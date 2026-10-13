@@ -70,7 +70,14 @@ mod mac {
         loop {
             let until = NSDate::dateWithTimeIntervalSinceNow(0.5);
             // SAFETY: the main thread's event loop, with AppKit's own run loop mode.
-            let ev = unsafe { app.nextEventMatchingMask_untilDate_inMode_dequeue(NSEventMask::Any, Some(&until), NSDefaultRunLoopMode, true) };
+            let ev = unsafe {
+                app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                    NSEventMask::Any,
+                    Some(&until),
+                    NSDefaultRunLoopMode,
+                    true,
+                )
+            };
             if let Some(ev) = ev {
                 app.sendEvent(&ev);
             }
@@ -124,8 +131,10 @@ mod mac {
     fn set_icon(tray: &TrayIcon, online: bool, title: Option<&str>, mtm: MainThreadMarker) {
         let name = if online { "bubble.left.and.bubble.right.fill" } else { "bubble.left.and.bubble.right" };
         if let Some(button) = tray.ns_status_item().and_then(|i| i.button(mtm)) {
-            let image =
-                NSImage::imageWithSystemSymbolName_accessibilityDescription(&NSString::from_str(name), Some(&NSString::from_str("tincan")));
+            let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                &NSString::from_str(name),
+                Some(&NSString::from_str("tincan")),
+            );
             button.setImage(image.as_deref());
             button.setImagePosition(NSCellImagePosition::ImageLeft);
         }
@@ -248,7 +257,8 @@ mod mac {
             .iter()
             .map(|m| {
                 let mine = |s: &&SessionInfo| s.person == m.person && s.machine == m.machine;
-                let on: Vec<SessionInfo> = d.sessions.iter().filter(mine).filter(|s| s.tier != Tier::None).cloned().collect();
+                let on: Vec<SessionInfo> =
+                    d.sessions.iter().filter(mine).filter(|s| s.tier != Tier::None).cloned().collect();
                 let without = d.sessions.iter().filter(mine).filter(|s| s.tier == Tier::None).count();
                 (m.clone(), on, without)
             })

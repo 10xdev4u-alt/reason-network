@@ -40,7 +40,10 @@ async fn update() -> Result<Option<String>> {
     }
     let dir = crate::util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let mut cmd = tokio::process::Command::from(crate::installer(&dir));
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     // In its own process group, so a timeout kills the whole pipeline (curl and the inner sh too). (On Windows the
     // installer is one PowerShell, which `kill_on_drop` ends.)
     #[cfg(unix)]
@@ -66,7 +69,8 @@ async fn update() -> Result<Option<String>> {
     let installed = dir.join(format!("tincan{}", std::env::consts::EXE_SUFFIX));
     let installed = tokio::process::Command::new(installed).arg("--version").kill_on_drop(true).output();
     let installed = tokio::time::timeout(Duration::from_secs(30), installed).await??;
-    let installed = String::from_utf8_lossy(&installed.stdout).trim().rsplit(' ').next().unwrap_or_default().to_string();
+    let installed =
+        String::from_utf8_lossy(&installed.stdout).trim().rsplit(' ').next().unwrap_or_default().to_string();
     if !newer(&installed, env!("CARGO_PKG_VERSION")) {
         bail!("the latest release installed as {installed:?}, which is not newer than this one; not restarting");
     }
@@ -78,7 +82,16 @@ async fn latest_version() -> Result<String> {
     let repo = std::env::var("TINCAN_REPO").unwrap_or_else(|_| "larstalian/tincan".into());
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let out = tokio::process::Command::new("curl")
-        .args(["-fsSLI", "--max-time", "50", "-o", null, "-w", "%{url_effective}", &format!("https://github.com/{repo}/releases/latest")])
+        .args([
+            "-fsSLI",
+            "--max-time",
+            "50",
+            "-o",
+            null,
+            "-w",
+            "%{url_effective}",
+            &format!("https://github.com/{repo}/releases/latest"),
+        ])
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();

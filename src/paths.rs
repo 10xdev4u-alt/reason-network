@@ -4,7 +4,9 @@
 use std::path::{Path, PathBuf};
 
 pub fn user_home() -> PathBuf {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 pub fn home() -> PathBuf {
@@ -30,7 +32,10 @@ pub fn socket() -> PathBuf {
 
 /// FNV-1a: stable across builds, unlike `DefaultHasher`.
 fn hash(path: &Path) -> u64 {
-    path.as_os_str().as_encoded_bytes().iter().fold(0xcbf29ce484222325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+    path.as_os_str()
+        .as_encoded_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100000001b3))
 }
 
 #[cfg(unix)]

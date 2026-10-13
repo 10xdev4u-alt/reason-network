@@ -117,7 +117,8 @@ impl Store {
     pub fn settle_held(&self, ids: &[String], release: bool) -> Result<Vec<Message>> {
         let held = self.held()?;
         let picked: Vec<Message> = held.into_iter().filter(|m| ids.is_empty() || ids.contains(&m.id)).collect();
-        let sql = if release { "UPDATE messages SET held = 0 WHERE id = ?1" } else { "DELETE FROM messages WHERE id = ?1" };
+        let sql =
+            if release { "UPDATE messages SET held = 0 WHERE id = ?1" } else { "DELETE FROM messages WHERE id = ?1" };
         let mut st = self.db.prepare_cached(sql)?;
         for m in &picked {
             st.execute([&m.id])?;

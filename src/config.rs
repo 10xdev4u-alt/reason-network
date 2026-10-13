@@ -43,7 +43,16 @@ pub enum Policy {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { person: None, share_paths: false, share_unmanaged: false, lan: true, tray: true, reason: false, auto_update: true, inbound: Inbound::default() }
+        Config {
+            person: None,
+            share_paths: false,
+            share_unmanaged: false,
+            lan: true,
+            tray: true,
+            reason: false,
+            auto_update: true,
+            inbound: Inbound::default(),
+        }
     }
 }
 

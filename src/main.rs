@@ -245,7 +245,9 @@ async fn main() -> Result<()> {
                 return wizard::guided(wizard::onboard(None, None, None, None)).await;
             }
             if !in_team {
-                println!("Not in a team yet. Run `tincan` in a terminal to get set up (or `tincan init <team>` / `tincan join <code>`).");
+                println!(
+                    "Not in a team yet. Run `tincan` in a terminal to get set up (or `tincan init <team>` / `tincan join <code>`)."
+                );
                 return Ok(());
             }
             cli(Cmd::Who { filter: None, all: false, json: false }).await
@@ -284,7 +286,9 @@ async fn cli(cmd: Cmd) -> Result<()> {
     // Like other command-line tools, stop quietly when whatever reads our output goes away. (`listen` marks
     // messages read only after printing them, so nothing is lost.)
     #[cfg(unix)]
-    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL)
+    };
     let link = Link::new(None);
     match cmd {
         Cmd::Who { filter, all, json } => {
@@ -306,7 +310,13 @@ async fn cli(cmd: Cmd) -> Result<()> {
             }
             // Messages come from agent sessions: `--from`'s, this agent's, or from a plain terminal, `<you>/terminal`.
             // An agent shell tincan doesn't know (its tools aren't loaded) counts as a terminal.
-            let send = |from: String| Request::Send { from, to: to.clone(), body: body.clone(), reply_to: reply_to.clone(), wake: !fyi };
+            let send = |from: String| Request::Send {
+                from,
+                to: to.clone(),
+                body: body.clone(),
+                reply_to: reply_to.clone(),
+                wake: !fyi,
+            };
             let explicit = from.is_some();
             let r: SendResult = match from.or_else(current_session) {
                 Some(f) => match link.call(send(f)).await {
@@ -349,8 +359,11 @@ async fn cli(cmd: Cmd) -> Result<()> {
             wizard::guided(wizard::setup_agents()).await?
         }
         Cmd::Init { team, person, no_setup, relay } => {
-            let Some(team) = team else { bail!("name the team: `tincan init <team>` (or run it in a terminal to be asked)") };
-            let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person), relay }).await?;
+            let Some(team) = team else {
+                bail!("name the team: `tincan init <team>` (or run it in a terminal to be asked)")
+            };
+            let t: TeamInfo =
+                link.call(Request::CreateTeam { name: team, person: default_person(person), relay }).await?;
             wait_exit(daemon_pid()).await;
             println!("Created team {}. You are {} on {}.", t.name, t.person, t.machine);
             if !no_setup {
@@ -389,10 +402,17 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let [unix, windows] = install_lines(&i.code);
             println!("They run this, which installs tincan and joins the team (the second line on Windows):\n");
             println!("  {unix}\n  {windows}\n");
-            println!("(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.", i.code, i.hours);
+            println!(
+                "(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.",
+                i.code, i.hours
+            );
             println!("If this machine will be offline, use the long form instead: tincan join {}", i.ticket);
             if me {
-                println!("\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my tincan team as {}: {}", default_person(None), join_url(&i.ticket));
+                println!(
+                    "\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my tincan team as {}: {}",
+                    default_person(None),
+                    join_url(&i.ticket)
+                );
             }
         }
         Cmd::Listen { name, wait } => {
@@ -438,9 +458,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("`tincan approve <id>` delivers, `tincan reject <id>` drops (or --all).");
             }
         }
-        Cmd::Approve { ids, all } | Cmd::Reject { ids, all }
-            if ids.is_empty() && !all =>
-        {
+        Cmd::Approve { ids, all } | Cmd::Reject { ids, all } if ids.is_empty() && !all => {
             bail!("give message ids, or --all")
         }
         Cmd::Approve { ids, .. } => {

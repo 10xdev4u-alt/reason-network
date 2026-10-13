@@ -2,14 +2,7 @@
 //! kept alive by hook events and the agent's process).
 
 use super::{Daemon, Inner, Live, log};
-use crate::{
-    agent,
-    git::GitInfo,
-    proto::*,
-    render,
-    store::Remembered,
-    util,
-};
+use crate::{agent, git::GitInfo, proto::*, render, store::Remembered, util};
 use anyhow::{Result, anyhow, bail};
 use std::{collections::HashSet, sync::Arc};
 
@@ -38,7 +31,12 @@ impl Daemon {
         Ok(registered)
     }
 
-    fn register_quiet(&self, conn: Option<u64>, mut reg: SessionReg, git: GitInfo) -> Result<(Registered, (String, Vec<Message>))> {
+    fn register_quiet(
+        &self,
+        conn: Option<u64>,
+        mut reg: SessionReg,
+        git: GitInfo,
+    ) -> Result<(Registered, (String, Vec<Message>))> {
         let now = util::now_ms();
         let others = self.my_names_elsewhere();
         let mut g = self.inner.lock().unwrap();
@@ -120,7 +118,12 @@ impl Daemon {
         if let Some(n) = new_name
             && n != live.name
         {
-            g.store.rename(&live.name, &n, &format!("{}/{}", self.person, live.name), &format!("{}/{n}", self.person))?;
+            g.store.rename(
+                &live.name,
+                &n,
+                &format!("{}/{}", self.person, live.name),
+                &format!("{}/{n}", self.person),
+            )?;
             live.name = n;
         }
         g.store.upsert_session(&remembered(live, util::now_ms()))?;
@@ -220,7 +223,9 @@ impl Daemon {
         let busy: Vec<(&String, &Live)> = g
             .live
             .iter()
-            .filter(|(_, l)| l.reg.agent == agent && l.last_hook.is_some() && l.status.as_ref().is_some_and(|(s, _)| s == "busy"))
+            .filter(|(_, l)| {
+                l.reg.agent == agent && l.last_hook.is_some() && l.status.as_ref().is_some_and(|(s, _)| s == "busy")
+            })
             .collect();
         let here: Vec<&(&String, &Live)> = busy.iter().filter(|(_, l)| l.reg.cwd == cwd).collect();
         match (here.as_slice(), busy.as_slice()) {
@@ -258,7 +263,8 @@ impl Daemon {
             .iter()
             .filter(|(_, l)| {
                 l.conn.is_none()
-                    && (l.reg.pid.is_some_and(|p| !util::pid_alive(p)) || l.last_hook.is_none_or(|t| now - t > HOOK_TTL_MS))
+                    && (l.reg.pid.is_some_and(|p| !util::pid_alive(p))
+                        || l.last_hook.is_none_or(|t| now - t > HOOK_TTL_MS))
             })
             .map(|(k, _)| k.clone())
             .collect();

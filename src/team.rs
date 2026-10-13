@@ -149,7 +149,8 @@ impl TeamState {
         let mut raw = [0u8; 16];
         getrandom::fill(&mut raw).expect("system randomness");
         let secret = HEXLOWER.encode(&raw);
-        let body = Invite { hash: hash(&secret), expires: i64::MAX / 4, person: None, used_by: None, ts: now, reusable: true };
+        let body =
+            Invite { hash: hash(&secret), expires: i64::MAX / 4, person: None, used_by: None, ts: now, reusable: true };
         self.invites.insert(body.hash.clone(), Signed::new(body, key, &self.id, "invite"));
         let ts = next_ts(self.link.as_ref().map_or(0, |l| l.body.ts));
         self.link = Some(Signed::new(Link { secret, ts }, key, &self.id, "link"));
@@ -226,8 +227,14 @@ impl TeamState {
     /// Creates an invite for `secret` (an invite code's, or random for a ticket).
     pub fn invite(&mut self, key: &SecretKey, secret: &str, hours: u64, person: Option<String>) {
         let now = util::now_ms();
-        let body =
-            Invite { hash: hash(secret), expires: now + hours as i64 * 3_600_000, person, used_by: None, ts: now, reusable: false };
+        let body = Invite {
+            hash: hash(secret),
+            expires: now + hours as i64 * 3_600_000,
+            person,
+            used_by: None,
+            ts: now,
+            reusable: false,
+        };
         self.invites.insert(body.hash.clone(), Signed::new(body, key, &self.id, "invite"));
     }
 
@@ -250,7 +257,11 @@ impl TeamState {
             None => {}
         }
         if inv.expires <= util::now_ms() {
-            bail!(if inv.reusable { "this team link was replaced; ask for the new one" } else { "this invite expired; ask for a new one" });
+            bail!(if inv.reusable {
+                "this team link was replaced; ask for the new one"
+            } else {
+                "this invite expired; ask for a new one"
+            });
         }
         match &inv.person {
             Some(p) if p != person => bail!("this invite is for {p}'s own machines"),
@@ -283,7 +294,11 @@ impl TeamState {
             let admitted = self.admitted();
             let mut added = false;
             for (k, a) in &other.admissions {
-                if self.admissions.contains_key(k) || *k != a.body.endpoint.to_string() || !a.body.active || !plausible(a.body.ts) {
+                if self.admissions.contains_key(k)
+                    || *k != a.body.endpoint.to_string()
+                    || !a.body.active
+                    || !plausible(a.body.ts)
+                {
                     continue;
                 }
                 let vouched = if a.by == a.body.endpoint { a.by == self.founder } else { admitted.contains(&a.by) };
@@ -420,7 +435,8 @@ fn put_text(b: &mut Vec<u8>, text: &str) {
 fn n0_relay(url: &str) -> Option<&str> {
     let host = url.strip_prefix("https://")?.trim_end_matches('/');
     let region = host.strip_suffix(".relay.n0.iroh.link.").or_else(|| host.strip_suffix(".relay.n0.iroh.link"))?;
-    (!region.is_empty() && region.len() < 32 && region.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')).then_some(region)
+    (!region.is_empty() && region.len() < 32 && region.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
+        .then_some(region)
 }
 
 impl Ticket {
@@ -468,7 +484,8 @@ impl Ticket {
     pub fn decode(s: &str) -> Result<Self> {
         let s = s.trim().rsplit('#').next().unwrap_or_default();
         let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a tincan invite"))?;
-        let b = BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("this invite is damaged (was it cut off?)"))?;
+        let b =
+            BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("this invite is damaged (was it cut off?)"))?;
         let damaged = || anyhow!("this invite is damaged (was it cut off?)");
         let mut at = 0;
         let mut take = |n: usize| -> Result<&[u8]> {

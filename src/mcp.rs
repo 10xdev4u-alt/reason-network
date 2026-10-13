@@ -133,7 +133,9 @@ impl TincanMcp {
         Ok(self.finish(&key, res, true).await)
     }
 
-    #[tool(description = "Send a message to a teammate's agent session, all of a person's sessions, everyone in a repo, or everyone.")]
+    #[tool(
+        description = "Send a message to a teammate's agent session, all of a person's sessions, everyone in a repo, or everyone."
+    )]
     async fn send_message(
         &self,
         Parameters(a): Parameters<SendArgs>,
@@ -207,9 +209,10 @@ impl TincanMcp {
         if let Some(a) = *self.client_agent.lock().unwrap() {
             return a;
         }
-        let name = peer.peer_info().map(|i| i.client_info.name.clone()).or_else(|| {
-            meta?.get("io.modelcontextprotocol/clientInfo")?.get("name")?.as_str().map(str::to_string)
-        });
+        let name = peer
+            .peer_info()
+            .map(|i| i.client_info.name.clone())
+            .or_else(|| meta?.get("io.modelcontextprotocol/clientInfo")?.get("name")?.as_str().map(str::to_string));
         match name.as_deref().and_then(agent::from_client_name) {
             Some(a) => {
                 *self.client_agent.lock().unwrap() = Some(a);
@@ -228,7 +231,8 @@ impl TincanMcp {
     async fn session(&self, agent: &'static str, meta_id: Option<String>) -> Result<String> {
         if meta_id.is_none()
             && agent::multiplexed(agent)
-            && let Ok(Some(key)) = self.link.call::<Option<String>>(Request::Attach { agent: agent.into(), cwd: agent::cwd() }).await
+            && let Ok(Some(key)) =
+                self.link.call::<Option<String>>(Request::Attach { agent: agent.into(), cwd: agent::cwd() }).await
         {
             return Ok(key);
         }

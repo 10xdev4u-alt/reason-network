@@ -34,8 +34,11 @@ pub fn generate() -> String {
 /// `Plum Tiger lake-ORBIT` -> `plum-tiger-lake-orbit`, if it is four known words.
 pub fn normalize(input: &str) -> Option<String> {
     let words = words();
-    let parts: Vec<String> =
-        input.split(|c: char| !c.is_ascii_alphabetic()).filter(|p| !p.is_empty()).map(|p| p.to_ascii_lowercase()).collect();
+    let parts: Vec<String> = input
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_ascii_lowercase())
+        .collect();
     (parts.len() == LEN && parts.iter().all(|p| words.contains(&p.as_str()))).then(|| parts.join("-"))
 }
 

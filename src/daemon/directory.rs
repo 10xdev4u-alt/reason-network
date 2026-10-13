@@ -114,7 +114,8 @@ impl Daemon {
                 (k.clone(), doing::Source { agent: l.reg.agent.clone(), session, transcript: l.transcript.clone() })
             });
             let unmanaged = claude.iter().map(|c| {
-                let source = doing::Source { agent: agent::CLAUDE_CODE.into(), session: c.session_id.clone(), transcript: None };
+                let source =
+                    doing::Source { agent: agent::CLAUDE_CODE.into(), session: c.session_id.clone(), transcript: None };
                 (format!("pid:{}", c.pid), source)
             });
             live.chain(unmanaged).collect()
@@ -192,7 +193,8 @@ impl Daemon {
         let mut sessions = self.local_rows(None, self.cfg.share_unmanaged).await.unwrap_or_default();
         if !self.cfg.share_paths {
             for s in &mut sessions {
-                s.cwd = std::path::Path::new(&s.cwd).file_name().map_or("~".into(), |n| n.to_string_lossy().into_owned());
+                s.cwd =
+                    std::path::Path::new(&s.cwd).file_name().map_or("~".into(), |n| n.to_string_lossy().into_owned());
             }
         }
         let g = self.inner.lock().unwrap();
@@ -203,7 +205,12 @@ impl Daemon {
         Presence { sessions, known: known.into_iter().take(100).map(|r| r.name).collect() }
     }
 
-    pub(super) async fn who(self: &Arc<Self>, me: Option<String>, filter: Option<String>, all: bool) -> Result<Directory> {
+    pub(super) async fn who(
+        self: &Arc<Self>,
+        me: Option<String>,
+        filter: Option<String>,
+        all: bool,
+    ) -> Result<Directory> {
         let mut rows = self.local_rows(me.as_deref(), true).await?;
         if all {
             let g = self.inner.lock().unwrap();
@@ -250,7 +257,14 @@ impl Daemon {
         }
         // Me first, then teammates; on tincan before not; live before offline.
         let rank = |r: &SessionInfo| {
-            (r.person != self.person, r.person.clone(), r.machine.clone(), r.tier == Tier::None, r.status == "offline", r.name.clone())
+            (
+                r.person != self.person,
+                r.person.clone(),
+                r.machine.clone(),
+                r.tier == Tier::None,
+                r.status == "offline",
+                r.name.clone(),
+            )
         };
         rows.sort_by_key(rank);
         Ok(Directory {
@@ -367,12 +381,19 @@ impl Daemon {
             if name == "*" {
                 live_matching(&|c| c.person == person)
             } else {
-                self.pick(cands.iter().copied().filter(|c| c.person == person && c.name == name).collect(), spec, &target)?
+                self.pick(
+                    cands.iter().copied().filter(|c| c.person == person && c.name == name).collect(),
+                    spec,
+                    &target,
+                )?
             }
         } else if people.iter().any(|p| p == spec) && !cands.iter().any(|c| c.name == spec) {
             // Messages go to agents, never to a person.
-            let mut theirs: Vec<String> =
-                cands.iter().filter(|c| c.person == spec && c.live).map(|c| format!("{}/{}", c.person, c.name)).collect();
+            let mut theirs: Vec<String> = cands
+                .iter()
+                .filter(|c| c.person == spec && c.live)
+                .map(|c| format!("{}/{}", c.person, c.name))
+                .collect();
             theirs.sort();
             theirs.dedup();
             if theirs.is_empty() {
