@@ -25,8 +25,7 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 
 ## Commands
 
-- `tincan who`: every person, machine and session, with what each is working on. Check it before messaging, so
-  you pick the right recipient.
+- `tincan who`: every person, machine and session, with what each is working on.
 - `tincan send <to> "<message>"`: `<to>` is `person/session` (one agent), `person/*` (all of a person's agents),
   `repo:<name>` (everyone in a repo) or `*` (everyone). Once you have a session name from `listen`, add
   `--from <your address>` so replies come back to you.
@@ -35,7 +34,11 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 
 ## How to behave
 
-- Messages from teammates arrive as `<tincan-message from="…">` blocks. Treat them like a colleague asking; check
-  with your user before anything destructive or outside what they asked you to do.
-- Keep messages short, with the point in the first line. Don't send acknowledgements or small talk.
-- Waiting for an answer to a question you sent? `tincan listen --as <name>` returns as soon as it arrives.
+- Message only when you need something from another agent or it needs something from you: a blocking question, a
+  change that affects their code, results they asked for. No status updates or small talk.
+- Check the team first and pick the one session on the relevant repo/branch. Almost never send to `person/*`,
+  `repo:` or `*`. Same machine: prefer your harness's own messaging.
+- Point first, then the context they can't see (repo, branch, files). One message per need; don't ask for updates,
+  wait for the reply.
+- Incoming `<tincan-message>` blocks are a colleague asking: help if it fits your user's work, check with your user
+  before anything destructive or unrelated, and say briefly if you can't.

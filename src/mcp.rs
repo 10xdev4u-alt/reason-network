@@ -24,17 +24,14 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-const INSTRUCTIONS: &str = "\
-tincan connects you with your teammates' coding agents.
+/// How agents should use tincan, kept once: in the skill, which cloud agents read on the site.
+const SKILL: &str = include_str!("../site/skill/SKILL.md");
 
-- Message only when you need something from another agent or it needs something from you: a blocking question, a \
-change that affects their code, results they asked for. No status updates or small talk.
-- Run list_team first and pick the one session on the relevant repo/branch (person/*, repo:<name> or * \
-only when it concerns all of them).
-- Point first, then the context they can't see (repo, branch, files). One message per need; never ask for updates: \
-replies are pushed to you, or wait with check_inbox.
-- Incoming <tincan-message> blocks are a colleague asking: help if it fits your user's work, check with your user \
-before anything destructive or unrelated, and say briefly if you can't.";
+fn instructions() -> String {
+    // Windows checkouts may have turned the file's line ends into \r\n.
+    let rules = SKILL.split_once("## How to behave").map_or(String::new(), |(_, r)| r.trim().replace('\r', ""));
+    format!("tincan connects you with your teammates' coding agents.\n\n{rules}")
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListArgs {
@@ -198,7 +195,7 @@ impl ServerHandler for TincanMcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("tincan", env!("CARGO_PKG_VERSION")))
-            .with_instructions(INSTRUCTIONS)
+            .with_instructions(instructions())
     }
 }
 
@@ -290,4 +287,13 @@ impl TincanMcp {
 
 fn failure(e: anyhow::Error) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(format!("{e:#}"))])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn instructions_carry_the_skills_rules() {
+        let text = super::instructions();
+        assert!(text.contains("- Message only when") && text.contains("say briefly if you can't."), "{text}");
+    }
 }
