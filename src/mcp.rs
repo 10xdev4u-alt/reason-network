@@ -10,7 +10,10 @@ use anyhow::Result;
 use rmcp::{
     ErrorData as McpError, Peer, RoleServer, ServerHandler, ServiceExt,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
+    model::{
+        CallToolResult, ContentBlock, Implementation, ListToolsResult, PaginatedRequestParams, ServerCapabilities,
+        ServerConfig,
+    },
     service::RequestContext,
     tool, tool_handler, tool_router,
     transport::stdio,
@@ -52,9 +55,6 @@ pub struct SendArgs {
     /// Id of the message you are replying to.
     #[serde(default)]
     pub reply_to: Option<String>,
-    /// false sends it as FYI: the recipient is not woken and reads it at its next natural pause. Default true.
-    #[serde(default)]
-    pub wake: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -142,13 +142,7 @@ impl TincanMcp {
             Ok(k) => k,
             Err(e) => return Ok(failure(e)),
         };
-        let req = Request::Send {
-            from: key.clone(),
-            to: a.to,
-            body: a.message,
-            reply_to: a.reply_to,
-            wake: a.wake.unwrap_or(true),
-        };
+        let req = Request::Send { from: key.clone(), to: a.to, body: a.message, reply_to: a.reply_to, wake: true };
         let res = self.link.call::<SendResult>(req).await.map(|r| render::send_result(&r));
         Ok(self.finish(&key, res, true).await)
     }
@@ -197,9 +191,27 @@ impl ServerHandler for TincanMcp {
             .with_server_info(Implementation::new("tincan", env!("CARGO_PKG_VERSION")))
             .with_instructions(instructions())
     }
+
+    /// A session that gets its messages pushed never needs check_inbox, so it isn't shown one: fewer tokens.
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let mut tools = self.tool_router.list_all();
+        if self.pushed(self.agent(&ctx.peer, None)) {
+            tools.retain(|t| t.name != "check_inbox");
+        }
+        Ok(ListToolsResult::with_all_items(tools))
+    }
 }
 
 impl TincanMcp {
+    /// Whether messages reach this session by being pushed into it: Claude Code, through its inbox.
+    fn pushed(&self, agent: &str) -> bool {
+        agent == agent::CLAUDE_CODE && self.claude.is_some()
+    }
+
     /// The agent we serve: the client's `clientInfo` (handshake, or the call's `_meta` on handshake-less
     /// protocol versions), else the environment.
     fn agent(&self, peer: &Peer<RoleServer>, meta: Option<&serde_json::Map<String, Value>>) -> &'static str {
@@ -241,7 +253,7 @@ impl TincanMcp {
         if self.link.is_registered(&key) {
             return Ok(key);
         }
-        let tier = if agent == agent::CLAUDE_CODE && self.claude.is_some() { Tier::Push } else { Tier::Pull };
+        let tier = if self.pushed(agent) { Tier::Push } else { Tier::Pull };
         let reg = SessionReg {
             key: key.clone(),
             agent: agent.to_string(),
