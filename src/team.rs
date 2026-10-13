@@ -42,7 +42,8 @@ impl<T: Serialize> Signed<T> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Meta {
     pub name: String,
-    /// A self-hosted iroh relay for the team (`https://relay.example.com`); n0's public relays otherwise.
+    /// A self-hosted iroh relay for the team (`https://relay.example.com`), which is then all its machines use: they
+    /// never contact n0. n0's public relays otherwise.
     pub relay: Option<String>,
     pub ts: i64,
 }
@@ -509,17 +510,18 @@ impl Ticket {
         Ok(Ticket { team, name, secret, relay, hint_relay, hint_ips, peers })
     }
 
-    /// The peers to dial, the first with its hints.
+    /// The peers to dial, the first with its hints. With the team's own relay, all of them are found there.
     pub fn addrs(&self) -> Vec<EndpointAddr> {
         self.peers
             .iter()
             .enumerate()
             .map(|(i, id)| {
                 let mut a = EndpointAddr::new(*id);
+                let relay = self.relay.as_deref().or(self.hint_relay.as_deref().filter(|_| i == 0));
+                if let Some(url) = relay.and_then(|u| u.parse().ok()) {
+                    a = a.with_relay_url(url);
+                }
                 if i == 0 {
-                    if let Some(url) = self.hint_relay.as_deref().and_then(|u| u.parse().ok()) {
-                        a = a.with_relay_url(url);
-                    }
                     for ip in &self.hint_ips {
                         a = a.with_ip_addr(*ip);
                     }
@@ -718,6 +720,10 @@ mod tests {
         let enc = t.encode();
         assert!(enc.len() < 300, "short enough for a link: {}", enc.len());
         assert_eq!(t.addrs()[0].ip_addrs().count(), 2);
+        // Every peer through the team's own relay, never the n0 relay the hint names.
+        for a in t.addrs() {
+            assert_eq!(a.relay_urls().map(|u| u.to_string()).collect::<Vec<_>>(), ["https://relay.example.com/"]);
+        }
         assert_eq!(Ticket::decode(&format!("  {enc}\n")).unwrap(), t);
         assert_eq!(Ticket::decode(&format!("https://example.com/join/#{enc}")).unwrap(), t, "a whole link works too");
         assert!(Ticket::decode(&enc[..enc.len() - 10]).is_err());

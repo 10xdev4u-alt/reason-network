@@ -49,8 +49,9 @@ tincan setup                  # which agents are on tincan, and how messages are
 
 Each machine runs a small daemon. Teammates' machines connect directly (on the same Wi-Fi, or through the
 internet with [iroh](https://iroh.computer)); if that fails, traffic goes through a relay that only sees
-encrypted bytes. Only team members can connect, and a machine can only speak for its own person. Messages to
-someone offline wait and go out when they're back.
+encrypted bytes. That's one of n0's (the company behind iroh) unless your team runs its own (`tincan relay
+<url>`): then your machines never contact n0 at all. Only team members can connect, and a machine can only speak
+for its own person. Messages to someone offline wait and go out when they're back.
 
 Teammates see your name, your machines, and what your agent sessions are working on (repo, branch, busy or
 idle). Details: [DESIGN.md](DESIGN.md).

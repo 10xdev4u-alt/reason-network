@@ -84,7 +84,11 @@ SDK) both exist and work today. Zig has neither, which is why agent-rpc's MCP sh
 (`~/.tincan/machine.key`). Peers are dialed by `EndpointId`; iroh resolves addresses via n0 DNS/pkarr, finds
 LAN peers with `iroh-mdns-address-lookup` (works with no internet), hole-punches, and falls back to a relay
 over HTTPS. Default relays are n0's public ones (they only see encrypted QUIC). A team can set its own relay
-(`iroh-relay` binary on any VPS, Let's Encrypt on :443, access limited to the roster's endpoint ids).
+(`tincan relay <url>` or `tincan init --relay <url>`; the `iroh-relay` binary on any VPS, Let's Encrypt on :443,
+access limited to the roster's endpoint ids). Then its machines never contact n0: they use only that relay
+(teammates are dialed through it) and mDNS on the LAN, and invites come in the long form, since a four-word code
+needs n0's lookup. A machine that was off while the team switched relays can't find it on its own; `tincan doctor`
+there says to set the same relay with `tincan relay`.
 That is the "HTTPS and local network, MagicDNS style" requirement with one stack and no server we must run.
 
 **Roster (membership).** Replicated to every machine, every entry signed by a member machine's key:
@@ -209,7 +213,8 @@ not approve. Nothing changes how an agent works when it isn't messaging.
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.
-- Nothing is sent to any service we run. Relays see ciphertext only.
+- Nothing is sent to any service we run. Relays see ciphertext only. With its own relay, a team's machines never
+  contact n0 either.
 
 ## Install UX (M3)
 
@@ -276,7 +281,8 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 - **`tincan doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
 - **An agent doesn't have the tincan tools:** restart that session; agents load MCP servers at startup.
 - **A teammate shows as offline:** their machine is asleep or tincan isn't running there (`tincan doctor` on
-  their side). Messages wait in your outbox and go out when they're back.
+  their side). Messages wait in your outbox and go out when they're back. If it was off while the team changed
+  relays, run `tincan relay` there with the team's relay (`tincan team` shows it).
 - **macOS asks to let tincan find devices on your local network:** allow it for direct LAN connections. If you
   don't, tincan still works over the internet.
 - **Windows asks to let tincan through the firewall:** allow it for direct and LAN connections. If you don't,

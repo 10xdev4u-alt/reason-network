@@ -115,6 +115,9 @@ enum Cmd {
         /// Don't configure agents or install the background service
         #[arg(long)]
         no_setup: bool,
+        /// Your own iroh relay, from the start (see `tincan relay`)
+        #[arg(long)]
+        relay: Option<String>,
     },
     /// Show the team link to send friends (or, with --me / --code, a one-time code)
     Invite {
@@ -153,7 +156,7 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Use your own iroh relay for the team (or `default` for n0's public ones)
+    /// Use your own iroh relay for the team, so its machines never contact n0 (or `default` for n0's public relays)
     Relay { url: String },
     /// List messages waiting for your approval (when `inbound` is `hold`)
     Held,
@@ -328,7 +331,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let r: Registered = link.call(Request::SetStatus { key, doing, name }).await?;
             println!("You are {}.", r.address);
         }
-        Cmd::Init { team, person, no_setup } if !no_setup && wizard::interactive() => {
+        Cmd::Init { team, person, no_setup, relay: None } if !no_setup && wizard::interactive() => {
             wizard::guided(wizard::onboard(Some(true), team, None, person)).await?
         }
         Cmd::Join { invite, person, no_setup } if !no_setup && wizard::interactive() => {
@@ -345,9 +348,9 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
             wizard::guided(wizard::setup_agents()).await?
         }
-        Cmd::Init { team, person, no_setup } => {
+        Cmd::Init { team, person, no_setup, relay } => {
             let Some(team) = team else { bail!("name the team: `tincan init <team>` (or run it in a terminal to be asked)") };
-            let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person) }).await?;
+            let t: TeamInfo = link.call(Request::CreateTeam { name: team, person: default_person(person), relay }).await?;
             wait_exit(daemon_pid()).await;
             println!("Created team {}. You are {} on {}.", t.name, t.person, t.machine);
             if !no_setup {

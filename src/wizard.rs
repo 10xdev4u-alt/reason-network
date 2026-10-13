@@ -71,7 +71,7 @@ pub async fn onboard(start: Option<bool>, team: Option<String>, invite: Option<S
         };
         let sp = spinner();
         sp.start("Creating the team...");
-        let t: TeamInfo = link.call(Request::CreateTeam { name, person }).await.inspect_err(|e| sp.error(format!("{e:#}")))?;
+        let t: TeamInfo = link.call(Request::CreateTeam { name, person, relay: None }).await.inspect_err(|e| sp.error(format!("{e:#}")))?;
         crate::wait_exit(crate::daemon_pid()).await;
         sp.stop(format!("Created team {}. You are {} on {}.", t.name, t.person, t.machine));
     } else {

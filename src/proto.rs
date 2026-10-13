@@ -144,6 +144,8 @@ pub enum Request {
     CreateTeam {
         name: String,
         person: String,
+        #[serde(default)]
+        relay: Option<String>,
     },
     Join {
         ticket: String,
@@ -276,6 +278,9 @@ pub struct MachineInfo {
 pub struct TeamInfo {
     pub name: String,
     pub relay: Option<String>,
+    /// Whether this machine is on its relay right now (`None` while the network isn't up).
+    #[serde(default)]
+    pub relay_connected: Option<bool>,
     pub person: String,
     pub machine: String,
     pub machines: Vec<MachineInfo>,
@@ -291,7 +296,8 @@ pub struct LinkInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InviteInfo {
-    /// Four words, like `plum-tiger-lake-orbit`.
+    /// Four words, like `plum-tiger-lake-orbit`. For a team with its own relay, the long form (a code would need n0's
+    /// address lookup to find this machine).
     pub code: String,
     /// The same invite as a long `tincan1…` string, for when the inviting machine will be offline.
     pub ticket: String,

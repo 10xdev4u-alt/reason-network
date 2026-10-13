@@ -9,8 +9,10 @@ use crate::{
     util,
 };
 use anyhow::{Result, anyhow, bail};
+use futures_lite::{StreamExt, stream::Boxed};
 use iroh::{
-    Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey,
+    Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, Watcher,
+    address_lookup::{self, AddressLookup, EndpointData, EndpointInfo, Item},
     endpoint::{ConnectError, ConnectWithOptsError, Connection, RecvStream, SendStream, presets},
     protocol::{AcceptError, ProtocolHandler, Router},
 };
@@ -90,6 +92,8 @@ struct Link {
 
 pub struct Net {
     endpoint: Endpoint,
+    /// The team's own relay, if it has one: teammates are dialed through it, as nothing looks them up on n0's DNS.
+    relay: Option<RelayUrl>,
     router: Mutex<Option<Router>>,
     /// Endpoints listening for joins on behalf of invite codes, by their (code-derived) id.
     invites: Mutex<HashMap<EndpointId, Router>>,
@@ -106,18 +110,54 @@ pub struct Net {
 }
 
 pub async fn bind(key: SecretKey, relay: Option<&str>, lan: bool) -> Result<Endpoint> {
-    let mut b = Endpoint::builder(presets::N0).secret_key(key);
+    let Some(url) = relay else {
+        let mut b = Endpoint::builder(presets::N0).secret_key(key);
+        if lan {
+            b = b.address_lookup(MdnsAddressLookup::builder());
+        }
+        return Ok(b.bind().await?);
+    };
+    // The team's own relay and nothing of n0's: none of its relays, no publishing or looking up addresses in its DNS.
+    // Teammates are dialed through the relay instead.
+    let url: RelayUrl = url.parse().map_err(|_| anyhow!("not a relay url: {url} (expected e.g. https://relay.example.com)"))?;
+    let mut b = Endpoint::builder(presets::Minimal).secret_key(key.clone()).relay_mode(RelayMode::custom([url]));
     if lan {
-        b = b.address_lookup(MdnsAddressLookup::builder());
-    }
-    if let Some(url) = relay {
-        // The team's own relay, with n0's public ones as a fallback in case it is down or mistyped.
-        let url: RelayUrl = url.parse().map_err(|e| anyhow!("bad relay url {url}: {e}"))?;
-        let map = RelayMap::from_iter([url]);
-        map.extend(&iroh::defaults::prod::default_relay_map());
-        b = b.relay_mode(RelayMode::Custom(map));
+        b = b.address_lookup(NoRelays(MdnsAddressLookup::builder().build(key.public())?));
     }
     Ok(b.bind().await?)
+}
+
+/// Makes sure this machine reaches `url` as a relay. Nothing falls back to n0's, so a mistyped or unreachable relay
+/// would cut the team off.
+pub async fn check_relay(key: SecretKey, url: &str) -> Result<()> {
+    let endpoint = bind(key, Some(url), false).await?;
+    let reached = tokio::time::timeout(Duration::from_secs(10), endpoint.online()).await.is_ok();
+    endpoint.close().await;
+    if !reached {
+        bail!("couldn't reach relay {url} from this machine: is it running, and is the address right?");
+    }
+    Ok(())
+}
+
+/// mDNS, minus the relay a neighbour advertises: a teammate still on n0's relays (it missed a switch, or runs an older
+/// tincan) must not draw this machine onto them.
+#[derive(Debug)]
+struct NoRelays(MdnsAddressLookup);
+
+impl AddressLookup for NoRelays {
+    fn publish(&self, data: &EndpointData) {
+        self.0.publish(data);
+    }
+
+    fn resolve(&self, id: EndpointId) -> Option<Boxed<Result<Item, address_lookup::Error>>> {
+        let strip = |item: Item| {
+            let (from, at) = (item.provenance(), item.last_updated());
+            let mut info = EndpointInfo::from(item);
+            info.data.clear_relay_urls();
+            Item::new(info, from, at)
+        };
+        Some(self.0.resolve(id)?.map(move |r| r.map(strip)).boxed())
+    }
 }
 
 fn log(msg: &str) {
@@ -256,7 +296,7 @@ impl ProtocolHandler for JoinProto {
 }
 
 impl Net {
-    pub fn start(daemon: &Arc<Daemon>, endpoint: Endpoint, remote: HashMap<EndpointId, Remote>) -> Arc<Net> {
+    pub fn start(daemon: &Arc<Daemon>, endpoint: Endpoint, relay: Option<&str>, remote: HashMap<EndpointId, Remote>) -> Arc<Net> {
         let net = Arc::new_cyclic(|weak: &Weak<Net>| Net {
             me: endpoint.id(),
             router: Mutex::new(Some(
@@ -267,6 +307,7 @@ impl Net {
             )),
             invites: Default::default(),
             endpoint,
+            relay: relay.and_then(|u| u.parse().ok()),
             daemon: Arc::downgrade(daemon),
             links: Default::default(),
             remote: Mutex::new(remote),
@@ -292,6 +333,11 @@ impl Net {
     /// Waits (up to `limit`) until this machine has a home relay, so addresses handed out include it.
     pub async fn online(&self, limit: Duration) {
         let _ = tokio::time::timeout(limit, self.endpoint.online()).await;
+    }
+
+    /// Whether this machine is connected to its relay right now.
+    pub fn relay_connected(&self) -> bool {
+        self.endpoint.home_relay_status().get().iter().any(|s| s.is_connected())
     }
 
     pub async fn shutdown(&self) {
@@ -418,7 +464,11 @@ impl Net {
     }
 
     async fn dial(self: Arc<Self>, id: EndpointId) {
-        match tokio::time::timeout(Duration::from_secs(20), self.endpoint.connect(id, ALPN)).await {
+        let mut addr = EndpointAddr::new(id);
+        if let Some(url) = &self.relay {
+            addr = addr.with_relay_url(url.clone());
+        }
+        match tokio::time::timeout(Duration::from_secs(20), self.endpoint.connect(addr, ALPN)).await {
             Ok(Ok(conn)) => {
                 self.dialing.lock().unwrap().remove(&id);
                 if let Err(e) = self.clone().run_link(conn, true).await {

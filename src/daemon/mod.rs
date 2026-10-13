@@ -275,7 +275,7 @@ impl Daemon {
             }
             Request::Hook(h) => json!(self.hook(h).await?),
             Request::Attach { agent, cwd } => json!(self.attach(&agent, &cwd)),
-            Request::CreateTeam { name, person } => json!(self.create_team(&name, &person).await?),
+            Request::CreateTeam { name, person, relay } => json!(self.create_team(&name, &person, relay).await?),
             Request::Join { ticket, person } => json!(self.join_team(&ticket, &person).await?),
             Request::Invite { me, hours } => json!(self.invite(me, hours).await?),
             Request::Team => json!(self.team_info()?),

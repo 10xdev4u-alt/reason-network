@@ -49,7 +49,8 @@ impl Daemon {
 
     pub(super) async fn start_net(self: &Arc<Self>) -> Result<()> {
         let team = self.team_state().ok_or_else(|| anyhow!("not in a team"))?;
-        let endpoint = net::bind(self.key.clone(), team.meta.body.relay.as_deref(), self.cfg.lan()).await?;
+        let relay = team.meta.body.relay.as_deref();
+        let endpoint = net::bind(self.key.clone(), relay, self.cfg.lan()).await?;
         // Last known presence of each machine, so `who --all` shows offline teammates after a restart.
         let mut remote = HashMap::new();
         {
@@ -60,7 +61,7 @@ impl Daemon {
                 }
             }
         }
-        let net = Net::start(self, endpoint, remote);
+        let net = Net::start(self, endpoint, relay, remote);
         log(&format!("team {} · machine {}", team.name(), net.id().fmt_short()));
         *self.net.write().unwrap() = Some(net.clone());
         // Invite codes made here that are still good: listen for them again.
@@ -70,7 +71,7 @@ impl Daemon {
         };
         for (code, expires) in codes {
             if team.invite_unused(&invite::secret(&code)) {
-                net.listen_invite(invite::key(&code), expires, team.meta.body.relay.as_deref(), self.cfg.lan()).await?;
+                net.listen_invite(invite::key(&code), expires, relay, self.cfg.lan()).await?;
             } else {
                 self.inner.lock().unwrap().store.delete_prefix(&format!("code:{code}"))?;
             }
@@ -158,7 +159,8 @@ impl Daemon {
         Ok(state)
     }
 
-    pub(super) async fn create_team(self: &Arc<Self>, name: &str, person: &str) -> Result<TeamInfo> {
+    /// Starts a team, with its own relay from the first moment if `relay` is given.
+    pub(super) async fn create_team(self: &Arc<Self>, name: &str, person: &str, relay: Option<String>) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
             bail!("already in team '{}'; run `tincan leave` first", t.name());
         }
@@ -166,7 +168,11 @@ impl Daemon {
         if name.is_empty() || person.is_empty() {
             bail!("the team and your name need letters or digits");
         }
-        let state = TeamState::found(name, &person, &self.machine, &self.key);
+        let mut state = TeamState::found(name, &person, &self.machine, &self.key);
+        if let Some(u) = &relay {
+            net::check_relay(self.key.clone(), u).await?;
+            state.set_relay(&self.key, relay.clone());
+        }
         {
             let mut g = self.inner.lock().unwrap();
             g.team = Some(state);
@@ -174,7 +180,7 @@ impl Daemon {
         }
         self.become_person(&person)?;
         self.restart_soon();
-        Ok(TeamInfo { name: name.into(), relay: None, person, machine: self.machine.clone(), machines: Vec::new() })
+        Ok(TeamInfo { name: name.into(), relay, relay_connected: None, person, machine: self.machine.clone(), machines: Vec::new() })
     }
 
     /// Joins with an invite code (`plum-tiger-lake-orbit`) or a long `tincan1…` ticket.
@@ -231,6 +237,7 @@ impl Daemon {
         let info = TeamInfo {
             name: state.name().into(),
             relay: state.meta.body.relay.clone(),
+            relay_connected: None,
             person: person.clone(),
             machine: self.machine.clone(),
             machines: Vec::new(),
@@ -268,11 +275,18 @@ impl Daemon {
             let ticket = self.ticket(team, secret);
             let state = team.clone();
             self.save_team(&g)?;
-            g.store.set(&format!("code:{code}"), &expires.to_string())?;
+            if state.meta.body.relay.is_none() {
+                g.store.set(&format!("code:{code}"), &expires.to_string())?;
+            }
             (state, ticket)
         };
         let relay = state.meta.body.relay.clone();
         net.broadcast(&Wire::State { state: Box::new(state) });
+        // Finding the machine behind a code takes n0's address lookup: a team with its own relay gets the long form.
+        if relay.is_some() {
+            let ticket = ticket.encode();
+            return Ok(InviteInfo { code: ticket.clone(), ticket, hours });
+        }
         net.listen_invite(invite::key(&code), expires, relay.as_deref(), self.cfg.lan()).await?;
         Ok(InviteInfo { code, ticket: ticket.encode(), hours })
     }
@@ -325,6 +339,7 @@ impl Daemon {
         Ok(TeamInfo {
             name: team.name().into(),
             relay: team.meta.body.relay.clone(),
+            relay_connected: self.net().map(|n| n.relay_connected()),
             person: self.person.clone(),
             machine: self.machine.clone(),
             machines: self.machines(),
@@ -439,10 +454,8 @@ impl Daemon {
     }
 
     pub(super) async fn set_relay(self: &Arc<Self>, url: Option<String>) -> Result<String> {
-        if let Some(u) = &url
-            && u.parse::<iroh::RelayUrl>().is_err()
-        {
-            bail!("not a relay url: {u} (expected e.g. https://relay.example.com)");
+        if let Some(u) = &url {
+            net::check_relay(self.key.clone(), u).await?;
         }
         let state = {
             let mut g = self.inner.lock().unwrap();
@@ -452,14 +465,24 @@ impl Daemon {
             self.save_team(&g)?;
             state
         };
+        let me = self.key.public();
+        let online = |id: &EndpointId| self.net().is_some_and(|n| n.is_online(id));
+        let away: Vec<String> =
+            state.active().filter(|m| m.endpoint != me && !online(&m.endpoint)).map(|m| format!("{}/{}", m.person, m.machine)).collect();
         if let Some(net) = self.net() {
             net.broadcast(&Wire::State { state: Box::new(state) });
             tokio::time::sleep(Duration::from_millis(800)).await;
         }
         self.restart_soon();
-        Ok(match url {
-            Some(u) => format!("The team now uses relay {u}."),
-            None => "The team now uses n0's public relays.".into(),
-        })
+        let (now, cmd) = match &url {
+            Some(u) => (format!("The team now uses relay {u}, and nothing of n0's."), format!("tincan relay {u}")),
+            None => ("The team now uses n0's public relays.".into(), "tincan relay default".into()),
+        };
+        let mut out = format!("{now} Team links from before stop working: `tincan link` shows the new one.");
+        // A machine that is off can't hear about it, and won't find the team where it looks when it's back.
+        if !away.is_empty() {
+            out += &format!("\nOffline now: {}. When back, each needs `{cmd}` too, unless it already uses that relay.", away.join(", "));
+        }
+        Ok(out)
     }
 }
