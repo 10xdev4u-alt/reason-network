@@ -10,9 +10,16 @@ pub struct Paint(bool);
 impl Paint {
     pub const PLAIN: Paint = Paint(false);
 
+    #[cfg(unix)]
     pub fn terminal() -> Paint {
         use std::io::IsTerminal;
         Paint(std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+    }
+
+    /// The same, after asking the console to take colour codes (Windows 10's doesn't until asked).
+    #[cfg(windows)]
+    pub fn terminal() -> Paint {
+        Paint(console::colors_enabled())
     }
 
     fn on(self, style: &str, text: &str) -> String {
@@ -255,7 +262,8 @@ fn place(s: &SessionInfo) -> String {
         (Some(r), Some(b)) => format!("{r}@{b}"),
         (Some(r), None) => r.clone(),
         _ if s.cwd.chars().count() > 32 => {
-            let parts: Vec<&str> = s.cwd.rsplit('/').filter(|p| !p.is_empty()).take(2).collect();
+            // Either separator: the session may be on Windows.
+            let parts: Vec<&str> = s.cwd.rsplit(['/', '\\']).filter(|p| !p.is_empty()).take(2).collect();
             format!("…/{}", parts.into_iter().rev().collect::<Vec<_>>().join("/"))
         }
         _ => s.cwd.clone(),

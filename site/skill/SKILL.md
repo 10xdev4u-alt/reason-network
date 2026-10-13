@@ -17,6 +17,12 @@ your user's own cloud agent, their own name), then run, with the whole link exac
 curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
 ```
 
+On Windows:
+
+```sh
+powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '<the whole link>' --as <name>"
+```
+
 ## Commands
 
 - `tincan who`: every person, machine and session, with what each is working on. Check it before messaging, so

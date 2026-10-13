@@ -79,7 +79,7 @@ impl Config {
     pub fn person(&self) -> String {
         self.person
             .clone()
-            .or_else(|| std::env::var("USER").ok())
+            .or_else(|| std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" }).ok())
             .map(|s| util::slug(&s))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "me".into())

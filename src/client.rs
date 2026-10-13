@@ -1,13 +1,12 @@
 //! Connection to the local daemon, starting it if needed. Long-lived clients (`tincan mcp`) reconnect on their
 //! own and re-register their sessions, so a daemon restart is invisible to the agent.
 
-use crate::{paths, proto::*};
+use crate::{ipc, paths, proto::*};
 use anyhow::{Result, anyhow, bail};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    os::unix::process::CommandExt,
     process::{Command, Stdio},
     sync::{
         Arc, Mutex, Weak,
@@ -17,7 +16,6 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
     sync::{mpsc, oneshot},
 };
 
@@ -100,8 +98,8 @@ impl Link {
         Ok(c)
     }
 
-    fn spawn_io(self: &Arc<Self>, stream: UnixStream) -> Conn {
-        let (rd, mut wr) = stream.into_split();
+    fn spawn_io(self: &Arc<Self>, stream: ipc::Stream) -> Conn {
+        let (rd, mut wr) = tokio::io::split(stream);
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let conn = Conn { tx, pending: Pending::default(), alive: Arc::new(AtomicBool::new(true)) };
         tokio::spawn(async move {
@@ -159,17 +157,14 @@ pub fn running_daemon() -> Option<u32> {
 /// Who holds the lock at `path`. Asked of the lock, not the pid: a daemon that exited holds none, even when a
 /// parent that never reaps (a container's `sleep` as PID 1) leaves it a zombie whose pid still "exists".
 fn holder(path: &std::path::Path) -> Option<u32> {
-    use std::os::unix::io::AsRawFd;
-    let f = std::fs::File::open(path).ok()?;
-    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+    if !crate::util::locked(path) {
         return None;
     }
     std::fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-async fn connect_or_start(start: bool) -> Result<UnixStream> {
-    let sock = paths::socket();
-    if let Ok(s) = UnixStream::connect(&sock).await {
+async fn connect_or_start(start: bool) -> Result<ipc::Stream> {
+    if let Ok(s) = ipc::connect().await {
         return Ok(s);
     }
     if !start {
@@ -183,14 +178,14 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
             && std::env::var_os("TINCAN_NO_SERVICE").is_none()
             && crate::setup::start_service();
         if !by_service {
-            child = Some(start_daemon()?);
+            child = Some(start_daemon(false)?);
         }
     }
     let failed = || anyhow!("could not start the tincan daemon; see {}", paths::log().display());
     let mut connected = None;
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        if let Ok(s) = UnixStream::connect(&sock).await {
+        if let Ok(s) = ipc::connect().await {
             connected = Some(s);
             break;
         }
@@ -211,17 +206,37 @@ async fn connect_or_start(start: bool) -> Result<UnixStream> {
     connected.ok_or_else(failed)
 }
 
-/// Starts `tincan daemon` detached from this process group, logging to `~/.tincan/daemon.log`.
-fn start_daemon() -> Result<std::process::Child> {
+/// Starts `tincan daemon` (`--service` with `service`) detached from this process group, logging to
+/// `~/.tincan/daemon.log`.
+pub fn start_daemon(service: bool) -> Result<std::process::Child> {
     paths::ensure_home()?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;
-    Ok(Command::new(crate::util::current_exe()?)
-        .arg("daemon")
-        .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log)
-        .process_group(0)
-        .spawn()?)
+    let mut cmd = Command::new(crate::util::current_exe()?);
+    cmd.arg("daemon").args(service.then_some("--service")).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    #[cfg(unix)]
+    let child = std::os::unix::process::CommandExt::process_group(&mut cmd, 0).spawn()?;
+    #[cfg(windows)]
+    let child = detach(&mut cmd)?;
+    Ok(child)
+}
+
+/// On Windows: no window, out of reach of this console's Ctrl-C, and without our own standard handles, which
+/// Windows would hand it otherwise (an agent reading a hook's output to the end would wait for the daemon too).
+/// Nor any other handle we inherited: Windows PowerShell capturing our output hands us its own standard handles
+/// as well. Also out of the starter's job when the job allows it: an SSH session's job ends everything at logout.
+#[cfg(windows)]
+fn detach(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    use std::os::windows::{io::AsRawHandle, process::CommandExt};
+    use windows_sys::Win32::{Foundation::*, System::Threading::*};
+    let ours = [std::io::stdin().as_raw_handle(), std::io::stdout().as_raw_handle(), std::io::stderr().as_raw_handle()];
+    // Handles are multiples of 4; what we inherited sits where it sat in our parent. (`cmd`'s own are made
+    // inheritable again when it spawns.)
+    for h in ours.into_iter().chain((4..1usize << 16).step_by(4).map(|h| h as HANDLE)) {
+        // SAFETY: only clears inherit flags; a value that isn't an open handle just fails.
+        unsafe { SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0) };
+    }
+    let flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn())
 }
 
 #[cfg(test)]

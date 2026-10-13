@@ -47,6 +47,8 @@
 
   <h2>Start a team</h2>
 <pre><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh</code></pre>
+  <p>On Windows, in PowerShell:</p>
+<pre><code>irm https://larstalian.github.io/tincan/install.ps1 | iex</code></pre>
   <p>It asks your name and a team name, sets up your coding agents, and gives you a team link. Send it to your friends: it opens a page with one command, they paste it, type their name, and they're in. The same link works for everyone, for good.</p>
 
   <h2>What it does</h2>
@@ -71,7 +73,9 @@
   <p>Your user gave you a team link (<code>…/tincan/join/#tincan1…</code>)? Ask them what name teammates should see, then
     run this with the whole link, exactly as given (it asks no questions):</p>
   <pre><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</code></pre>
-  <p>To start a team instead: <code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- init '&lt;team name&gt;' --as &lt;name&gt;</code>,
+  <p>On Windows (from any shell):</p>
+  <pre><code>powershell -c "&amp; ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '&lt;the whole link&gt;' --as &lt;name&gt;"</code></pre>
+  <p>To start a team instead, give it <code>init '&lt;team name&gt;' --as &lt;name&gt;</code> in place of the link,
     then <code>tincan link</code> prints the link for teammates. It installs the binary from the
     <a href="https://github.com/larstalian/tincan">GitHub release</a> (checksum verified), adds tincan to the coding
     agents on the machine, and starts a small background service; <code>tincan setup --remove</code> undoes it.</p>

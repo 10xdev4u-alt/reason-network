@@ -27,13 +27,27 @@ struct Report {
 }
 
 pub fn exe() -> Result<PathBuf> {
-    Ok(crate::util::current_exe()?.canonicalize()?)
+    let exe = crate::util::current_exe()?;
+    // Windows reports it in full already; its canonical form (`\\?\C:\…`) is not for other programs' configs.
+    if cfg!(windows) {
+        return Ok(exe);
+    }
+    Ok(exe.canonicalize()?)
 }
 
-/// The command line agents run through a shell: `'/path/to/tincan' hook codex stop`.
+/// The command line agents run through a shell: `'/path/to/tincan' hook codex stop`. On Windows that shell is
+/// PowerShell (`& 'C:\Users\Alex Smith\…\tincan.exe' hook codex stop`), and a path that needs no quotes also runs in
+/// cmd.exe.
 fn shell_cmd(exe: &Path, args: &str) -> String {
     let p = exe.display().to_string();
-    let quoted = if p.chars().all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c)) { p } else { format!("'{}'", p.replace('\'', "'\\''")) };
+    let plain = |extra: &str| p.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
+    let quoted = if cfg!(windows) {
+        if plain(r"\:._-") { p.clone() } else { format!("& '{}'", p.replace('\'', "''")) }
+    } else if plain("/._-") {
+        p.clone()
+    } else {
+        format!("'{}'", p.replace('\'', "'\\''"))
+    };
     format!("{quoted} {args}")
 }
 
@@ -50,11 +64,11 @@ fn gemini_home() -> PathBuf {
 }
 
 fn opencode_home() -> PathBuf {
-    home().join(".config/opencode")
+    home().join(".config").join("opencode")
 }
 
 fn pi_home() -> PathBuf {
-    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| home().join(".pi/agent"))
+    std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|| home().join(".pi").join("agent"))
 }
 
 fn read_json(path: &Path) -> Result<Value> {
@@ -354,7 +368,7 @@ fn copilot(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     }
     r.lines.push(changed(&mcp_path, write_json(&mcp_path, &v, dry)?));
 
-    let hooks_path = dir.join("hooks/tincan.json");
+    let hooks_path = dir.join("hooks").join("tincan.json");
     if remove {
         if hooks_path.exists() {
             if !dry {
@@ -363,7 +377,8 @@ fn copilot(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             r.lines.push(format!("removed {}", crate::util::tilde(&hooks_path.display().to_string())));
         }
     } else {
-        let entry = |event: &str| json!([{ "type": "command", "bash": shell_cmd(exe, &format!("hook copilot {event}")), "timeoutSec": 10 }]);
+        let shell = if cfg!(windows) { "powershell" } else { "bash" };
+        let entry = |event: &str| json!([{ "type": "command", shell: shell_cmd(exe, &format!("hook copilot {event}")), "timeoutSec": 10 }]);
         let v = json!({ "version": 1, "hooks": {
             "sessionStart": entry("session-start"),
             "userPromptSubmitted": entry("user-prompt-submit"),
@@ -403,7 +418,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
         r.lines.push(changed(&path, write_json(&path, &v, dry)?));
     }
-    let plugin = dir.join("plugins/tincan.ts");
+    let plugin = dir.join("plugins").join("tincan.ts");
     if remove {
         if plugin.exists() {
             if !dry {
@@ -427,7 +442,7 @@ fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         return Ok(None);
     }
     let mut r = Report { agent: "pi", lines: Vec::new(), notes: Vec::new() };
-    let ext = pi_home().join("extensions/tincan.ts");
+    let ext = pi_home().join("extensions").join("tincan.ts");
     if remove {
         if ext.exists() {
             if !dry {
@@ -466,12 +481,14 @@ fn reason(_exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 // ---- background service ----
 
+#[cfg(unix)]
 pub fn service_installed() -> bool {
     service_path().exists()
 }
 
 /// Asks the service manager to start the daemon now (rather than a stray one of our own, which would hold the
 /// lock and leave the service's daemon waiting, without its menu bar icon). True if it accepted.
+#[cfg(unix)]
 pub fn start_service() -> bool {
     let out = if cfg!(target_os = "macos") {
         let uid = unsafe { libc::getuid() };
@@ -482,6 +499,7 @@ pub fn start_service() -> bool {
     out.is_ok_and(|o| o.status.success())
 }
 
+#[cfg(unix)]
 fn service_path() -> PathBuf {
     if cfg!(target_os = "macos") {
         home().join(format!("Library/LaunchAgents/{}.plist", service_name()))
@@ -491,11 +509,13 @@ fn service_path() -> PathBuf {
 }
 
 /// A PATH for the daemon that includes where agents usually live (it runs `codex queue`).
+#[cfg(unix)]
 fn service_path_env() -> String {
     let h = home().display().to_string();
     format!("{h}/.local/bin:{h}/.bun/bin:{h}/.npm-global/bin:{h}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
 }
 
+#[cfg(unix)]
 async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     let path = service_path();
     let uid = unsafe { libc::getuid() };
@@ -587,8 +607,64 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     }
 }
 
+#[cfg(unix)]
 fn xml(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+// Without admin, Windows has no service for us: the daemon starts at logon from the user's Run key, and when it
+// restarts it starts the next one itself (see `Daemon::restart_soon`).
+
+#[cfg(windows)]
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+
+#[cfg(windows)]
+pub fn service_installed() -> bool {
+    run_entry().is_some()
+}
+
+/// There is no service manager to ask: the caller starts the daemon.
+#[cfg(windows)]
+pub fn start_service() -> bool {
+    false
+}
+
+/// Our Run entry, as `reg query` shows it.
+#[cfg(windows)]
+fn run_entry() -> Option<String> {
+    let out = Command::new("reg").args(["query", RUN_KEY, "/v", &service_name()]).stdin(std::process::Stdio::null()).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+#[cfg(windows)]
+async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
+    let reg = |args: &[&str]| Command::new("reg").args(args).stdin(std::process::Stdio::null()).output();
+    if remove {
+        if !dry {
+            let _ = reg(&["delete", RUN_KEY, "/v", &service_name(), "/f"]);
+            crate::stop_daemon().await;
+        }
+        return Ok("removed the login service".into());
+    }
+    // Windows starts it with its command line and nothing else.
+    if std::env::var_os("TINCAN_HOME").is_some() {
+        return Err(anyhow!("a logon entry can't set TINCAN_HOME"));
+    }
+    let command = format!("\"{}\" daemon --service", exe.display());
+    let did = !run_entry().is_some_and(|v| v.contains(&command));
+    if !dry {
+        if did {
+            let out = reg(&["add", RUN_KEY, "/v", &service_name(), "/d", &command, "/f"])?;
+            if !out.status.success() {
+                return Err(anyhow!("reg add: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            }
+        }
+        // Running now, as from logon: a daemon that is running starts it as it stops.
+        if !crate::stop_daemon().await {
+            crate::client::start_daemon(true)?;
+        }
+    }
+    Ok(if did { "installed the login service (Run key)".into() } else { "login service already set".into() })
 }
 
 type AgentFn = fn(&Path, bool, bool) -> Result<Option<Report>>;
@@ -607,8 +683,10 @@ fn has(path: PathBuf, needle: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|s| s.contains(needle))
 }
 
+/// Our path as a JSON config has it (with Windows' backslashes escaped).
 fn me(exe: &Path) -> String {
-    exe.display().to_string()
+    let s = json!(exe.display().to_string()).to_string();
+    s[1..s.len() - 1].to_string()
 }
 
 const AGENTS: [Agent; 8] = [
@@ -628,7 +706,8 @@ const AGENTS: [Agent; 8] = [
         name: "Codex",
         hint: "instant; asks once to trust the hooks",
         installed: || agent::find_bin("codex").is_some() || codex_home().exists(),
-        wired: |exe| has(codex_home().join("config.toml"), &me(exe)) && has(codex_home().join("hooks.json"), "hook codex"),
+        // TOML keeps a Windows path as it is ('C:\…').
+        wired: |exe| has(codex_home().join("config.toml"), &exe.display().to_string()) && has(codex_home().join("hooks.json"), "hook codex"),
         apply: codex,
     },
     Agent {
@@ -792,11 +871,11 @@ pub async fn doctor() -> Result<()> {
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
-    let svc = service_path();
+    let svc = service_installed();
     println!(
         "{} login service: {}",
-        if svc.exists() { "✓" } else { "-" },
-        if svc.exists() { "installed" } else { "not installed (`tincan setup`)" }
+        if svc { "✓" } else { "-" },
+        if svc { "installed" } else { "not installed (`tincan setup`)" }
     );
     for f in detect(&exe) {
         if f.wired {
@@ -829,8 +908,17 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn quoting() {
         assert_eq!(shell_cmd(Path::new("/usr/local/bin/tincan"), "mcp"), "/usr/local/bin/tincan mcp");
         assert_eq!(shell_cmd(Path::new("/Users/a b/tincan"), "mcp"), "'/Users/a b/tincan' mcp");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn quoting() {
+        assert_eq!(shell_cmd(Path::new(r"C:\Users\alex\.local\bin\tincan.exe"), "mcp"), r"C:\Users\alex\.local\bin\tincan.exe mcp");
+        assert_eq!(shell_cmd(Path::new(r"C:\Users\Alex O'Neil\tincan.exe"), "mcp"), r"& 'C:\Users\Alex O''Neil\tincan.exe' mcp");
+        assert_eq!(me(Path::new(r"C:\a\tincan.exe")), r"C:\\a\\tincan.exe");
     }
 }

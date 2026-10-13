@@ -31,7 +31,7 @@ enum Channel {
     /// The agent's own CLI: `codex queue --thread <id> --message`, `reason session send <id> --message`.
     Command(&'static str, Vec<String>),
     /// Straight into a Claude Code session's messaging socket (one without tincan's tools: it replies with the CLI).
-    ClaudeDirect(std::path::PathBuf),
+    ClaudeDirect(agent::ClaudeSocket),
     /// Hooks inject it at the next tool call or turn end.
     Hook,
     /// Only `check_inbox`.
@@ -191,7 +191,7 @@ impl Daemon {
             }
             (Tier::Push, None, id) if l.reg.agent == agent::CLAUDE_CODE && !l.push_failed => {
                 match claude::socket_for(id.as_deref(), l.reg.pid) {
-                    Some(path) => Channel::ClaudeDirect(path),
+                    Some(sock) => Channel::ClaudeDirect(sock),
                     None => Channel::Pull,
                 }
             }
@@ -227,11 +227,11 @@ impl Daemon {
                 self.send_with(bin, args, key.to_string(), ids, text);
                 ("pushed".into(), format!("queued into the {} session: it runs after the current turn, or now if idle", agent::label(bin)))
             }
-            Channel::ClaudeDirect(path) => {
+            Channel::ClaudeDirect(sock) => {
                 for id in &ids {
                     g.in_flight.insert(id.clone(), Instant::now());
                 }
-                self.post_direct(key.to_string(), path, ids, text);
+                self.post_direct(key.to_string(), sock, ids, text);
                 ("pushed".into(), "delivered into the session: it reads it between tool calls, or wakes up if idle".into())
             }
             Channel::Hook => ("queued".into(), hook_note.into()),
@@ -240,11 +240,10 @@ impl Daemon {
     }
 
     /// Posts into a Claude Code session's messaging socket; read once it took it.
-    fn post_direct(self: &Arc<Self>, key: String, path: std::path::PathBuf, ids: Vec<String>, text: String) {
+    fn post_direct(self: &Arc<Self>, key: String, sock: agent::ClaudeSocket, ids: Vec<String>, text: String) {
         let this = self.clone();
         tokio::spawn(async move {
-            let sock = agent::ClaudeSocket { path, token: None };
-            let res = tokio::task::spawn_blocking(move || agent::post_to_claude(&sock, &text)).await;
+            let res =tokio::task::spawn_blocking(move || agent::post_to_claude(&sock, &text)).await;
             let mut g = this.inner.lock().unwrap();
             for id in &ids {
                 g.in_flight.remove(id);

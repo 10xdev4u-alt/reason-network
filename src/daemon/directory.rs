@@ -192,7 +192,7 @@ impl Daemon {
         let mut sessions = self.local_rows(None, self.cfg.share_unmanaged).await.unwrap_or_default();
         if !self.cfg.share_paths {
             for s in &mut sessions {
-                s.cwd = s.cwd.rsplit('/').find(|p| !p.is_empty()).unwrap_or("~").to_string();
+                s.cwd = std::path::Path::new(&s.cwd).file_name().map_or("~".into(), |n| n.to_string_lossy().into_owned());
             }
         }
         let g = self.inner.lock().unwrap();

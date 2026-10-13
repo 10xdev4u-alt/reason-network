@@ -16,6 +16,12 @@ One person runs this and picks a team name:
 curl -fsSL https://larstalian.github.io/tincan/install.sh | sh
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://larstalian.github.io/tincan/install.ps1 | iex
+```
+
 You get a team link (it's on your clipboard). Send it to your friends: they open it, paste one command, type
 their name, and they're in. Or they just tell their agent "join my tincan team: <link>".
 
@@ -58,16 +64,24 @@ name teammates should see, then run this with the whole link, exactly as given. 
 curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
 ```
 
-To start a team instead: `curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- init '<team>' --as
-<name>`, then `tincan link` prints the link for teammates. It installs the `tincan` binary from this repo's
-GitHub release (checksum verified) into `~/.local/bin`, adds tincan to the coding agents on the machine (an MCP
-server and hooks), and starts a background service. `tincan who` shows the team.
+On Windows (from any shell):
+
+```sh
+powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '<the whole link>' --as <name>"
+```
+
+To start a team instead, give it `init '<team>' --as <name>` in place of the link, then `tincan link` prints the
+link for teammates. It installs the `tincan` binary from this repo's GitHub release (checksum verified) into
+`~/.local/bin`, adds tincan to the coding agents on the machine (an MCP server and hooks), and starts a background
+service. `tincan who` shows the team.
 
 ## Uninstall
 
 ```sh
 tincan setup --remove && tincan leave && rm -rf ~/.tincan ~/.local/bin/tincan
 ```
+
+On Windows, in PowerShell: `tincan setup --remove; tincan leave; Remove-Item -Recurse -Force ~\.tincan, ~\.local\bin\tincan*`
 
 ## Development
 

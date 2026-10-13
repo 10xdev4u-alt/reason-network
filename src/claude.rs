@@ -1,7 +1,7 @@
 //! Claude Code keeps one `~/.claude/sessions/<pid>.json` per live session (name, cwd, busy/idle). Reading them
 //! lists every Claude session on this machine, including ones that don't have tincan loaded.
 
-use crate::{paths, util};
+use crate::{agent::ClaudeSocket, paths, util};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,10 +69,26 @@ pub fn wired() -> bool {
 }
 
 /// The messaging socket of a live session, by its id or process.
-pub fn socket_for(session_id: Option<&str>, pid: Option<u32>) -> Option<std::path::PathBuf> {
-    scan()
+pub fn socket_for(session_id: Option<&str>, pid: Option<u32>) -> Option<ClaudeSocket> {
+    let c = scan()
         .into_iter()
-        .find(|c| (session_id.is_some() && c.session_id.as_deref() == session_id) || (pid.is_some() && Some(c.pid) == pid))?
-        .messaging_socket_path
-        .map(Into::into)
+        .find(|c| (session_id.is_some() && c.session_id.as_deref() == session_id) || (pid.is_some() && Some(c.pid) == pid))?;
+    Some(ClaudeSocket { path: c.messaging_socket_path?.into(), token: peer_token(c.pid) })
+}
+
+/// The token a session's messaging socket wants from its peers, which Claude Code asks for on Windows only. It
+/// leaves it for them in `~/.claude/sessions/<pid>.<hash>.key`.
+pub fn peer_token(pid: u32) -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let prefix = format!("{pid}.");
+    std::fs::read_dir(paths::claude_sessions()).ok()?.flatten().find_map(|e| {
+        let name = e.file_name().into_string().ok()?;
+        if !name.starts_with(&prefix) || !name.ends_with(".key") {
+            return None;
+        }
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok()?;
+        v["peerToken"].as_str().map(str::to_string)
+    })
 }

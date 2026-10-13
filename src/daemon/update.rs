@@ -1,6 +1,6 @@
 //! Keeps tincan up to date: every few hours the daemon looks for a newer release and, if there is one, installs it
-//! over its own binary (with install.sh, checksum verified) and restarts on it. Off with `auto_update = false`;
-//! never for builds run from a source tree.
+//! over its own binary (with install.sh, or install.ps1 on Windows, checksum verified) and restarts on it. Off with
+//! `auto_update = false`; never for builds run from a source tree.
 
 use super::{Daemon, log};
 use anyhow::{Result, bail};
@@ -39,22 +39,19 @@ async fn update() -> Result<Option<String>> {
         return Ok(None);
     }
     let dir = crate::util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
-    // In its own process group, so a timeout kills the whole pipeline (curl and the inner sh too).
-    let child = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("curl -fsSL {} | sh", crate::install_url()))
-        .env("TINCAN_BIN_DIR", &dir)
-        .env("TINCAN_NO_PROMPT", "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .process_group(0)
-        .kill_on_drop(true)
-        .spawn()?;
+    let mut cmd = tokio::process::Command::from(crate::installer(&dir));
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+    // In its own process group, so a timeout kills the whole pipeline (curl and the inner sh too). (On Windows the
+    // installer is one PowerShell, which `kill_on_drop` ends.)
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let child = cmd.spawn()?;
+    #[cfg(unix)]
     let group = child.id();
     let out = match tokio::time::timeout(Duration::from_secs(300), child.wait_with_output()).await {
         Ok(out) => out?,
         Err(_) => {
+            #[cfg(unix)]
             if let Some(pgid) = group {
                 // SAFETY: signals the process group we just created.
                 unsafe { libc::killpg(pgid as libc::pid_t, libc::SIGKILL) };
@@ -66,7 +63,8 @@ async fn update() -> Result<Option<String>> {
         bail!("install failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     // Restart only on a binary that really is newer (a release tagged without bumping its version must not loop).
-    let installed = tokio::process::Command::new(dir.join("tincan")).arg("--version").kill_on_drop(true).output();
+    let installed = dir.join(format!("tincan{}", std::env::consts::EXE_SUFFIX));
+    let installed = tokio::process::Command::new(installed).arg("--version").kill_on_drop(true).output();
     let installed = tokio::time::timeout(Duration::from_secs(30), installed).await??;
     let installed = String::from_utf8_lossy(&installed.stdout).trim().rsplit(' ').next().unwrap_or_default().to_string();
     if !newer(&installed, env!("CARGO_PKG_VERSION")) {
@@ -78,8 +76,9 @@ async fn update() -> Result<Option<String>> {
 /// The newest release's version, from where GitHub's "latest release" link redirects.
 async fn latest_version() -> Result<String> {
     let repo = std::env::var("TINCAN_REPO").unwrap_or_else(|_| "larstalian/tincan".into());
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let out = tokio::process::Command::new("curl")
-        .args(["-fsSLI", "--max-time", "50", "-o", "/dev/null", "-w", "%{url_effective}", &format!("https://github.com/{repo}/releases/latest")])
+        .args(["-fsSLI", "--max-time", "50", "-o", null, "-w", "%{url_effective}", &format!("https://github.com/{repo}/releases/latest")])
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();

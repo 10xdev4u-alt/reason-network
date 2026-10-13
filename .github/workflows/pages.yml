@@ -1,11 +1,11 @@
 name: pages
 
-# Publishes site/ plus install.sh to GitHub Pages. To serve it from your domain, set the custom domain in
+# Publishes site/ plus install.sh and install.ps1 to GitHub Pages. To serve it from your domain, set the custom domain in
 # Settings > Pages (or add site/CNAME), then set the repo variable TINCAN_SITE_URL=https://<domain>.
 on:
   push:
     branches: [main]
-    paths: ["site/**", "install.sh", ".github/workflows/pages.yml"]
+    paths: ["site/**", "install.sh", "install.ps1", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: cp install.sh site/install.sh
+      - run: cp install.sh install.ps1 site/
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:

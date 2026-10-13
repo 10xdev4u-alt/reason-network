@@ -12,6 +12,7 @@ mod update;
 use crate::{
     config::Config,
     git::{self, GitInfo},
+    ipc,
     net::Net,
     paths,
     proto::*,
@@ -19,7 +20,7 @@ use crate::{
     team::TeamState,
     util,
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use iroh::SecretKey;
 use serde_json::{Value, json};
 use std::{
@@ -29,7 +30,6 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
     sync::{Notify, mpsc},
 };
 
@@ -38,26 +38,28 @@ const MAX_WAIT: u64 = 600;
 
 /// Runs the daemon. Only one runs per `TINCAN_HOME`: a second one exits, or with `service` waits its turn.
 pub async fn run(service: bool) -> Result<()> {
+    // Windows runs what starts at logon in a console window of its own: carry on in a hidden process instead.
+    #[cfg(windows)]
+    if service && std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        crate::client::start_daemon(true)?;
+        return Ok(());
+    }
     paths::ensure_home()?;
     let lock = tokio::task::spawn_blocking(move || util::lock(&paths::lock(), service)).await??;
     let Some(_lock) = lock else {
         log("another daemon is already running");
         return Ok(());
     };
-    let sock = paths::socket();
-    paths::ensure_socket_dir()?;
-    let _ = std::fs::remove_file(&sock);
-    let listener = UnixListener::bind(&sock).with_context(|| format!("binding {}", sock.display()))?;
-    util::chmod(&sock, 0o600)?;
+    let mut listener = ipc::Listener::bind()?;
     let daemon = Arc::new(Daemon::open()?);
-    log(&format!("listening on {} as {}@{}", sock.display(), daemon.person, daemon.machine));
+    log(&format!("listening on {} as {}@{}", paths::socket().display(), daemon.person, daemon.machine));
     if daemon.team_state().is_some()
         && let Err(e) = daemon.start_net().await
     {
         log(&format!("network not started: {e:#}"));
     }
     // Normally the service's daemon; a daemon started some other way stands in for it while it runs.
-    if (service || crate::setup::service_installed()) && daemon.cfg.tray() {
+    if daemon.cfg.tray() && (service || crate::setup::service_installed()) {
         tokio::spawn(tray());
     }
     if daemon.cfg.reason {
@@ -67,7 +69,7 @@ pub async fn run(service: bool) -> Result<()> {
         tokio::spawn(daemon.clone().update_loop());
     }
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
         tokio::spawn(daemon.clone().serve(stream));
     }
 }
@@ -147,6 +149,7 @@ fn load_key() -> Result<SecretKey> {
     }
     let key = SecretKey::generate();
     std::fs::write(&path, key.to_bytes())?;
+    #[cfg(unix)]
     util::chmod(&path, 0o600)?;
     Ok(key)
 }
@@ -196,8 +199,8 @@ impl Daemon {
         }
     }
 
-    async fn serve(self: Arc<Self>, stream: UnixStream) {
-        let (rd, mut wr) = stream.into_split();
+    async fn serve(self: Arc<Self>, stream: ipc::Accepted) {
+        let (rd, mut wr) = tokio::io::split(stream);
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let conn = {
             let mut g = self.inner.lock().unwrap();
@@ -298,7 +301,13 @@ impl Daemon {
             if let Some(net) = this.net() {
                 net.shutdown().await;
             }
+            #[cfg(unix)]
             let _ = std::fs::remove_file(paths::socket());
+            // Windows has no service manager to bring us back: start the one that takes over once we're gone.
+            #[cfg(windows)]
+            if crate::setup::service_installed() {
+                let _ = crate::client::start_daemon(true);
+            }
             std::process::exit(0);
         });
     }

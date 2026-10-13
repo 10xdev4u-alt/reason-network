@@ -110,7 +110,8 @@ fn scan(path: &Path) -> Seen {
     let (len, modified) = (meta.len(), meta.modified().ok());
     let mut tails = TAILS.get_or_init(Default::default).lock().unwrap();
     let t = tails.entry(path.to_path_buf()).or_insert(Tail { modified: None, offset: 0, whole: false, seen: Seen::default() });
-    if t.modified == modified && t.offset <= len {
+    // Nothing new to read (by its length too: Windows' file times are too coarse to tell appends apart).
+    if t.modified == modified && t.offset == len {
         return t.seen.clone();
     }
     if t.whole || len < t.offset {

@@ -1,6 +1,6 @@
 name: release
 
-# Push a tag like v0.1.0 to build binaries for macOS and Linux and publish a GitHub release.
+# Push a tag like v0.1.0 to build binaries for macOS, Linux and Windows and publish a GitHub release.
 on:
   push:
     tags: ["v*"]
@@ -19,10 +19,14 @@ jobs:
           - { target: x86_64-apple-darwin, os: macos-14 }
           - { target: x86_64-unknown-linux-musl, os: ubuntu-24.04 }
           - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-pc-windows-msvc, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
     env:
       # The site team links and the installer point at; set the repo variable once the domain is live.
       TINCAN_SITE_URL: ${{ vars.TINCAN_SITE_URL }}
+      # Windows builds carry their C runtime, so they run without the Visual C++ redistributable.
+      RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
@@ -33,10 +37,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
+        if: runner.os != 'Windows'
         run: |
           mkdir -p dist
           tar -czf dist/tincan-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release tincan
           cd dist && shasum -a 256 tincan-${{ matrix.target }}.tar.gz > tincan-${{ matrix.target }}.tar.gz.sha256
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $name = "tincan-${{ matrix.target }}.zip"
+          New-Item -ItemType Directory dist | Out-Null
+          Compress-Archive target/${{ matrix.target }}/release/tincan.exe dist/$name
+          "$((Get-FileHash dist/$name -Algorithm SHA256).Hash.ToLower())  $name" | Out-File -Encoding ascii dist/$name.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tincan-${{ matrix.target }}
@@ -51,7 +63,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - run: cp install.sh dist/
+      - run: cp install.sh install.ps1 dist/
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*

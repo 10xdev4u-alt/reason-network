@@ -7,6 +7,7 @@ mod doing;
 mod git;
 mod hook;
 mod invite;
+mod ipc;
 mod mcp;
 mod net;
 mod paths;
@@ -32,8 +33,26 @@ pub const SITE_URL: &str = match option_env!("TINCAN_SITE_URL") {
     _ => "https://larstalian.github.io/tincan",
 };
 
-pub fn install_url() -> String {
-    format!("{SITE_URL}/install.sh")
+/// The one line that installs tincan and runs `tincan <args>`: for macOS and Linux, and for Windows.
+pub fn install_lines(args: &str) -> [String; 2] {
+    [
+        format!("curl -fsSL {SITE_URL}/install.sh | sh -s -- {args}"),
+        format!("powershell -c \"& ([scriptblock]::Create((irm {SITE_URL}/install.ps1))) {args}\""),
+    ]
+}
+
+/// The install script, run without questions, installing into `dir`.
+pub fn installer(dir: &std::path::Path) -> std::process::Command {
+    let mut cmd;
+    if cfg!(windows) {
+        cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &format!("irm {SITE_URL}/install.ps1 | iex")]);
+    } else {
+        cmd = std::process::Command::new("sh");
+        cmd.arg("-c").arg(format!("curl -fsSL {SITE_URL}/install.sh | sh"));
+    }
+    cmd.env("TINCAN_BIN_DIR", dir).env("TINCAN_NO_PROMPT", "1");
+    cmd
 }
 
 /// The team link: a page showing the one command that installs tincan and joins with `ticket`.
@@ -180,7 +199,7 @@ enum Cmd {
     },
     /// Run the daemon in the foreground (normally started on demand or by the service)
     Daemon {
-        /// Wait for a running daemon to exit instead of quitting (for service managers)
+        /// Wait for a running daemon to exit instead of quitting (for service managers, and Windows' logon entry)
         #[arg(long)]
         service: bool,
     },
@@ -261,6 +280,7 @@ fn default_person(p: Option<String>) -> String {
 async fn cli(cmd: Cmd) -> Result<()> {
     // Like other command-line tools, stop quietly when whatever reads our output goes away. (`listen` marks
     // messages read only after printing them, so nothing is lost.)
+    #[cfg(unix)]
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let link = Link::new(None);
     match cmd {
@@ -363,8 +383,9 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
-            println!("They run this, which installs tincan and joins the team:\n");
-            println!("  curl -fsSL {} | sh -s -- {}\n", install_url(), i.code);
+            let [unix, windows] = install_lines(&i.code);
+            println!("They run this, which installs tincan and joins the team (the second line on Windows):\n");
+            println!("  {unix}\n  {windows}\n");
             println!("(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.", i.code, i.hours);
             println!("If this machine will be offline, use the long form instead: tincan join {}", i.ticket);
             if me {
@@ -430,13 +451,8 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Setup { dry_run, remove, no_service } => setup::run(dry_run, remove, no_service).await?,
         Cmd::Doctor => setup::doctor().await?,
         Cmd::Upgrade => {
-            let dir = util::current_exe()?.parent().map(|d| d.display().to_string()).unwrap_or_default();
-            let status = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(format!("curl -fsSL {} | sh", install_url()))
-                .env("TINCAN_BIN_DIR", dir)
-                .env("TINCAN_NO_PROMPT", "1")
-                .status()?;
+            let dir = util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+            let status = installer(&dir).status()?;
             if !status.success() {
                 bail!("upgrade failed");
             }
@@ -472,7 +488,7 @@ async fn wait_exit(pid: Option<u32>) {
 
 /// Asks a running daemon to exit and waits until it has. False if none was running.
 pub async fn stop_daemon() -> bool {
-    if tokio::net::UnixStream::connect(paths::socket()).await.is_err() {
+    if ipc::connect().await.is_err() {
         return false;
     }
     let pid = daemon_pid();

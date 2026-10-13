@@ -45,7 +45,8 @@ async fn handle(
     state: Option<String>,
     doing: Option<String>,
 ) -> Option<(String, String, Vec<String>)> {
-    let v: Value = serde_json::from_str(input).unwrap_or(Value::Null);
+    // Windows PowerShell pipes it in after a byte-order mark.
+    let v: Value = serde_json::from_str(input.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
     let agent = agent::from_client_name(agent_name).unwrap_or(agent_name);
     let str_at = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
 
@@ -97,7 +98,7 @@ async fn handle(
 fn format_for(agent: &str, event: &str, ev: &str, text: &str) -> String {
     let specific = |name: &str| json!({ "hookSpecificOutput": { "hookEventName": name, "additionalContext": text } });
     let block = || json!({ "decision": "block", "reason": text });
-    match (agent, ev) {
+    let out = match (agent, ev) {
         ("opencode", _) if event == "poll" => return text.to_string(),
         ("codex", "start") => specific("SessionStart"),
         ("codex", "prompt") => specific("UserPromptSubmit"),
@@ -111,7 +112,13 @@ fn format_for(agent: &str, event: &str, ev: &str, text: &str) -> String {
         ("copilot", _) => json!({ "additionalContext": text }),
         _ => return text.to_string(),
     }
-    .to_string()
+    .to_string();
+    // On Windows agents run hooks through PowerShell, which can re-encode what passes through it: JSON in ASCII is
+    // safe from that.
+    if !cfg!(windows) {
+        return out;
+    }
+    out.chars().map(|c| if c.is_ascii() { c.to_string() } else { c.encode_utf16(&mut [0; 2]).iter().map(|u| format!("\\u{u:04x}")).collect() }).collect()
 }
 
 #[cfg(test)]

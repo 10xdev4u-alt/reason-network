@@ -2,7 +2,10 @@
 
 use crate::{git::GitInfo, paths, util};
 use serde_json::{Value, json};
-use std::{io::Write, os::unix::net::UnixStream, path::PathBuf, time::Duration};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 pub const CLAUDE_CODE: &str = "claude-code";
 
@@ -95,13 +98,15 @@ pub fn meta_session_id(meta: &serde_json::Map<String, Value>) -> Option<String> 
         .map(str::to_string)
 }
 
-/// Finds an executable on `PATH` or in the usual install places (a launchd/systemd daemon has a bare `PATH`).
+/// Finds an executable on `PATH` or in the usual install places (a launchd/systemd daemon has a bare `PATH`). On
+/// Windows that is `<name>.exe`, or the `<name>.cmd` npm installs.
 pub fn find_bin(name: &str) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(format!("TINCAN_{}_BIN", name.to_uppercase())) {
         let p = PathBuf::from(p);
         return p.is_file().then_some(p);
     }
     let home = paths::user_home();
+    #[cfg(unix)]
     let extra = [
         home.join(".local/bin"),
         home.join(".bun/bin"),
@@ -112,25 +117,33 @@ pub fn find_bin(name: &str) -> Option<PathBuf> {
         PathBuf::from("/usr/local/bin"),
         PathBuf::from("/usr/bin"),
     ];
+    #[cfg(windows)]
+    let extra = [home.join(r".local\bin"), home.join(r"AppData\Roaming\npm"), home.join(r".bun\bin")];
+    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd"] } else { &[""] };
     let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path).chain(extra).map(|d| d.join(name)).find(|p| {
-        use std::os::unix::fs::PermissionsExt;
-        p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    })
+    std::env::split_paths(&path).chain(extra).flat_map(|d| exts.iter().map(move |ext| d.join(format!("{name}{ext}")))).find(|p| executable(p))
+}
+
+#[cfg(unix)]
+fn executable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(windows)]
+fn executable(p: &Path) -> bool {
+    p.is_file()
 }
 
 /// The agent process behind a hook: our parent, skipping the shell some agents run hooks through.
 pub fn hook_agent_pid() -> Option<u32> {
     let mut pid = util::parent_pid();
     for _ in 0..3 {
-        let out = std::process::Command::new("ps").args(["-o", "ppid=,comm=", "-p", &pid.to_string()]).output().ok()?;
-        let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let (ppid, comm) = line.split_once(' ')?;
-        let comm = comm.trim().rsplit('/').next().unwrap_or_default().trim_start_matches('-');
-        if !matches!(comm, "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh") {
+        let (ppid, name) = util::process(pid)?;
+        if !matches!(name.as_str(), "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "cmd" | "powershell" | "pwsh") {
             return Some(pid);
         }
-        pid = ppid.trim().parse().ok()?;
+        pid = ppid;
     }
     Some(pid)
 }
@@ -155,7 +168,7 @@ pub fn label(agent: &str) -> &str {
 /// `<repo-or-dir>-<agent>`, e.g. `api-claude`.
 pub fn default_name(agent: &str, cwd: &str, git: &GitInfo) -> String {
     let dir = git.root.as_deref().unwrap_or(cwd);
-    let base = util::slug(dir.rsplit('/').find(|s| !s.is_empty()).unwrap_or("home"));
+    let base = util::slug(Path::new(dir).file_name().and_then(|n| n.to_str()).unwrap_or("home"));
     let base = if base.is_empty() { "home".into() } else { base };
     format!("{base}-{}", short(agent))
 }
@@ -187,20 +200,33 @@ pub fn claude_socket() -> Option<ClaudeSocket> {
         return Some(ClaudeSocket { path: path.into(), token });
     }
     // Not exported to this process: fall back to the session's registry entry.
-    let file = paths::claude_sessions().join(format!("{}.json", agent_pid()));
+    let pid = agent_pid();
+    let file = paths::claude_sessions().join(format!("{pid}.json"));
     let s: Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
     let path = s["messagingSocketPath"].as_str()?;
-    Some(ClaudeSocket { path: path.into(), token })
+    Some(ClaudeSocket { path: path.into(), token: token.or_else(|| crate::claude::peer_token(pid)) })
 }
 
 pub fn post_to_claude(sock: &ClaudeSocket, text: &str) -> std::io::Result<()> {
-    let mut c = UnixStream::connect(&sock.path)?;
-    c.set_write_timeout(Some(Duration::from_secs(5)))?;
+    let mut c = open_inbox(&sock.path)?;
     if let Some(t) = &sock.token {
         writeln!(c, "{}", json!({ "type": "auth", "token": t }))?;
     }
     writeln!(c, "{}", json!({ "type": "user", "message": { "role": "user", "content": text } }))?;
     c.flush()
+}
+
+#[cfg(unix)]
+fn open_inbox(path: &Path) -> std::io::Result<std::os::unix::net::UnixStream> {
+    let c = std::os::unix::net::UnixStream::connect(path)?;
+    c.set_write_timeout(Some(std::time::Duration::from_secs(5)))?;
+    Ok(c)
+}
+
+/// On Windows the session's inbox is a named pipe, which opens like a file.
+#[cfg(windows)]
+fn open_inbox(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new().read(true).write(true).open(path)
 }
 
 #[cfg(test)]

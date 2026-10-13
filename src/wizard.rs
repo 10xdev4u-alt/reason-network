@@ -4,7 +4,7 @@
 use crate::{
     client::Link,
     config::{Config, Policy},
-    install_url, invite,
+    install_lines, invite,
     proto::*,
     render, setup, util,
 };
@@ -225,14 +225,12 @@ pub async fn show_link(new: bool) -> Result<String> {
 pub async fn show_code(me: bool) -> Result<()> {
     let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours: 24 }).await?;
     let who = if me { "your other machine" } else { "your teammate" };
+    let [unix, windows] = install_lines(&i.code);
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: curl -fsSL {} | sh -s -- {}\n(or `tincan join {}` if tincan is there already)\nWorks once, within {}h, while this machine is online.",
-            install_url(),
-            i.code,
-            i.code,
-            i.hours
+            "On {who}: {unix}\n(on Windows: {windows})\n(or `tincan join {}` if tincan is there already)\nWorks once, within {}h, while this machine is online.",
+            i.code, i.hours
         ),
     )?;
     Ok(())
@@ -241,7 +239,8 @@ pub async fn show_code(me: bool) -> Result<()> {
 /// Puts text on the clipboard, if there's a clipboard tool. True if it worked.
 pub fn copy(text: &str) -> bool {
     use std::io::Write;
-    let tools: [(&str, &[&str]); 3] = [("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])];
+    let tools: &[(&str, &[&str])] =
+        if cfg!(windows) { &[("clip", &[])] } else { &[("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])] };
     tools.iter().any(|(bin, args)| {
         let Ok(mut child) = std::process::Command::new(bin)
             .args(*args)

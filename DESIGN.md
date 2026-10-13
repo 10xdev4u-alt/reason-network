@@ -66,7 +66,8 @@ unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
 One static Rust binary, `tincan`, with subcommands:
 
 - `tincan daemon`: per machine. Owns the iroh endpoint, roster, directory, mailboxes (SQLite). Started on
-  demand by any other subcommand, or installed as a launchd/systemd user service.
+  demand by any other subcommand, or installed as a launchd/systemd user service (on Windows, started at logon
+  from the user's Run key; there the local socket is a named pipe).
 - `tincan mcp`: stdio MCP server spawned by the agent. Thin client of the daemon. **Must handle many
   sessions per process**: Codex, opencode and Cursor share one MCP process across threads/tabs.
 - `tincan hook <agent>`: hook handler (status, context injection, stop-continuation, wake).
@@ -278,6 +279,8 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
   their side). Messages wait in your outbox and go out when they're back.
 - **macOS asks to let tincan find devices on your local network:** allow it for direct LAN connections. If you
   don't, tincan still works over the internet.
+- **Windows asks to let tincan through the firewall:** allow it for direct and LAN connections. If you don't,
+  tincan still works, through a relay.
 - **Codex sessions don't show up until they use a tincan tool:** Codex hasn't been told to trust the hooks yet;
   run `/hooks` in Codex.
 - Logs: `~/.tincan/daemon.log`.

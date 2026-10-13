@@ -3608,12 +3608,13 @@ dependencies = [
 
 [[package]]
 name = "tincan"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "blake3",
  "clap",
  "cliclack",
+ "console",
  "data-encoding",
  "getrandom 0.3.4",
  "iroh",
@@ -3632,6 +3633,7 @@ dependencies = [
  "toml_edit",
  "tray-icon",
  "ulid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

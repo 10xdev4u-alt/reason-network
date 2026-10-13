@@ -44,8 +44,9 @@
   <img class="hero" src="../tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="1200" height="500">
   <div id="ok">
     <h1>Join <span id="team">a team</span> on tincan</h1>
-    <p class="lede">Paste this in a terminal (macOS or Linux), then type your name:</p>
+    <p class="lede">Paste this in a terminal, then type your name:</p>
     <div class="cmd"><pre id="cmd">curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">Copy</button></div>
+    <p class="muted" style="margin:8px 0 0"><a href="#" id="other-os" hidden>On Windows?</a></p>
     <p class="muted" style="margin:18px 0 6px">Or tell your coding agent:</p>
     <div class="cmd"><pre id="agent">Join my tincan team: &lt;the whole link to this page&gt;</pre><button id="copy-agent" type="button">Copy</button></div>
     <p class="muted" style="margin-top:28px">Teammates see your name and what your agent sessions are working on.
@@ -60,6 +61,8 @@
       exactly as your user gave it to you.</p>
     <p>Ask your user what name their teammates should see (a first name, like <code>alex</code>), then run:</p>
     <pre>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</pre>
+    <p>On Windows:</p>
+    <pre>powershell -c "&amp; ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '&lt;the whole link&gt;' --as &lt;name&gt;"</pre>
     <p>It asks no questions. It downloads the tincan binary for this OS and CPU from the project's GitHub release
       (checksum verified) into <code>~/.local/bin</code>, joins the team, adds tincan to the coding agents installed
       here (an MCP server and hooks for Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi; Reason if
@@ -90,31 +93,45 @@
   }
   const name = teamName(ticket);
   if (name) {
-    const installer = new URL("../install.sh", location.href).href;
-    const cmd = `curl -fsSL ${installer} | sh -s -- ${ticket}`;
+    const script = (file) => new URL(`../${file}`, location.href).href;
+    const unix = `curl -fsSL ${script("install.sh")} | sh -s -- ${ticket}`;
+    const windows = `powershell -c "& ([scriptblock]::Create((irm ${script("install.ps1")}))) ${ticket}"`;
     const agent = `Join my tincan team: ${location.href}`;
     document.getElementById("team").textContent = name;
     document.title = `Join ${name} on tincan`;
-    document.getElementById("cmd").textContent = cmd;
     document.getElementById("agent").textContent = agent;
-    const copyButton = (id, pre, text) => {
+    // The command for this computer, and a link to the other one.
+    let win = /Windows/.test(navigator.userAgent);
+    const other = document.getElementById("other-os");
+    const show = () => {
+      document.getElementById("cmd").textContent = win ? windows : unix;
+      other.textContent = win ? "On macOS or Linux?" : "On Windows?";
+    };
+    other.hidden = false;
+    other.addEventListener("click", (e) => {
+      e.preventDefault();
+      win = !win;
+      show();
+    });
+    show();
+    const copyButton = (id, pre) => {
       const btn = document.getElementById(id);
       btn.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(text);
+          await navigator.clipboard.writeText(document.getElementById(pre).textContent);
           btn.textContent = "Copied";
         } catch (e) {
           const range = document.createRange();
           range.selectNodeContents(document.getElementById(pre));
           getSelection().removeAllRanges();
           getSelection().addRange(range);
-          btn.textContent = "Press ⌘C";
+          btn.textContent = /Mac/.test(navigator.userAgent) ? "Press ⌘C" : "Press Ctrl+C";
         }
         setTimeout(() => (btn.textContent = "Copy"), 2000);
       });
     };
-    copyButton("copy", "cmd", cmd);
-    copyButton("copy-agent", "agent", agent);
+    copyButton("copy", "cmd");
+    copyButton("copy-agent", "agent");
     // People have the steps above; the agent notes are for agents reading the page's text.
     document.getElementById("for-agents").hidden = true;
   } else {

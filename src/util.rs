@@ -1,4 +1,4 @@
-use std::{fs::File, os::fd::AsRawFd, path::Path};
+use std::{fs::File, path::Path};
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -9,26 +9,94 @@ pub fn hostname() -> String {
     if let Some(name) = std::env::var("TINCAN_MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
         return name;
     }
-    let mut buf = [0u8; 256];
-    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
-    let raw = if rc == 0 {
-        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        String::from_utf8_lossy(&buf[..end]).into_owned()
-    } else {
-        String::new()
-    };
+    let raw = system_hostname();
     let short = raw.split('.').next().unwrap_or_default();
     let s = slug(short);
     if s.is_empty() { "machine".into() } else { s }
 }
 
+#[cfg(unix)]
+fn system_hostname() -> String {
+    let mut buf = [0u8; 256];
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+    if rc == 0 {
+        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        String::new()
+    }
+}
+
+#[cfg(windows)]
+fn system_hostname() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default()
+}
+
+#[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
     rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+#[cfg(windows)]
+pub fn pid_alive(pid: u32) -> bool {
+    use windows_sys::Win32::{Foundation::*, System::Threading::*};
+    // SAFETY: a handle we open, look at without waiting, and close.
+    unsafe {
+        let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if h.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let alive = WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+        CloseHandle(h);
+        alive
+    }
+}
+
+#[cfg(unix)]
 pub fn parent_pid() -> u32 {
     unsafe { libc::getppid() as u32 }
+}
+
+#[cfg(windows)]
+pub fn parent_pid() -> u32 {
+    process(std::process::id()).map_or(0, |(ppid, _)| ppid)
+}
+
+/// A running process's parent and program name (`zsh`, `cmd`).
+#[cfg(unix)]
+pub fn process(pid: u32) -> Option<(u32, String)> {
+    let out = std::process::Command::new("ps").args(["-o", "ppid=,comm=", "-p", &pid.to_string()]).output().ok()?;
+    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let (ppid, comm) = line.split_once(' ')?;
+    let name = comm.trim().rsplit('/').next().unwrap_or_default().trim_start_matches('-');
+    Some((ppid.trim().parse().ok()?, name.to_string()))
+}
+
+#[cfg(windows)]
+pub fn process(pid: u32) -> Option<(u32, String)> {
+    use windows_sys::Win32::{Foundation::*, System::Diagnostics::ToolHelp::*};
+    // SAFETY: walks a snapshot we take and close; the entry is sized as the API asks.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = None;
+        let mut more = Process32FirstW(snap, &mut e) != 0;
+        while more && found.is_none() {
+            if e.th32ProcessID == pid {
+                let exe = &e.szExeFile[..e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len())];
+                let name = String::from_utf16_lossy(exe).to_lowercase();
+                found = Some((e.th32ParentProcessID, name.strip_suffix(".exe").unwrap_or(&name).to_string()));
+            }
+            more = Process32NextW(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
 }
 
 /// Lowercase letters, digits and single dashes: a name that is safe in an address.
@@ -59,7 +127,7 @@ pub fn tilde(path: &str) -> String {
     let home = crate::paths::user_home();
     match Path::new(path).strip_prefix(&home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
+        Ok(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()),
         Err(_) => path.into(),
     }
 }
@@ -68,7 +136,16 @@ pub fn tilde(path: &str) -> String {
 /// someone else holds it.
 pub fn lock(path: &Path, wait: bool) -> std::io::Result<Option<File>> {
     use std::io::Write;
-    let mut f = File::options().create(true).truncate(false).write(true).open(path)?;
+    let Some(mut f) = acquire(path, wait)? else { return Ok(None) };
+    f.set_len(0)?;
+    write!(f, "{}", std::process::id())?;
+    Ok(Some(f))
+}
+
+#[cfg(unix)]
+fn acquire(path: &Path, wait: bool) -> std::io::Result<Option<File>> {
+    use std::os::fd::AsRawFd;
+    let f = File::options().create(true).truncate(false).write(true).open(path)?;
     let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
     // A client checking whether a daemon runs holds the lock for an instant: try again before giving up.
     let mut tries = 0;
@@ -79,11 +156,52 @@ pub fn lock(path: &Path, wait: bool) -> std::io::Result<Option<File>> {
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    f.set_len(0)?;
-    write!(f, "{}", std::process::id())?;
     Ok(Some(f))
 }
 
+/// On Windows the lock is the open file itself, shared only for reading: until we exit, nobody else can open it to
+/// write (another daemon, or `locked`), and anyone can read our pid. `wait` waits for the daemon that has it now,
+/// then gives up if another got there first, so daemons waiting to take over can't pile up.
+#[cfg(windows)]
+fn acquire(path: &Path, wait: bool) -> std::io::Result<Option<File>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::{Foundation::ERROR_SHARING_VIOLATION, Storage::FileSystem::FILE_SHARE_READ};
+    if wait && locked(path) {
+        let pid = std::fs::read_to_string(path).ok().and_then(|s| s.trim().parse().ok());
+        while pid.is_some_and(pid_alive) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    // As above, a client's check holds it for an instant.
+    let mut tries = 0;
+    loop {
+        match File::options().create(true).truncate(false).write(true).share_mode(FILE_SHARE_READ).open(path) {
+            Err(e) if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION as i32) => {}
+            r => return r.map(Some),
+        }
+        tries += 1;
+        if tries == 3 {
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Whether someone holds the lock at `path`.
+#[cfg(unix)]
+pub fn locked(path: &Path) -> bool {
+    use std::os::fd::AsRawFd;
+    let Ok(f) = File::open(path) else { return false };
+    unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) != 0 }
+}
+
+#[cfg(windows)]
+pub fn locked(path: &Path) -> bool {
+    let held = windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32;
+    File::options().write(true).open(path).is_err_and(|e| e.raw_os_error() == Some(held))
+}
+
+#[cfg(unix)]
 pub fn chmod(path: &Path, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
@@ -102,7 +220,7 @@ pub fn printable(s: &str) -> String {
 }
 
 /// This program's path. After an update replaces the file, Linux reports the old one as `<path> (deleted)`; the
-/// new binary is at `<path>`.
+/// new binary is at `<path>`. (Windows, where the update moves the old one aside, reports `<path>` as it was.)
 pub fn current_exe() -> std::io::Result<std::path::PathBuf> {
     let exe = std::env::current_exe()?;
     Ok(exe.to_str().and_then(|s| s.strip_suffix(" (deleted)")).map(std::path::PathBuf::from).unwrap_or(exe))
