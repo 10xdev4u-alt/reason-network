@@ -4,11 +4,18 @@
 //! with `Delivered`. Messages handed to a push channel are "in flight" meanwhile, so the inbox and hooks don't
 //! show them a second time.
 
-use super::{Daemon, Inner, directory::Target, log};
-use crate::{agent, claude, config::Policy, proto::*, render, util};
+use super::{Daemon, Inner, Talked, directory::Target, log};
+use crate::{
+    agent, claude,
+    config::{Groups, Policy},
+    net::Remote,
+    proto::*,
+    render, util,
+};
 use anyhow::{Result, anyhow, bail};
 use iroh::EndpointId;
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -66,6 +73,9 @@ impl Inner {
 
 const UPGRADE: &str = "upgrade tincan (`tincan upgrade`): messages go between agent sessions now";
 
+const GROUP_NOTE: &str = "not sent: an agent's group message only reaches your own user's sessions (`send.groups` in \
+                          ~/.tincan/config.toml). If this is the one session that needs it, send to it directly";
+
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";
 
@@ -109,7 +119,19 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
-            let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
+            let mut targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
+            if is_group(to) && !from_addr.ends_with("/terminal") && self.cfg.send.groups == Groups::Own {
+                let (keep, skip): (Vec<_>, Vec<_>) =
+                    targets.into_iter().partition(|t| !matches!(t, Target::Remote { .. }));
+                targets = keep;
+                for t in skip {
+                    let note = match about(&remotes, &t) {
+                        Some(about) => format!("{GROUP_NOTE} ({about})"),
+                        None => GROUP_NOTE.into(),
+                    };
+                    res.recipients.push(Recipient { address: t.address(), state: "refused".into(), note });
+                }
+            }
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
@@ -137,6 +159,8 @@ impl Daemon {
                         ("queued".into(), "queued: the session is offline; delivered when it is back".into())
                     }
                     Target::Remote { machine, machine_name, online, .. } => {
+                        // So that their answer to it doesn't count against their fan-out here.
+                        fanout_ok(&mut g.talked, &msg.from, &msg.to, usize::MAX);
                         g.store.outbox_add(&machine.to_string(), &msg)?;
                         remote_jobs.push((res.recipients.len(), machine, machine_name.clone(), online, msg.clone()));
                         (
@@ -402,9 +426,38 @@ impl Daemon {
             if !g.loop_ok(&msg.from, &msg.to) {
                 return Ok(("refused".into(), LOOP_NOTE.into()));
             }
-            let held = policy == Policy::Hold;
+            let group = msg.via.is_some() && !msg.from.ends_with("/terminal");
+            if group && self.cfg.inbound.groups == Policy::Refuse {
+                let mut mine: Vec<String> = g
+                    .live
+                    .values()
+                    .map(|l| match &l.git.repo {
+                        Some(repo) => format!("{} ({repo})", self.addr(&l.name)),
+                        None => self.addr(&l.name),
+                    })
+                    .collect();
+                mine.sort();
+                return Ok((
+                    "refused".into(),
+                    format!(
+                        "{} doesn't take group messages from agents; send to the one session that needs it: {}",
+                        self.person,
+                        mine.join(", ")
+                    ),
+                ));
+            }
+            let fanout = fanout_ok(&mut g.talked, &msg.from, &msg.to, self.cfg.inbound.fanout);
+            let held = policy == Policy::Hold || (group && self.cfg.inbound.groups == Policy::Hold) || !fanout;
             g.store.insert(&msg, held)?;
             match key {
+                _ if held && !fanout => (
+                    "held".into(),
+                    format!(
+                        "held until {} approves it: this agent already started talking to another of their sessions in \
+                         the last few minutes",
+                        self.person
+                    ),
+                ),
                 _ if held => ("held".into(), format!("held until {} approves it", self.person)),
                 Some(key) => self.deliver(&mut g, &key, vec![msg.clone()], msg.wake),
                 None => ("queued".into(), "queued: the session is offline; delivered when it is back".into()),
@@ -515,6 +568,39 @@ fn unregistered() -> anyhow::Error {
     anyhow!("this session isn't registered with tincan; restart the agent session, or use the tincan tools")
 }
 
+/// A teammate's session in a few words (repo@branch, what it's doing), from its machine's presence.
+fn about(remotes: &HashMap<EndpointId, Remote>, t: &Target) -> Option<String> {
+    let Target::Remote { address, machine, .. } = t else { return None };
+    let name = address.split_once('/')?.1;
+    let s = remotes.get(machine)?.presence.sessions.iter().find(|s| s.name == name)?;
+    let place = match (&s.repo, &s.branch) {
+        (Some(r), Some(b)) => format!("{r}@{b}"),
+        (Some(r), None) => r.clone(),
+        _ => s.cwd.clone(),
+    };
+    Some(match &s.doing {
+        Some(d) => format!("{place}: {}", util::one_line(d, 80)),
+        None => place,
+    })
+}
+
+/// Records a message between agents on different machines; false if it would make `from` reach more than `limit`
+/// sessions in `LOOP_WINDOW`. Answering someone who wrote first, and a person's terminal, don't count.
+fn fanout_ok(talked: &mut Talked, from: &str, to: &str, limit: usize) -> bool {
+    let terminal = from.ends_with("/terminal") || to.ends_with("/terminal");
+    let answer = talked.get(to).is_some_and(|q| q.iter().any(|(t, p)| p == from && t.elapsed() < LOOP_WINDOW));
+    let q = talked.entry(from.to_string()).or_default();
+    q.retain(|(t, _)| t.elapsed() < LOOP_WINDOW);
+    let mut reached: Vec<&str> = q.iter().map(|(_, p)| p.as_str()).collect();
+    reached.sort();
+    reached.dedup();
+    if !terminal && !answer && !reached.contains(&to) && reached.len() >= limit {
+        return false;
+    }
+    q.push_back((Instant::now(), to.to_string()));
+    true
+}
+
 fn is_group(to: &str) -> bool {
     to == "*" || to.starts_with("repo:") || to.ends_with("/*")
 }
@@ -556,4 +642,24 @@ where
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fanout_holds_a_second_session_but_not_answers_or_terminals() {
+        let mut talked = Talked::new();
+        assert!(fanout_ok(&mut talked, "alice/api-claude", "sven/api-codex", 1));
+        assert!(fanout_ok(&mut talked, "alice/api-claude", "sven/api-codex", 1), "same session again");
+        assert!(!fanout_ok(&mut talked, "alice/api-claude", "sven/web-claude", 1), "a second session");
+        assert!(fanout_ok(&mut talked, "alice/web-cursor", "sven/web-claude", 1), "another sender has its own budget");
+
+        assert!(fanout_ok(&mut talked, "sven/docs-pi", "alice/docs-codex", usize::MAX));
+        assert!(fanout_ok(&mut talked, "alice/docs-codex", "sven/docs-pi", 0), "answering who wrote first");
+
+        assert!(fanout_ok(&mut talked, "alice/terminal", "sven/a", 0));
+        assert!(fanout_ok(&mut talked, "alice/api-claude", "sven/terminal", 0));
+    }
 }

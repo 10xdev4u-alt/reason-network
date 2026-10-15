@@ -162,6 +162,16 @@ cli("alex", "listen", "--as", "terminal", "--wait", "0")
 out = cli("alex", "send", "*", "broadcast from alex (e2e test, ignore)")
 check("broadcast reaches alice's session", "alice/work-codex" in out, out)
 codex.tool("check_inbox", {}, meta)
+out = codex.tool("send_message", {"to": "alex/*", "message": "an agent's broadcast (e2e test, ignore)"}, meta)
+check("an agent's group message doesn't go to a teammate's sessions", f"alex/{claude_name}: not sent" in out, out)
+cli("alex", "listen", "--as", "second", "--wait", "0")
+for _ in range(20):
+    out = codex.tool("send_message", {"to": "alex/second", "message": "a second session (e2e test, ignore)"}, meta)
+    if "no session called" not in out:
+        break
+    time.sleep(0.5)
+check("an agent starting on a second session of someone's is held", "held until alex approves it" in out, out)
+cli("alex", "reject", "--all")
 out = cli("alex", "send", "nobody", "x")
 check("unknown name fails helpfully", "no session called 'nobody'" in out, out)
 

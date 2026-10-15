@@ -117,7 +117,11 @@ struct Inner {
     polling: HashMap<String, usize>,
     /// Recent agent-to-agent message times per (from, to), for the loop guard.
     pairs: HashMap<(String, String), VecDeque<Instant>>,
+    /// Recent agent-to-agent messages per sender, with their recipient, for the fan-out guard.
+    talked: Talked,
 }
+
+type Talked = HashMap<String, VecDeque<(Instant, String)>>;
 
 /// A session running on this machine.
 struct Live {
@@ -176,6 +180,7 @@ impl Daemon {
                 in_flight: HashMap::new(),
                 polling: HashMap::new(),
                 pairs: HashMap::new(),
+                talked: HashMap::new(),
             }),
             arrived: Notify::new(),
             git_cache: Mutex::new(HashMap::new()),

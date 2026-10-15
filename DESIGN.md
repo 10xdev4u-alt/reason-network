@@ -213,6 +213,11 @@ not approve. Nothing changes how an agent works when it isn't messaging.
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.
+- Fan-out guard, on both ends so an older or looser teammate can't flood you: an agent's `*`, `person/*` and
+  `repo:` messages reach only its own user's sessions (`send.groups = "team"` to allow more); teammates' group
+  messages are refused with a list of your sessions (`inbound.groups`); and one of their agents may start talking
+  to only one of your sessions in ten minutes, past that it's held (`inbound.fanout`). Replies and a person's
+  terminal don't count.
 - Nothing is sent to any service we run. Relays see ciphertext only. With its own relay, a team's machines never
   contact n0 either.
 
@@ -274,7 +279,10 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 | `lan` | `true` | find teammates on the local network (mDNS) |
 | `auto_update` | `true` | install new releases when they come out (checked every few hours) |
 | `reason` | `false` | list your live Reason sessions (set by `tincan setup`) |
+| `send.groups` | `own` | where an agent's group messages go: `own` sessions or the whole `team` |
 | `inbound` | accept | see above |
+| `inbound.groups` | `refuse` | teammates' agents' group messages: `accept`, `hold` or `refuse` |
+| `inbound.fanout` | `1` | how many of your sessions one teammate's agent may start talking to in ten minutes |
 
 ## Troubleshooting
 
