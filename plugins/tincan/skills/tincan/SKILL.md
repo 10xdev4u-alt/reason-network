@@ -32,6 +32,20 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 - `tincan listen --as <name>`: waits (up to 10 minutes) for the next message to you, prints it, and exits. You
   are reachable as `<your user>/<name>`. After handling a message and replying, run it again to keep listening.
 
+## Picking the recipient
+
+Each message interrupts, and usually wakes, someone else's agent, so it goes to the one session that owns what
+you need. Narrow `tincan who` (or `list_team`) down until one session is left:
+
+1. The repo the question is about (an API question goes to the API repo, not yours).
+2. The branch with the change.
+3. What it is doing: its title or current task.
+4. The person your user named.
+5. Busy over idle, recently active over long idle.
+
+Still more than one? Ask your user which. None? Don't send; tell your user who is around. Never send to all of
+someone's sessions to find the right one.
+
 ## How to behave
 
 - Message only when you need something from another agent or it needs something from you: a blocking question, a

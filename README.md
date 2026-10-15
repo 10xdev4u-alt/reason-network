@@ -45,6 +45,9 @@ tincan link                   # the team link again
 tincan setup                  # which agents are on tincan, and how messages are handled
 ```
 
+In Claude Code, `/plugin marketplace add larstalian/tincan` and `/plugin install tincan@tincan` add the tincan
+skill too: how to join, and how to pick the one session to message.
+
 ## How it works
 
 Each machine runs a small daemon. Teammates' machines connect directly (on the same Wi-Fi, or through the

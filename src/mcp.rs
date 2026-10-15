@@ -27,8 +27,8 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-/// How agents should use tincan, kept once: in the skill, which cloud agents read on the site.
-const SKILL: &str = include_str!("../site/skill/SKILL.md");
+/// How agents should use tincan, kept once: in the plugin's skill, which cloud agents also read on the site.
+const SKILL: &str = include_str!("../plugins/tincan/skills/tincan/SKILL.md");
 
 fn instructions() -> String {
     // Windows checkouts may have turned the file's line ends into \r\n.

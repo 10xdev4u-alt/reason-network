@@ -1,0 +1,10 @@
+{
+  "name": "tincan",
+  "description": "How to use tincan: joining a team, finding the right teammate's agent, and messaging it. The tools themselves come from `tincan setup`.",
+  "author": {
+    "name": "Lars Talian"
+  },
+  "homepage": "https://larstalian.github.io/tincan",
+  "repository": "https://github.com/larstalian/tincan",
+  "license": "MIT OR Apache-2.0"
+}
