@@ -178,7 +178,9 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mut r = Report { agent: "Claude Code", lines: Vec::new(), notes: Vec::new() };
     let get = Command::new(&bin).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output()?;
     let existing = get.status.success();
-    let current = existing && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
+    // The tincan plugin brings its own server: a second one would show every tool twice.
+    let plugin = crate::claude::plugin();
+    let current = existing && !plugin && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
     if remove || (existing && !current) {
         if existing && !dry {
             Command::new(&bin)
@@ -188,10 +190,16 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
         if remove {
             r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
+            if plugin {
+                r.notes
+                    .push("Claude Code still has the tincan plugin: `claude plugin uninstall tincan@tincan`.".into());
+            }
             return Ok(Some(r));
         }
     }
-    if current {
+    if plugin {
+        r.lines.push("set up by the tincan plugin".into());
+    } else if current {
         r.lines.push("tincan MCP server already set".into());
     } else {
         if !dry {
@@ -732,13 +740,14 @@ const AGENTS: [Agent; 8] = [
         hint: "messages arrive instantly",
         installed: || agent::find_bin("claude").is_some(),
         wired: |_| {
-            agent::find_bin("claude").is_some_and(|b| {
-                Command::new(b)
-                    .args(["mcp", "get", "tincan"])
-                    .stdin(std::process::Stdio::null())
-                    .output()
-                    .is_ok_and(|o| o.status.success())
-            })
+            crate::claude::plugin()
+                || agent::find_bin("claude").is_some_and(|b| {
+                    Command::new(b)
+                        .args(["mcp", "get", "tincan"])
+                        .stdin(std::process::Stdio::null())
+                        .output()
+                        .is_ok_and(|o| o.status.success())
+                })
         },
         apply: claude,
     },

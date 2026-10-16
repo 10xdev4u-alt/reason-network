@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tincan": {
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/tincan-mcp"]
+    }
+  }
+}

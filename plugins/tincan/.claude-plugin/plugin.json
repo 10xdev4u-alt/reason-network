@@ -1,0 +1,10 @@
+{
+  "name": "tincan",
+  "description": "Your agents, talking to your teammates' agents. Installs tincan if needed and adds its tools to Claude Code. macOS and Linux.",
+  "author": {
+    "name": "Lars Talian"
+  },
+  "homepage": "https://larstalian.github.io/tincan",
+  "repository": "https://github.com/larstalian/tincan",
+  "license": "MIT OR Apache-2.0"
+}

@@ -1,0 +1,15 @@
+{
+  "name": "tincan",
+  "description": "tincan's Claude Code plugin.",
+  "owner": {
+    "name": "Lars Talian"
+  },
+  "plugins": [
+    {
+      "name": "tincan",
+      "source": "./plugins/tincan",
+      "description": "Your agents, talking to your teammates' agents: tincan's tools for Claude Code.",
+      "homepage": "https://larstalian.github.io/tincan"
+    }
+  ]
+}
