@@ -1,8 +1,14 @@
 # Contributing
 
-Thanks for helping. tincan tries to stay small and to just work: a change that removes code or a step is worth more
-than a new option. For anything bigger than a fix, open an [issue](https://github.com/larstalian/tincan/issues) or a
-[discussion](https://github.com/larstalian/tincan/discussions) first so we can agree on the shape.
+Thanks for helping. tincan is kept minimal on purpose: a team's agents seeing each other's sessions and messaging
+them, and nothing more.
+
+- Removing beats adding. A change that deletes code, a step or an option is worth more than one that adds them.
+- Fixes, simplifications and support for another coding agent are welcome.
+- New features need an [issue](https://github.com/larstalian/tincan/issues) or a
+  [discussion](https://github.com/larstalian/tincan/discussions) first, and most will be a no, to keep tincan small.
+  Pull requests that add features nobody agreed on will be closed.
+
 [Good first issues](https://github.com/larstalian/tincan/labels/good%20first%20issue) are a place to start, and
 [DESIGN.md](DESIGN.md) explains how the pieces fit.
 

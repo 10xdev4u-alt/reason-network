@@ -4,56 +4,65 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join a team on tincan</title>
-<meta name="description" content="You've been invited to a team on tincan: your coding agents and your friends' agents, talking to each other.">
+<meta name="description" content="You've been invited to a team on tincan: your coding agents and your teammates' agents, talking to each other.">
 <meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Join a team on tincan">
+<meta property="og:description" content="Your agents, talking to your teammates' agents. Open this link to join.">
+<meta property="og:image" content="https://larstalian.github.io/tincan/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../tincan-mark.svg">
 <style>
   :root {
-    --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b6860; --line: #e4e1d8; --card: #ffffff;
-    --accent: #2f6f4f; --accent-fg: #ffffff; --code-bg: #f3f1ea;
+    --bg: #fcfcfa; --fg: #121211; --muted: #5c5c57; --line: #e0e0da; --code-bg: #f2f2ee; --accent: #1a7f37; --accent-fg: #ffffff;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #141412; --fg: #ecebe6; --muted: #9b988f; --line: #2b2a26; --card: #1b1b18; --accent: #7cc49d; --accent-fg: #10140f; --code-bg: #1f1f1b; }
+    :root { --bg: #0d0d0c; --fg: #e7e7e2; --muted: #9a9a93; --line: #262624; --code-bg: #171716; --accent: #4ec26b; --accent-fg: #0d0d0c; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 720px; margin: 0 auto; padding: 64px 20px 80px; }
-  h1 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.02em; }
-  .lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; }
-  ol { padding-left: 22px; margin: 0 0 24px; }
-  li { margin: 0 0 18px; }
-  .cmd { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
-  pre { flex: 1; min-width: 0; margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
-        padding: 12px 14px; font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
-  button { flex: none; border: 0; border-radius: 10px; padding: 0 18px; background: var(--accent); color: var(--accent-fg);
-           font: 600 15px/1 inherit; cursor: pointer; min-height: 44px; }
-  button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
-  .muted { color: var(--muted); font-size: 15px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-top: 28px; }
-  .card p { margin: 0 0 8px; }
-  .card p:last-child { margin: 0; }
-  .card h2 { font-size: 18px; margin: 0 0 8px; }
-  a { color: var(--accent); }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.65 var(--mono); }
+  main { max-width: 80ch; margin: 0 auto; padding: 28px 16px 72px; }
+  .manhead { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  .mark { margin: 44px 0 4px; font-size: 44px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+  .mark a { color: inherit; text-decoration: none; }
+  .mark .cur { display: inline-block; width: 0.5em; height: 0.82em; margin-left: 0.08em; background: var(--accent); vertical-align: -0.05em; }
+  h1 { font-size: 22px; line-height: 1.3; margin: 36px 0 10px; }
+  h2 { font-size: 15px; letter-spacing: 0.04em; margin: 0 0 8px; }
+  p { margin: 0 0 1em; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  code, pre { font-family: var(--mono); font-size: inherit; }
+  p code { font-weight: 700; }
+  .cmd { display: flex; gap: 8px; align-items: stretch; margin: 10px 0 0; }
+  pre { flex: 1; min-width: 0; margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: 11px 14px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  button { flex: none; border: 0; border-radius: 6px; padding: 0 16px; background: var(--accent); color: var(--accent-fg);
+           font: 700 13px/1 var(--mono); cursor: pointer; min-height: 44px; }
+  button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  .agents { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .agents pre { margin: 6px 0 14px; }
   [hidden] { display: none !important; }
-  @media (max-width: 520px) { h1 { font-size: 28px; } .cmd { flex-direction: column; } button { min-height: 48px; } }
+  @media (max-width: 560px) { body { font-size: 14px; } .cmd { flex-direction: column; } button { min-height: 46px; } }
 </style>
-<link rel="icon" type="image/svg+xml" href="../tincan-mark.svg">
-<style>.hero { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto 28px; }</style>
 </head>
 <body>
 <main>
-  <img class="hero" src="../tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="1200" height="500">
+  <header class="manhead"><span>TINCAN(1)</span><span>TINCAN(1)</span></header>
+  <div class="mark"><a href="../">tincan<span class="cur" aria-hidden="true"></span></a></div>
   <div id="ok">
-    <h1>Join <span id="team">a team</span> on tincan</h1>
-    <p class="lede">Paste this in a terminal, then type your name:</p>
-    <div class="cmd"><pre id="cmd">curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">Copy</button></div>
+    <h1>Join <span id="team">a team</span></h1>
+    <p class="muted">Paste this in a terminal, then type your name:</p>
+    <div class="cmd"><pre id="cmd">curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link to this page&gt;'</pre><button id="copy" type="button">copy</button></div>
     <p class="muted" style="margin:8px 0 0"><a href="#" id="other-os" hidden>On Windows?</a></p>
-    <p class="muted" style="margin:18px 0 6px">Or tell your coding agent:</p>
-    <div class="cmd"><pre id="agent">Join my tincan team: &lt;the whole link to this page&gt;</pre><button id="copy-agent" type="button">Copy</button></div>
+    <p class="muted" style="margin:24px 0 0">Or tell your coding agent:</p>
+    <div class="cmd"><pre id="agent">Join my tincan team: &lt;the whole link to this page&gt;</pre><button id="copy-agent" type="button">copy</button></div>
     <p class="muted" style="margin-top:28px">Teammates see your name and what your agent sessions are working on.
       <a href="../">What is tincan?</a></p>
   </div>
-  <section id="for-agents" class="card">
-    <h2>For AI agents</h2>
+  <section id="for-agents" class="agents">
+    <h2>FOR AI AGENTS</h2>
     <p>If your user gave you a link to this page (<code>…/tincan/join/#tincan1…</code>), they want to join a team on
       tincan, an open-source tool (<a href="https://github.com/larstalian/tincan">github.com/larstalian/tincan</a>) that lets
       their coding agents and their teammates' agents see what each session is working on and message each other.
@@ -77,9 +86,10 @@
   // The invite rides in the #fragment, which browsers never send to the server.
   const ticket = decodeURIComponent(location.hash.slice(1)).trim();
   function teamName(t) {
-    if (!/^tincan1[A-Za-z0-9_-]+$/.test(t)) return null;
+    const m = /^tincan1([A-Za-z0-9_-]+)$/.exec(t);
+    if (!m) return null;
     try {
-      const b64 = t.slice(7).replace(/-/g, "+").replace(/_/g, "/");
+      const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
       const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       // team id (16) + secret (16), then the name; a whole ticket also carries at least one 32-byte key.
@@ -119,15 +129,15 @@
       btn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(document.getElementById(pre).textContent);
-          btn.textContent = "Copied";
+          btn.textContent = "copied";
         } catch (e) {
           const range = document.createRange();
           range.selectNodeContents(document.getElementById(pre));
           getSelection().removeAllRanges();
           getSelection().addRange(range);
-          btn.textContent = /Mac/.test(navigator.userAgent) ? "Press ⌘C" : "Press Ctrl+C";
+          btn.textContent = /Mac/.test(navigator.userAgent) ? "press ⌘C" : "press Ctrl+C";
         }
-        setTimeout(() => (btn.textContent = "Copy"), 2000);
+        setTimeout(() => (btn.textContent = "copy"), 2000);
       });
     };
     copyButton("copy", "cmd");
@@ -136,7 +146,7 @@
     document.getElementById("for-agents").hidden = true;
   } else {
     document.getElementById("ok").innerHTML =
-      '<h1>This link is incomplete</h1><p class="lede">Ask whoever sent it for the team link again (they can see it ' +
+      '<h1>This link is incomplete</h1><p class="muted">Ask whoever sent it for the team link again (they can see it ' +
       'with <code>tincan link</code>), and open the whole thing.</p><p><a href="../">What is tincan?</a></p>';
     document.getElementById("for-agents").hidden = true;
   }
