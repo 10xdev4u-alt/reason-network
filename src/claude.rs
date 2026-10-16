@@ -52,7 +52,7 @@ impl ClaudeSession {
     }
 }
 
-/// Whether tincan is one of Claude Code's MCP servers here (`reason ask setup` chose Claude Code). Read once: the
+/// Whether tincan is one of Claude Code's MCP servers here (`reason network setup` chose Claude Code). Read once: the
 /// daemon restarts after setup.
 pub fn wired() -> bool {
     static WIRED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

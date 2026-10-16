@@ -1,5 +1,5 @@
-// reason ask for opencode: written by `reason ask setup`, removed by `reason uninstall`.
-// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to reason ask, and
+// reason network for opencode: written by `reason network setup`, removed by `reason uninstall`.
+// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to reason network, and
 // delivers teammates' messages into idle sessions.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
@@ -11,7 +11,7 @@ const run = (args: string[], cwd: string) =>
     execFile(ENGINE, args, { cwd, timeout: 10_000 }, (err, out) => resolve(err ? "" : String(out).trim())),
   )
 
-export const ReasonAsk: Plugin = async ({ client, directory }) => {
+export const ReasonNetwork: Plugin = async ({ client, directory }) => {
   const idle = new Set<string>()
   const subagents = new Set<string>()
   const delivering = new Set<string>()

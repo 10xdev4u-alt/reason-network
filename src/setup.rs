@@ -1,6 +1,6 @@
-//! `reason ask setup`: wires reason ask into every agent on this machine (MCP server, plus hooks where the agent
-//! has them) and installs the daemon as a login service. `reason ask setup --remove` undoes it. Every file it edits
-//! is backed up once, as `<file>.bak-reason`. Also `reason ask doctor`.
+//! `reason network setup`: wires reason network into every agent on this machine (MCP server, plus hooks where the agent
+//! has them) and installs the daemon as a login service. `reason network setup --remove` undoes it. Every file it edits
+//! is backed up once, as `<file>.bak-reason`. Also `reason network doctor`.
 //!
 //! The upstream engine wired agents in as `tincan`. Each step here also takes out what this binary's path put
 //! there under that name, so an update moves an agent over and leaves nothing behind; a separately installed
@@ -128,7 +128,7 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
 }
 
 fn write_json(path: &Path, v: &Value, dry: bool) -> Result<bool> {
-    // Removing reason ask from a config that never existed leaves an empty shell: don't create a file for that.
+    // Removing reason network from a config that never existed leaves an empty shell: don't create a file for that.
     if !path.exists() && hollow(v) {
         return Ok(false);
     }
@@ -333,7 +333,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&hooks_path, &v, dry)?;
     r.lines.push(changed(&hooks_path, did));
     if did && !remove {
-        r.notes.push("Codex asks once to trust reason ask's hooks: choose \"Trust all and continue\".".into());
+        r.notes.push("Codex asks once to trust reason network's hooks: choose \"Trust all and continue\".".into());
     }
     Ok(Some(r))
 }
@@ -410,7 +410,7 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&path, &v, dry)?;
     r.lines.push(changed(&path, did));
     if did && !remove {
-        r.notes.push("Gemini CLI only runs reason ask in trusted folders (`/permissions trust`).".into());
+        r.notes.push("Gemini CLI only runs reason network in trusted folders (`/permissions trust`).".into());
     }
     Ok(Some(r))
 }
@@ -472,7 +472,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let path = dir.join("opencode.json");
     if dir.join("opencode.jsonc").exists() && !path.exists() {
         r.notes.push(format!(
-            "opencode: you use opencode.jsonc, which reason ask doesn't edit. Add under \"mcp\": \"{AGENT_NAME}\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"REASON_NETWORK_AGENT\": \"opencode\"}}}}",
+            "opencode: you use opencode.jsonc, which reason network doesn't edit. Add under \"mcp\": \"{AGENT_NAME}\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"REASON_NETWORK_AGENT\": \"opencode\"}}}}",
             exe.display()
         ));
     } else {
@@ -508,7 +508,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 // ---- pi ----
 
-/// One extension does it all: it adds reason ask's MCP server to each session (deferred, so the tools stay out of
+/// One extension does it all: it adds reason network's MCP server to each session (deferred, so the tools stay out of
 /// the model's context until it looks for them) and delivers messages.
 fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     if !pi_home().exists() && agent::find_bin("pi").is_none() {
@@ -719,7 +719,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         }
         let home_env = engine_home.map(|h| format!("Environment=\"REASON_NETWORK_HOME={h}\"\n")).unwrap_or_default();
         let unit = format!(
-            "[Unit]\nDescription=Reason network daemon (reason ask)\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Reason network daemon (reason network)\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
             service_path_env(),
             paths::log().display()
@@ -938,7 +938,7 @@ pub struct Applied {
     pub service: Option<bool>,
 }
 
-/// Wires reason ask into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
+/// Wires reason network into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
 /// (`Some(false)`) the login service.
 pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Option<bool>, dry: bool) -> Applied {
     let mut out = Applied::default();
@@ -971,7 +971,8 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
                 out.service = Some(on);
             }
             Err(e) => {
-                out.notes.push(format!("Not running in the background: {e:#}; reason ask starts it when you use it."));
+                out.notes
+                    .push(format!("Not running in the background: {e:#}; reason network starts it when you use it."));
             }
         }
     }
@@ -985,9 +986,9 @@ pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
     let verb = if dry {
         "Would change"
     } else if remove {
-        "Removing reason ask"
+        "Removing reason network"
     } else {
-        "Setting up reason ask"
+        "Setting up reason network"
     };
     println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
     if found.is_empty() && !remove {
@@ -1030,18 +1031,18 @@ pub async fn doctor() -> Result<()> {
             }
             if others > 0 && online == 0 {
                 println!(
-                    "  ! no teammate connected: check your internet, or that their machines are on (`reason ask doctor` there)"
+                    "  ! no teammate connected: check your internet, or that their machines are on (`reason network doctor` there)"
                 );
                 // Nothing tells a machine that was off when the team changed relays where the team went.
                 println!(
-                    "  ! if the team changed relays while this machine was off, set the same one here: `reason ask relay <url>`"
+                    "  ! if the team changed relays while this machine was off, set the same one here: `reason network relay <url>`"
                 );
-                println!("    (or `default` for n0's); `reason ask team` on a teammate's machine shows which");
+                println!("    (or `default` for n0's); `reason network team` on a teammate's machine shows which");
             }
         }
         Err(e) if e.to_string().contains("not in a team") => {
             println!("✓ daemon running");
-            println!("- not in a team yet: run `reason ask`");
+            println!("- not in a team yet: run `reason network`");
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
@@ -1049,13 +1050,13 @@ pub async fn doctor() -> Result<()> {
     println!(
         "{} login service: {}",
         if svc { "✓" } else { "-" },
-        if svc { "installed" } else { "not installed (`reason ask setup`)" }
+        if svc { "installed" } else { "not installed (`reason network setup`)" }
     );
     for f in detect(&exe) {
         if f.wired {
             println!("✓ {}: wired up", f.name);
         } else {
-            println!("- {}: installed, not on reason ask (`reason ask setup`)", f.name);
+            println!("- {}: installed, not on Reason Network (`reason network setup`)", f.name);
         }
     }
     Ok(())

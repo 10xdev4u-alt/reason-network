@@ -9,7 +9,7 @@ use std::{
 
 pub const CLAUDE_CODE: &str = "claude-code";
 
-/// Best guess from the environment the agent gives its children. `TINCAN_AGENT` (set by `reason ask setup` in the
+/// Best guess from the environment the agent gives its children. `TINCAN_AGENT` (set by `reason network setup` in the
 /// MCP config) wins.
 pub fn detect_env() -> Option<&'static str> {
     let has = |k: &str| std::env::var_os(k).is_some();

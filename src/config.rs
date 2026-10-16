@@ -24,7 +24,7 @@ pub struct Config {
 }
 
 /// What happens to messages from teammates' agents: `accept` delivers them, `hold` waits for you to approve
-/// (`reason ask held`), `refuse` bounces them.
+/// (`reason network held`), `refuse` bounces them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inbound {
@@ -65,7 +65,7 @@ impl Default for Inbound {
 impl Config {
     pub fn load() -> Self {
         Self::load_strict().unwrap_or_else(|e| {
-            eprintln!("reason ask: ignoring {} (fix or delete it): {e}", paths::config().display());
+            eprintln!("reason network: ignoring {} (fix or delete it): {e}", paths::config().display());
             Config::default()
         })
     }

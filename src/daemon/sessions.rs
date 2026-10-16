@@ -1,4 +1,4 @@
-//! Sessions running on this machine: registered by `reason ask mcp` (a connection), or by hooks (no connection,
+//! Sessions running on this machine: registered by `reason network mcp` (a connection), or by hooks (no connection,
 //! kept alive by hook events and the agent's process).
 
 use super::{Daemon, Inner, Live, log};

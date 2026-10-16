@@ -1,4 +1,4 @@
-//! The guided setup: what `reason ask`, `reason ask init`, `reason ask join`, `reason ask invite` and `reason ask setup` do when a person
+//! The guided setup: what `reason network`, `reason network init`, `reason network join`, `reason network invite` and `reason network setup` do when a person
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
@@ -20,7 +20,7 @@ pub fn interactive() -> bool {
 pub async fn guided(f: impl std::future::Future<Output = Result<()>>) -> Result<()> {
     match f.await {
         Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Interrupted) => {
-            let _ = outro_cancel("Stopped. Run `reason ask` to pick up where you left off.");
+            let _ = outro_cancel("Stopped. Run `reason network` to pick up where you left off.");
             Ok(())
         }
         r => r,
@@ -48,18 +48,18 @@ fn ask_name() -> Result<String> {
 }
 
 /// Start or join a team. With an invite (a team link, from the installer), it only asks for your name.
-/// `start`: `Some(true)` from `reason ask init`, `Some(false)` from `reason ask join`, `None` to ask.
+/// `start`: `Some(true)` from `reason network init`, `Some(false)` from `reason network join`, `None` to ask.
 pub async fn onboard(
     start: Option<bool>,
     team: Option<String>,
     invite: Option<String>,
     person: Option<String>,
 ) -> Result<()> {
-    intro(" reason ask ")?;
+    intro(" reason network ")?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
-        outro("`reason ask` shows who's around; `reason ask invite` gives you the team link.")?;
+        outro("`reason network` shows who's around; `reason network invite` gives you the team link.")?;
         return Ok(());
     }
     let mut person = match person {
@@ -188,12 +188,12 @@ pub async fn agents_and_preferences() -> Result<()> {
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
         log::warning(
-            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `reason ask setup`.",
+            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `reason network setup`.",
         )?;
         Vec::new()
     } else {
         let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
-        let mut pick = multiselect("Which agents should be on reason ask?  (space to toggle, enter to confirm)")
+        let mut pick = multiselect("Which agents should be on Reason Network?  (space to toggle, enter to confirm)")
             .required(false)
             .initial_values(initial);
         for f in &found {
@@ -201,13 +201,13 @@ pub async fn agents_and_preferences() -> Result<()> {
         }
         pick.interact()?
     };
-    let service = confirm("Keep reason ask running in the background, so teammates can always reach you?")
+    let service = confirm("Keep Reason Network running in the background, so teammates can always reach you?")
         .initial_value(true)
         .interact()?;
     let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
     cfg.inbound.default = select("When a teammate's agent messages one of yours")
         .item(Policy::Accept, "Deliver it", "recommended")
-        .item(Policy::Hold, "Hold it until I approve", "you approve with `reason ask held`")
+        .item(Policy::Hold, "Hold it until I approve", "you approve with `reason network held`")
         .initial_value(cfg.inbound.default)
         .interact()?;
     cfg.share_paths = confirm("Show teammates your full working directories? (otherwise just the folder name)")
@@ -247,7 +247,7 @@ pub async fn show_link(new: bool) -> Result<String> {
     };
     note(
         title,
-        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `reason ask link --new`.",
+        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `reason network link --new`.",
     )?;
     Ok(l.url)
 }
@@ -260,7 +260,7 @@ pub async fn show_code(me: bool) -> Result<()> {
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: {unix}\n(on Windows: {windows})\n(or `reason ask join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
+            "On {who}: {unix}\n(on Windows: {windows})\n(or `reason network join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
             i.code, i.hours
         ),
     )?;
@@ -290,27 +290,27 @@ pub fn copy(text: &str) -> bool {
     })
 }
 
-/// `reason ask invite` in a terminal: the team link, or a one-time code for another machine of yours.
+/// `reason network invite` in a terminal: the team link, or a one-time code for another machine of yours.
 pub async fn invite() -> Result<()> {
-    intro(" reason ask invite ")?;
+    intro(" reason network invite ")?;
     let what = select("Who's joining?")
         .item(0, "Friends", "the team link, works for everyone")
         .item(1, "Another machine of mine", "a one-time code")
         .interact()?;
     if what == 0 {
         let url = show_link(false).await?;
-        outro("They'll show up in `reason ask` once they've joined.")?;
+        outro("They'll show up in `reason network` once they've joined.")?;
         println!("\n{url}\n");
     } else {
         show_code(true).await?;
-        outro("It'll show up in `reason ask` once it has joined.")?;
+        outro("It'll show up in `reason network` once it has joined.")?;
     }
     Ok(())
 }
 
-/// `reason ask setup` in a terminal.
+/// `reason network setup` in a terminal.
 pub async fn setup_agents() -> Result<()> {
-    intro(" reason ask setup ")?;
+    intro(" reason network setup ")?;
     agents_and_preferences().await?;
     outro("Done.")?;
     Ok(())

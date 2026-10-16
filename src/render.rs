@@ -94,7 +94,7 @@ pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
             let n = unreachable.len();
             let _ = writeln!(
                 out,
-                "  + {n} session{} without reason ask (can't be messaged)",
+                "  + {n} session{} without Reason Network (can't be messaged)",
                 if n == 1 { "" } else { "s" }
             );
         }
@@ -150,7 +150,7 @@ impl Layout {
             _ => "",
         };
         let tier = match s.tier {
-            Tier::None => paint.on(DIM, "not on reason ask"),
+            Tier::None => paint.on(DIM, "not on Reason Network"),
             Tier::Push => paint.on(GREEN, "push"),
             Tier::Turn => paint.on(CYAN, "turn"),
             t => paint.on(DIM, t.as_str()),
@@ -242,7 +242,7 @@ pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     };
     // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
     let reply = if cli || agent == Some("reason") {
-        format!("Reply if useful: reason ask send {} --from {} \"<reply>\"", last.from, last.to)
+        format!("Reply if useful: reason network send {} --from {} \"<reply>\"", last.from, last.to)
     } else {
         format!("Reply if useful with send_message to \"{}\".", last.from)
     };
@@ -304,7 +304,11 @@ pub fn for_human(msgs: &[Message]) -> String {
 pub fn unread_notice(u: &Unread) -> Option<String> {
     (u.count > 0).then(|| {
         let plural = if u.count == 1 { "" } else { "s" };
-        format!("[reason ask] {} unread message{plural} from {}. Call check_inbox to read.", u.count, u.from.join(", "))
+        format!(
+            "[reason network] {} unread message{plural} from {}. Call check_inbox to read.",
+            u.count,
+            u.from.join(", ")
+        )
     })
 }
 

@@ -1,4 +1,4 @@
-//! `reason ask mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
+//! `reason network mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
 
 use crate::{
     agent::{self, ClaudeSocket},
@@ -33,7 +33,7 @@ const SKILL: &str = include_str!("../site/skill/SKILL.md");
 fn instructions() -> String {
     // Windows checkouts may have turned the file's line ends into \r\n.
     let rules = SKILL.split_once("## How to behave").map_or(String::new(), |(_, r)| r.trim().replace('\r', ""));
-    format!("reason ask connects you with your teammates' coding agents.\n\n{rules}")
+    format!("Reason Network connects you with your teammates' coding agents.\n\n{rules}")
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -65,7 +65,7 @@ pub struct InboxArgs {
 }
 
 #[derive(Clone)]
-pub struct ReasonAskMcp {
+pub struct ReasonNetworkMcp {
     link: Arc<Link>,
     env_agent: Option<&'static str>,
     claude: Option<Arc<ClaudeSocket>>,
@@ -76,12 +76,12 @@ pub struct ReasonAskMcp {
 
 pub async fn run() -> Result<()> {
     let (tx, mut events) = mpsc::unbounded_channel();
-    let server = ReasonAskMcp {
+    let server = ReasonNetworkMcp {
         link: Link::new(Some(tx)),
         env_agent: agent::detect_env(),
         claude: agent::claude_socket().map(Arc::new),
         client_agent: Default::default(),
-        tool_router: ReasonAskMcp::tool_router(),
+        tool_router: ReasonNetworkMcp::tool_router(),
     };
     let service = server.clone().serve(stdio()).await?;
 
@@ -101,7 +101,7 @@ pub async fn run() -> Result<()> {
         if !agent::multiplexed(agent)
             && let Err(e) = s.session(agent, None).await
         {
-            eprintln!("reason ask: registering session: {e:#}");
+            eprintln!("reason network: registering session: {e:#}");
         }
     });
 
@@ -110,7 +110,7 @@ pub async fn run() -> Result<()> {
 }
 
 #[tool_router]
-impl ReasonAskMcp {
+impl ReasonNetworkMcp {
     #[tool(
         description = "List your team's live agent sessions: who, which machine and agent, repo@branch, busy/idle, \
                        and what each is doing. Use it to find the right recipient.",
@@ -185,7 +185,7 @@ impl ReasonAskMcp {
 }
 
 #[tool_handler(router = self.tool_router)]
-impl ServerHandler for ReasonAskMcp {
+impl ServerHandler for ReasonNetworkMcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(crate::AGENT_NAME, env!("CARGO_PKG_VERSION")))
@@ -206,7 +206,7 @@ impl ServerHandler for ReasonAskMcp {
     }
 }
 
-impl ReasonAskMcp {
+impl ReasonNetworkMcp {
     /// Whether messages reach this session by being pushed into it: Claude Code, through its inbox.
     fn pushed(&self, agent: &str) -> bool {
         agent == agent::CLAUDE_CODE && self.claude.is_some()
@@ -291,8 +291,8 @@ impl ReasonAskMcp {
             Ok(Ok(())) => {
                 let _ = self.link.call::<Value>(Request::Delivered { key, ids }).await;
             }
-            Ok(Err(e)) => eprintln!("reason ask: delivering to Claude Code: {e}"),
-            Err(e) => eprintln!("reason ask: delivering to Claude Code: {e}"),
+            Ok(Err(e)) => eprintln!("reason network: delivering to Claude Code: {e}"),
+            Err(e) => eprintln!("reason network: delivering to Claude Code: {e}"),
         }
     }
 }

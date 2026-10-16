@@ -1,4 +1,4 @@
-//! `reason ask tray`: the menu bar icon (macOS). The background service starts it and it exits with the daemon. It
+//! `reason network tray`: the menu bar icon (macOS). The background service starts it and it exits with the daemon. It
 //! shows who's around and what their sessions are doing, and the messages waiting for you.
 
 #[cfg(not(target_os = "macos"))]
@@ -151,7 +151,7 @@ mod mac {
             Some(t) => items.push(Box::new(info(&format!("{t} · you're {}", v.me)))),
             None => {
                 items.push(Box::new(info("Not in a team yet")));
-                items.push(Box::new(info("Run `reason ask` in a terminal to set up")));
+                items.push(Box::new(info("Run `reason network` in a terminal to set up")));
             }
         }
         items.push(Box::new(sep()));
@@ -182,7 +182,7 @@ mod mac {
                 }
             }
             if *without > 0 {
-                let _ = sub.append(&info(&format!("+ {without} without reason ask")));
+                let _ = sub.append(&info(&format!("+ {without} without Reason Network")));
             }
             let _ = sub.append(&sep());
             let _ = sub.append(&info("Click a session to copy its address"));
@@ -210,7 +210,7 @@ mod mac {
         }
     }
 
-    /// Hidden for good: `reason ask setup` brings it back.
+    /// Hidden for good: `reason network setup` brings it back.
     fn hide() -> ! {
         if let Ok(mut cfg) = Config::load_strict() {
             cfg.tray = false;

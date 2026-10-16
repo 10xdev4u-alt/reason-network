@@ -1,5 +1,5 @@
-> **reason-network** is Reason Machines' build of tincan, the engine behind `reason ask`. Agents see it as
-> `reason-ask`. See [NOTICE](NOTICE) for what changed; everything below is tincan's own README.
+> **reason-network** is Reason Machines' build of tincan, the engine behind `reason network`. Agents see it as
+> `reason-network`. See [NOTICE](NOTICE) for what changed; everything below is tincan's own README.
 
 # tincan
 
