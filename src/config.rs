@@ -20,36 +20,15 @@ pub struct Config {
     pub reason: bool,
     /// Install new releases when they come out (the daemon checks every few hours).
     pub auto_update: bool,
-    pub send: Outbound,
     pub inbound: Inbound,
 }
 
-/// What this machine's agents may send.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Outbound {
-    pub groups: Groups,
-}
-
-/// Where an agent's `*`, `person/*` and `repo:` messages go: `own` sessions only, or the whole `team`. A person
-/// sending from a terminal always reaches the team.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Groups {
-    #[default]
-    Own,
-    Team,
-}
-
 /// What happens to messages from teammates' agents: `accept` delivers them, `hold` waits for you to approve
-/// (`tincan held`), `refuse` bounces them. `groups` is for their `*`, `<you>/*` and `repo:` messages, and `fanout`
-/// is how many of your sessions one of their agents may start talking to in ten minutes (past that they're held).
+/// (`tincan held`), `refuse` bounces them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inbound {
     pub default: Policy,
-    pub groups: Policy,
-    pub fanout: usize,
     pub people: BTreeMap<String, Policy>,
 }
 
@@ -72,7 +51,6 @@ impl Default for Config {
             tray: true,
             reason: false,
             auto_update: true,
-            send: Outbound::default(),
             inbound: Inbound::default(),
         }
     }
@@ -80,7 +58,7 @@ impl Default for Config {
 
 impl Default for Inbound {
     fn default() -> Self {
-        Inbound { default: Policy::Accept, groups: Policy::Refuse, fanout: 1, people: BTreeMap::new() }
+        Inbound { default: Policy::Accept, people: BTreeMap::new() }
     }
 }
 

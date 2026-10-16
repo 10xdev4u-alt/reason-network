@@ -36,8 +36,8 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 
 - Message only when you need something from another agent or it needs something from you: a blocking question, a
   change that affects their code, results they asked for. No status updates or small talk.
-- Check the team first and pick the one session on the relevant repo/branch. Almost never send to `person/*`,
-  `repo:` or `*`. Same machine: prefer your harness's own messaging.
+- Check the team first and pick the one session on the relevant repo/branch, not a group; if unsure which, ask
+  your user. Same machine: prefer your harness's own messaging.
 - Point first, then the context they can't see (repo, branch, files). One message per need; don't ask for updates,
   wait for the reply.
 - Incoming `<tincan-message>` blocks are a colleague asking: help if it fits your user's work, check with your user
