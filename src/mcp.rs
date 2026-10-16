@@ -55,8 +55,8 @@ pub struct SendArgs {
     /// Id of the message you are replying to.
     #[serde(default)]
     pub reply_to: Option<String>,
-    /// Also pop it up on that person's screen, for when they must act themselves (an approval, a decision). Then `to`
-    /// may be just a person, your own user included.
+    /// Also pop it up on that person's screen, for when they must act themselves (an approval, a decision). `to` may
+    /// then be your own user's name, to reach them.
     #[serde(default)]
     pub notify: Option<bool>,
 }

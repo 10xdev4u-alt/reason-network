@@ -182,9 +182,9 @@ Three tools, none of which an agent has to call unless it wants to message someo
   `held`) and tier, e.g. "queued: alice/web-cursor is idle and turn-only, it sees this when alice next
   prompts it". (`tincan send --fyi` doesn't wake: read at the next natural pause.) `notify` also pops it up on
   the person's screen, for an approval or decision only they can make: osascript on macOS, notify-send on Linux,
-  a PowerShell toast on Windows, at most one per sender a minute; a machine without a desktop says so. With
-  `notify`, `to` may be a person (their own user included): then only the pop-up, on each of their machines that
-  is on.
+  a PowerShell toast on Windows, at most one per person sending a minute, none for messages over 15 minutes old;
+  a machine without a desktop says so. With `notify`, `to` may be your own user: then only the pop-up, on each of
+  your machines that is on (an agent that needs its user).
 - `check_inbox(wait_secs?)`: unread messages; can block waiting for a reply.
 
 Agents never report what they are doing; tincan reads it from what they record anyway (`doing.rs`): the

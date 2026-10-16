@@ -113,9 +113,10 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
-            let people = g.team.as_ref().map(|t| t.people()).unwrap_or_default();
-            if notify && (to == self.person || people.iter().any(|p| p == to)) {
-                // A person, not a session: just the notification, on each of their machines that is on now.
+            // Your own user, not a session: just the pop-up, on each of their machines that is on now. (To get a
+            // teammate's attention, message one of their sessions with notify.)
+            let own = notify && to == self.person;
+            if own {
                 let msg = Message {
                     id: Ulid::new().to_string(),
                     from: from_addr.clone(),
@@ -129,30 +130,25 @@ impl Daemon {
                     notify: true,
                     sent_at: now,
                 };
-                res.ids.push(msg.id.clone());
-                if to == self.person {
-                    let (shown, note) = self.notify(&msg);
-                    let state = if shown { "notified" } else { "not notified" };
-                    res.recipients.push(Recipient { address: to.to_string(), state: state.into(), note });
-                }
+                let (sent, note) = self.notify(&msg);
+                let state = if sent { "notified" } else { "not notified" };
+                res.recipients.push(Recipient { address: format!("{to}@{}", self.machine), state: state.into(), note });
                 for m in g.team.iter().flat_map(|t| t.active()).filter(|m| m.person == to) {
                     // Machines we've never heard from (and this one) aren't in `remotes`.
                     let Some(online) = remotes.get(&m.endpoint).map(|r| r.online) else { continue };
                     let address = format!("{to}@{}", m.machine);
-                    if online {
-                        let note = format!("no answer from {} yet", m.machine);
-                        remote_jobs.push((res.recipients.len(), m.endpoint, m.machine.clone(), true, msg.clone()));
-                        res.recipients.push(Recipient { address, state: "not notified".into(), note });
+                    let note = if online {
+                        format!("no answer from {}", m.machine)
                     } else {
-                        let note = format!("not notified: {} is offline", m.machine);
-                        res.recipients.push(Recipient { address, state: "not notified".into(), note });
+                        format!("{} is offline", m.machine)
+                    };
+                    if online {
+                        remote_jobs.push((res.recipients.len(), m.endpoint, m.machine.clone(), true, msg.clone()));
                     }
-                }
-                if res.recipients.is_empty() {
-                    bail!("none of {to}'s machines is online to show it");
+                    res.recipients.push(Recipient { address, state: "not notified".into(), note });
                 }
             }
-            let targets = if res.ids.is_empty() { self.resolve(&g, &remotes, to, Some(&exclude))? } else { Vec::new() };
+            let targets = if own { Vec::new() } else { self.resolve(&g, &remotes, to, Some(&exclude))? };
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
@@ -209,11 +205,15 @@ impl Daemon {
             for (i, name, verdict) in futures_join(sends).await {
                 let r = &mut res.recipients[i];
                 match verdict {
+                    // A pop-up only (see above): nothing kept to retry.
+                    Some((state, _)) if r.state == "not notified" && state == "retry" => {
+                        r.note = format!("{name} is busy")
+                    }
                     Some((state, note)) => {
                         r.state = state;
                         r.note = note;
                     }
-                    None if r.state == "not notified" => r.note = format!("not notified: no answer from {name}"),
+                    None if r.state == "not notified" => r.note = format!("no answer from {name}"),
                     None => r.note = format!("queued: no answer from {name} yet; it will be retried"),
                 }
             }
@@ -435,11 +435,12 @@ impl Daemon {
             ));
         }
         let Some((person, name)) = msg.to.split_once('/') else {
-            if msg.to != self.person {
-                bail!("{} is not on this machine", msg.to);
+            // Only your own machines pop up for you without a session.
+            if msg.to != self.person || sender != self.person {
+                bail!("a pop-up without a session is only for your own user");
             }
-            let (shown, note) = self.notify(&msg);
-            return Ok((if shown { "notified" } else { "not notified" }.into(), note));
+            let (sent, note) = self.notify(&msg);
+            return Ok((if sent { "notified" } else { "not notified" }.into(), note));
         };
         if person != self.person {
             bail!("{} is not on this machine", msg.to);

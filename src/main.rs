@@ -96,7 +96,7 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
-        /// Also pop it up on the person's screen (then `<to>` may be just a person)
+        /// Also pop it up on the person's screen (then `<to>` may be your own name)
         #[arg(long, conflicts_with = "fyi")]
         notify: bool,
         /// Send as this agent session here (e.g. one made with `tincan listen --as <name>`)

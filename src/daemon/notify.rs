@@ -9,25 +9,32 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// At most one notification per sender in this time: a looping agent can't flood the screen.
+/// At most one notification per person sending in this time: a looping agent can't flood the screen.
 const GAP: Duration = Duration::from_secs(60);
+/// Older than this (it waited in an outbox while this machine was off), it no longer pops up.
+const STALE_MS: i64 = 15 * 60 * 1000;
 
 impl Daemon {
-    /// Shows `msg` to this machine's person. Returns whether it was shown, and a note for the sender.
+    /// Shows `msg` to this machine's person. Returns whether it was handed to the system's notifications (which may
+    /// still hide it, say if the person turned them off), and a note for the sender.
     pub(super) fn notify(&self, msg: &Message) -> (bool, String) {
+        if util::now_ms() - msg.sent_at > STALE_MS {
+            return (false, "not popped up: it's over 15 minutes old".into());
+        }
+        let person = msg.from.split('/').next().unwrap_or_default().to_string();
         let title = match msg.to.split_once('/') {
             Some((_, session)) => format!("{} → {session}", msg.from),
             None => msg.from.clone(),
         };
         let mut shown = self.shown.lock().unwrap();
         shown.retain(|_, at| at.elapsed() < GAP);
-        if shown.contains_key(&msg.from) {
-            return (false, format!("not shown: {} showed one from {} a moment ago", self.machine, msg.from));
+        if shown.contains_key(&person) {
+            return (false, format!("not popped up: {} had one from {person} a moment ago", self.machine));
         }
         let Some(mut cmd) = command(&title, &util::one_line(&msg.body, 200)) else {
-            return (false, format!("not shown: {} can't show desktop notifications", self.machine));
+            return (false, format!("not popped up: {} has no desktop to show it on", self.machine));
         };
-        shown.insert(msg.from.clone(), Instant::now());
+        shown.insert(person, Instant::now());
         std::thread::spawn(move || {
             match cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output() {
                 Ok(o) if o.status.success() => {}
@@ -35,7 +42,7 @@ impl Daemon {
                 Err(e) => log(&format!("notification failed: {e}")),
             }
         });
-        (true, format!("shown on {}'s screen ({})", self.person, self.machine))
+        (true, format!("popped up for {} ({})", self.person, self.machine))
     }
 }
 
@@ -58,7 +65,9 @@ fn command(title: &str, body: &str) -> Option<Command> {
         }
         cmd.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={bus}"));
     }
-    cmd.args(["--app-name=tincan", title, body]);
+    // Most notification servers read markup; `--` keeps a body starting with `-` from being taken for an option.
+    let text = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    cmd.args(["--app-name=tincan".into(), "--".into(), text(title), text(body)]);
     Some(cmd)
 }
 

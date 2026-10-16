@@ -109,7 +109,7 @@ pub enum Request {
         reply_to: Option<String>,
         #[serde(default = "yes")]
         wake: bool,
-        /// Also show it on the person's screen. With it, `to` may be just a person.
+        /// Also pop it up on the person's screen. With it, `to` may be your own user.
         #[serde(default)]
         notify: bool,
     },
@@ -245,7 +245,7 @@ pub struct Message {
     pub reply_to: Option<String>,
     pub body: String,
     pub wake: bool,
-    /// Show it on the person's screen too (and, sent to a person rather than a session, only there).
+    /// Pop it up on the person's screen too (and, sent to your own user rather than a session, only that).
     #[serde(default)]
     pub notify: bool,
     pub sent_at: i64,

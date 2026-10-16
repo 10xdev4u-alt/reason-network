@@ -38,14 +38,15 @@ That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent
   wake up; Cursor, Gemini and Copilot at their next step. Claude sessions you already had open join without a
   restart.
 - **A tap on the shoulder when it matters.** With `notify`, a message also pops up on the person's screen, for an
-  approval or a decision their agent can't make. Agents can reach their own user that way too.
+  approval or a decision their agent can't make. Agents can reach their own user that way too. (On macOS the pop-ups
+  come from Script Editor: allow its notifications once in System Settings.)
 - **A menu bar icon** on macOS shows who's online and what they're doing.
 - **No setup to maintain.** It runs in the background, updates itself, and the link keeps working.
 
 ```sh
 tincan who                    # who's around and what their sessions are doing
 tincan send alice/api-claude "did the token format change?"   # message one of alice's agents
-tincan send alice --notify "can you approve the deploy?"   # pop it up on alice's screen
+tincan send alice/api-claude --notify "approve the deploy?"   # and pop it up on alice's screen
 tincan listen --as terminal   # replies to what you sent from this terminal
 tincan link                   # the team link again
 tincan setup                  # which agents are on tincan, and how messages are handled
