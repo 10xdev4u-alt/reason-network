@@ -4,7 +4,7 @@
 use crate::{
     client::Link,
     config::{Config, Policy},
-    install_lines, invite,
+    install_line, invite,
     proto::*,
     render, setup, util,
 };
@@ -94,7 +94,7 @@ pub async fn onboard(
             let text: String = match invite.take() {
                 Some(t) => t,
                 None => input("Paste the team link")
-                    .placeholder("https://…/join/#tincan1…")
+                    .placeholder("https://reasonmachines.com/network/join/#…")
                     .validate(|s: &String| invite_ok(s))
                     .interact()?,
             };
@@ -182,7 +182,7 @@ fn and_list(items: &[&str]) -> String {
     }
 }
 
-/// Which agents are on tincan, the background service, and how teammates' messages are handled.
+/// Which agents are on Reason Network, the background service, and how teammates' messages are handled.
 pub async fn agents_and_preferences() -> Result<()> {
     let exe = setup::exe()?;
     let found = setup::detect(&exe);
@@ -256,12 +256,13 @@ pub async fn show_link(new: bool) -> Result<String> {
 pub async fn show_code(me: bool) -> Result<()> {
     let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours: 24 }).await?;
     let who = if me { "your other machine" } else { "your teammate" };
-    let [unix, windows] = install_lines(&i.code);
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: {unix}\n(on Windows: {windows})\n(or `reason network join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
-            i.code, i.hours
+            "On {who}: {}\n(or `reason network join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
+            install_line(&i.code),
+            i.code,
+            i.hours
         ),
     )?;
     Ok(())

@@ -1,4 +1,4 @@
-"""Two 'machines' (two TINCAN_HOMEs) on one box, talking over iroh, with simulated agent sessions.
+"""Two 'machines' (two REASON_NETWORK_HOMEs) on one box, talking over iroh, with simulated agent sessions.
 
     cargo build && python3 tests/e2e/two_machines.py
 
@@ -8,8 +8,8 @@ test messages into that real session (they say "ignore this").
 import json, os, re, subprocess, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BIN = os.path.join(ROOT, "target", "debug", "tincan")
-D = tempfile.mkdtemp(prefix="tincan-e2e-")
+BIN = os.path.join(ROOT, "target", "debug", "reason-network")
+D = tempfile.mkdtemp(prefix="reason-network-e2e-")
 H = {"alex": os.path.join(D, "alex"), "alice": os.path.join(D, "alice")}
 MACHINE = {"alex": "laptop", "alice": "desktop"}
 FAKE_CODEX = os.path.join(D, "fake-codex.sh")
@@ -24,12 +24,12 @@ def check(name, ok, detail=""):
 
 
 def env(who, strip_claude=True):
-    e = dict(os.environ, TINCAN_HOME=H[who], TINCAN_MACHINE=MACHINE[who], TINCAN_NO_MDNS="1", TINCAN_NO_SERVICE="1", TINCAN_CODEX_BIN=FAKE_CODEX)
+    e = dict(os.environ, REASON_NETWORK_HOME=H[who], REASON_NETWORK_MACHINE=MACHINE[who], REASON_NETWORK_NO_MDNS="1", REASON_NETWORK_NO_SERVICE="1", REASON_NETWORK_CODEX_BIN=FAKE_CODEX)
     if strip_claude:
         for k in list(e):
             if k.startswith("CLAUDE"):
                 del e[k]
-    # Never this machine's real Claude sessions: tincan could deliver into them.
+    # Never this machine's real Claude sessions: Reason Network could deliver into them.
     e["CLAUDE_CONFIG_DIR"] = os.path.join(D, "claude-config")
     return e
 
@@ -91,26 +91,26 @@ out = cli("alex", "team")
 check("founder sees alice connected", re.search(r"alice\s+desktop\s+(direct|relay)", out) is not None, out)
 out = cli("alice", "join", link.group(1), "--as", "bob", "--no-setup")
 check("joining a second team is refused while yours has others, and says how to switch",
-      "already in team 'vibes' (with alex)" in out and "tincan leave" in out, out)
+      "already in team 'vibes' (with alex)" in out and "Reason Network leave" in out, out)
 # Installed on its own and started a team by itself first: the team link still just works.
-sam = dict(env("alice"), TINCAN_HOME=os.path.join(D, "sam"), TINCAN_MACHINE="mini")
+sam = dict(env("alice"), REASON_NETWORK_HOME=os.path.join(D, "sam"), REASON_NETWORK_MACHINE="mini")
 r = subprocess.run([BIN, "init", "solo", "--as", "sam", "--no-setup"], env=sam, capture_output=True, text=True, timeout=90)
 r = subprocess.run([BIN, "join", link.group(1), "--as", "sam", "--no-setup"], env=sam, capture_output=True, text=True, timeout=90)
 check("a team of one is swapped for the team you join", "Joined team vibes as sam on mini." in r.stdout, r.stdout + r.stderr)
 subprocess.run([BIN, "leave"], env=sam, capture_output=True, timeout=60)
 subprocess.run([BIN, "stop"], env=sam, capture_output=True)
 os.makedirs(os.path.join(D, "bob"), exist_ok=True)
-bob = dict(env("alice"), TINCAN_HOME=os.path.join(D, "bob"), TINCAN_MACHINE="nuc")
+bob = dict(env("alice"), REASON_NETWORK_HOME=os.path.join(D, "bob"), REASON_NETWORK_MACHINE="nuc")
 out = cli("alex", "invite", "--code")
 code = re.search(r"Invite code for a teammate: ([a-z]+(?:-[a-z]+){3})", out)
 check("invite --code prints a four-word code", bool(code), out)
 r = subprocess.run([BIN, "join", code.group(1).replace("-", " ").upper(), "--as", "bob", "--no-setup"], env=bob,
                    capture_output=True, text=True, timeout=90)
 check("joining with just the code works", "Joined team vibes as bob on nuc." in r.stdout, r.stdout + r.stderr)
-r = subprocess.run([BIN, "join", code.group(1), "--as", "bob2", "--no-setup"], env=dict(bob, TINCAN_HOME=os.path.join(D, "bob2")),
+r = subprocess.run([BIN, "join", code.group(1), "--as", "bob2", "--no-setup"], env=dict(bob, REASON_NETWORK_HOME=os.path.join(D, "bob2")),
                    capture_output=True, text=True, timeout=90)
 check("a used code doesn't work twice", "Joined" not in r.stdout + r.stderr, r.stdout + r.stderr)
-subprocess.run([BIN, "stop"], env=dict(bob, TINCAN_HOME=os.path.join(D, "bob2")), capture_output=True)
+subprocess.run([BIN, "stop"], env=dict(bob, REASON_NETWORK_HOME=os.path.join(D, "bob2")), capture_output=True)
 out = subprocess.run([BIN, "link"], env=bob, capture_output=True, text=True, timeout=30).stdout
 check("any member can show the same team link", link.group(1).split("#")[1][:40] in out.replace("\n", ""), out)
 subprocess.run([BIN, "stop"], env=bob, capture_output=True)
@@ -123,18 +123,18 @@ time.sleep(7)  # Claude's session registers after 3s; presence propagates every 
 out = codex.tool("list_team", {}, meta)
 claude_name = os.path.basename(ROOT).lower() + "-claude"
 check("alice's agent sees alex's session across machines", claude_name in out and "alex · laptop" in out, out)
-# (After Codex's first tool call registered it.) Nobody reports a status: tincan reads the plan step in progress from Codex's own transcript.
+# (After Codex's first tool call registered it.) Nobody reports a status: Reason Network reads the plan step in progress from Codex's own transcript.
 rollout = os.path.join(D, "rollout.jsonl")
-plan = {"plan": [{"step": "set up fixtures", "status": "completed"}, {"step": "testing cross-machine tincan", "status": "in_progress"}]}
+plan = {"plan": [{"step": "set up fixtures", "status": "completed"}, {"step": "testing cross-machine Reason Network", "status": "in_progress"}]}
 with open(rollout, "w") as f:
     f.write(json.dumps({"type": "response_item", "payload": {"type": "function_call", "name": "update_plan", "arguments": json.dumps(plan)}}) + "\n")
 hook("alice", "codex", "doing", {"session_id": "11111111-aaaa", "cwd": os.path.join(D, "work"), "transcript_path": rollout})
 time.sleep(3)
 out = cli("alex", "who")
-check("alex sees what alice's codex is doing, read from its plan", "work-codex" in out and "testing cross-machine tincan" in out, out)
+check("alex sees what alice's codex is doing, read from its plan", "work-codex" in out and "testing cross-machine Reason Network" in out, out)
 
 # --- messages across machines ---
-out = codex.tool("send_message", {"to": f"alex/{claude_name}", "message": "tincan e2e (cross-machine push): ignore this."}, meta)
+out = codex.tool("send_message", {"to": f"alex/{claude_name}", "message": "Reason Network e2e (cross-machine push): ignore this."}, meta)
 want = "delivered into the session" if IN_CLAUDE else "only sees it when it checks"
 check("cross-machine send reaches the Claude session", want in out, out)
 out = cli("alex", "send", "alice/work-codex", "hello from alex's terminal")
@@ -151,7 +151,7 @@ out = codex.tool("send_message", {"to": "alex/terminal", "message": "codex here:
 check("an agent can reply at once to a terminal that just messaged it", "→ alex/terminal: queued" in out or "→ alex/terminal: delivered" in out, out)
 time.sleep(1)
 out = cli("alex", "listen", "--as", "terminal", "--wait", "5")
-check("…and `tincan listen --as terminal` shows the reply", "replying to your terminal" in out and 'from="alice/work-codex"' in out, out)
+check("…and `reason network listen --as terminal` shows the reply", "replying to your terminal" in out and 'from="alice/work-codex"' in out, out)
 cli("alice", "listen", "--as", "fresh", "--wait", "0")
 cli("alice", "send", "alex/terminal", "--from", "alice/fresh", "first words from a new session")
 out = cli("alex", "send", "alice/fresh", "answered at once")
@@ -202,7 +202,7 @@ check("message to alice is held by her policy", "held until alice approves" in o
 out = codex.tool("check_inbox", {}, meta)
 check("held message is not delivered", "held message" not in out, out)
 out = cli("alice", "held")
-check("tincan held lists it", "held message" in out, out)
+check("Reason Network held lists it", "held message" in out, out)
 cli("alice", "approve", "--all")
 out = codex.tool("check_inbox", {}, meta)
 check("approved message is delivered", "held message" in out, out)

@@ -26,41 +26,21 @@ use client::Link;
 use proto::*;
 use std::{io::Read, time::Duration};
 
-/// The project's site, which serves `install.sh` and the join page. Release builds set `TINCAN_SITE_URL` to the
-/// project's domain.
-pub const SITE_URL: &str = match option_env!("TINCAN_SITE_URL") {
-    Some(u) if !u.is_empty() => u,
-    _ => "https://larstalian.github.io/tincan",
-};
+/// Reason Network's page; team links point at its join page.
+pub const SITE_URL: &str = "https://reasonmachines.com/network";
 
-/// The one line that installs tincan and runs `reason network <args>`: for macOS and Linux, and for Windows.
 /// The name agents know this by: their MCP server, plugin and extension files, hook names.
 pub const AGENT_NAME: &str = "reason-network";
-/// The name the upstream engine wired agents in under; `setup` takes out what this binary put there under it.
+/// The name this engine used before it was Reason Network: `setup` takes out what this binary wired in under it, and
+/// `paths` moves the state it kept under it.
 pub const LEGACY_NAME: &str = "tincan";
 
-pub fn install_lines(args: &str) -> [String; 2] {
-    [
-        format!("curl -fsSL {SITE_URL}/install.sh | sh -s -- {args}"),
-        format!("powershell -c \"& ([scriptblock]::Create((irm {SITE_URL}/install.ps1))) {args}\""),
-    ]
+/// The one line that installs Reason and joins with `invite`.
+pub fn install_line(invite: &str) -> String {
+    format!("curl -fsSL https://reasonmachines.com/install.sh | bash && reason network join {invite}")
 }
 
-/// The install script, run without questions, installing into `dir`.
-pub fn installer(dir: &std::path::Path) -> std::process::Command {
-    let mut cmd;
-    if cfg!(windows) {
-        cmd = std::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &format!("irm {SITE_URL}/install.ps1 | iex")]);
-    } else {
-        cmd = std::process::Command::new("sh");
-        cmd.arg("-c").arg(format!("curl -fsSL {SITE_URL}/install.sh | sh"));
-    }
-    cmd.env("TINCAN_BIN_DIR", dir).env("TINCAN_NO_PROMPT", "1");
-    cmd
-}
-
-/// The team link: a page showing the one command that installs tincan and joins with `ticket`.
+/// The team link: Reason Network's join page, carrying the `ticket`.
 pub fn join_url(ticket: &str) -> String {
     format!("{SITE_URL}/join/#{ticket}")
 }
@@ -177,12 +157,12 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
-    /// Wire tincan into the agents on this machine and install the background service
+    /// Wire Reason Network into the agents on this machine and install the background service
     Setup {
         /// Show what would change without changing anything
         #[arg(long)]
         dry_run: bool,
-        /// Undo: remove tincan from every agent and remove the service
+        /// Undo: remove Reason Network from every agent and remove the service
         #[arg(long)]
         remove: bool,
         /// Don't install the background service
@@ -191,7 +171,7 @@ enum Cmd {
     },
     /// Check that everything is working
     Doctor,
-    /// Install the latest release over this one
+    /// Updates come with the Reason CLI (`reason update`)
     Upgrade,
     /// Called by agents' hooks
     #[command(hide = true)]
@@ -213,7 +193,7 @@ enum Cmd {
     },
     /// Restart the daemon
     Stop,
-    /// Wait for the next message to a named session, print it, and exit (for agents without tincan's tools, e.g.
+    /// Wait for the next message to a named session, print it, and exit (for agents without Reason Network's tools, e.g.
     /// cloud agents: run it again after replying)
     Listen {
         /// The session's name; reachable as <you>/<name>
@@ -232,7 +212,9 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Cli::parse().cmd {
+    let cmd = Cli::parse().cmd;
+    paths::migrate();
+    match cmd {
         Some(Cmd::Daemon { service }) => daemon::run(service).await,
         Some(Cmd::Mcp) => mcp::run().await,
         // Blocks this (the main) thread with AppKit's event loop; its daemon calls run on the runtime's workers.
@@ -314,7 +296,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 bail!("empty message");
             }
             // Messages come from agent sessions: `--from`'s, this agent's, or from a plain terminal, `<you>/terminal`.
-            // An agent shell tincan doesn't know (its tools aren't loaded) counts as a terminal.
+            // An agent shell Reason Network doesn't know (its tools aren't loaded) counts as a terminal.
             let send = |from: String| Request::Send {
                 from,
                 to: to.clone(),
@@ -406,9 +388,8 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
-            let [unix, windows] = install_lines(&i.code);
-            println!("They run this, which installs it and joins the team (the second line on Windows):\n");
-            println!("  {unix}\n  {windows}\n");
+            println!("They run this, which installs Reason and joins the team:\n");
+            println!("  {}\n", install_line(&i.code));
             println!(
                 "(or `reason network join {}` if they have reason). Works once, within {}h, while this machine is online.",
                 i.code, i.hours

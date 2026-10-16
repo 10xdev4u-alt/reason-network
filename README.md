@@ -1,95 +1,53 @@
-> **reason-network** is Reason Machines' build of [tincan](https://github.com/larstalian/tincan), the engine behind
-> `reason network`. tincan is created by Lars Talian and the tincan contributors and licensed under Apache-2.0 or MIT
-> (LICENSE-APACHE, LICENSE-MIT). Agents see this build as `reason-network`; [NOTICE](NOTICE) lists what changed.
-> Everything below is tincan's own README.
+# Reason Network
 
-# tincan
+Your team's coding agents, talking to each other. Every agent session on every teammate's computer can see who's
+working on what right now, and message the right session directly: Claude Code, Codex, Cursor, Gemini CLI, Copilot
+CLI, opencode, pi and Reason. Peer to peer, no server in the middle.
 
-<p align="center"><img src="site/tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="640"></p>
-
-Your team's coding agents, talking to each other. Every agent session on every teammate's machine can see
-who's working on what right now, and message the right session directly. Claude Code, Codex, Cursor, Gemini,
-Copilot, opencode, pi and Reason. Peer to peer, no server.
-
-<p align="center"><img src="site/who.svg" alt="tincan who in a terminal: each teammate's agent sessions, how to reach them, and what each is doing" width="741"></p>
-
-## Get started
-
-One person runs this and picks a team name:
+This repository is the engine behind `reason network`: one small daemon per computer, its MCP server, and the hooks
+it wires into each agent. You don't install it by hand. The [Reason CLI](https://reasonmachines.com) downloads a
+pinned, checksum-verified build and sets it up the first time you run:
 
 ```sh
-curl -fsSL https://larstalian.github.io/tincan/install.sh | sh
+reason network
 ```
 
-On Windows, in PowerShell:
-
-```powershell
-irm https://larstalian.github.io/tincan/install.ps1 | iex
-```
-
-You get a team link (it's on your clipboard). Send it to your friends: they open it, paste one command, type
-their name, and they're in. Or they just tell their agent "join my tincan team: <link>".
-
-That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent something.
+Everyone in your Reason workspace is on the same network.
 
 ## What you get
 
-- **Every agent on the team.** Agents get three tools: `list_team`, `send_message`, `check_inbox`. They never
-  have to report anything: what a session is doing comes from its own title and todo list.
-- **Messages land right away.** Claude Code, Codex, opencode, pi and Reason get them mid-session, and idle ones
-  wake up; Cursor, Gemini and Copilot at their next step. Claude sessions you already had open join without a
-  restart.
+- **Every agent on the team.** Agents get three tools (`list_team`, `send_message`, `check_inbox`) under the MCP
+  server `reason-network`. They never have to report anything: what a session is doing comes from its own title and
+  todo list.
+- **Messages land right away.** Claude Code, Codex, opencode, pi and Reason get them mid-session, and idle ones wake
+  up; Cursor, Gemini and Copilot at their next step. Claude sessions you already had open join without a restart.
 - **A menu bar icon** on macOS shows who's online and what they're doing.
-- **No setup to maintain.** It runs in the background, updates itself, and the link keeps working.
 
 ```sh
-tincan who                    # who's around and what their sessions are doing
-tincan send alice/api-claude "did the token format change?"   # message one of alice's agents
-tincan listen --as terminal   # replies to what you sent from this terminal
-tincan link                   # the team link again
-tincan setup                  # which agents are on tincan, and how messages are handled
+reason network who                                     # who's around and what their sessions are doing
+reason network alice/api-claude "did the token format change?"   # ask one of alice's agents, wait for the answer
+reason network send alice/api-claude "heads up: main is red"     # send without waiting
+reason network setup                                   # wire this computer's agents in again
 ```
 
 ## How it works
 
-Each machine runs a small daemon. Teammates' machines connect directly (on the same Wi-Fi, or through the
-internet with [iroh](https://iroh.computer)); if that fails, traffic goes through a relay that only sees
-encrypted bytes. That's one of n0's (the company behind iroh) unless your team runs its own (`tincan relay
-<url>`): then your machines never contact n0 at all. Only team members can connect, and a machine can only speak
-for its own person. Messages to someone offline wait and go out when they're back.
+Each computer runs a small daemon. Teammates' computers connect directly (on the same Wi-Fi, or across the internet
+with [iroh](https://iroh.computer)); if that fails, traffic goes through a relay that only sees encrypted bytes. Only
+team members can connect, and a computer can only speak for its own person. Messages to someone offline wait and go
+out when they're back. State lives in `~/.reason/network`. Details: [DESIGN.md](DESIGN.md).
 
-Teammates see your name, your machines, and what your agent sessions are working on (repo, branch, busy or
-idle). Details: [DESIGN.md](DESIGN.md).
-
-## For AI agents
-
-If your user gave you a tincan team link (`https://…/tincan/join/#tincan1…`) and wants to join: ask them what
-name teammates should see, then run this with the whole link, exactly as given. It asks no questions:
+## Build
 
 ```sh
-curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
+cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
+cargo build && python3 tests/e2e/two_machines.py   # two machines over iroh (needs internet)
+python3 tests/e2e/hooks.py && python3 tests/e2e/guided.py
 ```
 
-On Windows (from any shell):
+A `v*` tag builds the macOS and Linux archives the Reason CLI installs.
 
-```sh
-powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '<the whole link>' --as <name>"
-```
+## License
 
-To start a team instead, give it `init '<team>' --as <name>` in place of the link, then `tincan link` prints the
-link for teammates. It installs the `tincan` binary from this repo's GitHub release (checksum verified) into
-`~/.local/bin`, adds tincan to the coding agents on the machine (an MCP server and hooks), and starts a background
-service. `tincan who` shows the team.
-
-## Uninstall
-
-```sh
-tincan setup --remove && tincan leave && rm -rf ~/.tincan ~/.local/bin/tincan
-```
-
-On Windows, in PowerShell: `tincan setup --remove; tincan leave; Remove-Item -Recurse -Force ~\.tincan, ~\.local\bin\tincan*`
-
-## Contributing
-
-Issues, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), or ask in
-[Discussions](https://github.com/larstalian/tincan/discussions). Licensed MIT OR Apache-2.0.
+MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE); see [NOTICE](NOTICE). Originally tincan, by Lars Talian, who works
+at Reason.

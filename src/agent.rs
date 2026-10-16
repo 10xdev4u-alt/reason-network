@@ -9,7 +9,7 @@ use std::{
 
 pub const CLAUDE_CODE: &str = "claude-code";
 
-/// Best guess from the environment the agent gives its children. `TINCAN_AGENT` (set by `reason network setup` in the
+/// Best guess from the environment the agent gives its children. `REASON_NETWORK_AGENT` (set by `reason network setup` in the
 /// MCP config) wins.
 pub fn detect_env() -> Option<&'static str> {
     let has = |k: &str| std::env::var_os(k).is_some();
@@ -72,7 +72,7 @@ pub fn multiplexed(agent: &str) -> bool {
     matches!(agent, "codex" | "opencode" | "cursor")
 }
 
-/// The session id an agent exports to its MCP servers, if any. `TINCAN_SESSION` is set by our own pi extension.
+/// The session id an agent exports to its MCP servers, if any. `REASON_NETWORK_SESSION` is set by our own pi extension.
 pub fn env_session_id(agent: &str) -> Option<String> {
     if let Some(id) = crate::paths::env_var("SESSION").ok().filter(|s| !s.is_empty()) {
         return Some(id);

@@ -1,8 +1,8 @@
 [package]
 name = "reason-network"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
-description = "The engine behind reason ask: team directory and message bus for coding agents across machines (a modified tincan)"
+description = "Reason Network: the team directory and message bus behind reason network, for coding agents across machines"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/reason-machines/reason-network"
 publish = false

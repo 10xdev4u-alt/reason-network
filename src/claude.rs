@@ -1,5 +1,5 @@
 //! Claude Code keeps one `~/.claude/sessions/<pid>.json` per live session (name, cwd, busy/idle). Reading them
-//! lists every Claude session on this machine, including ones that don't have tincan loaded.
+//! lists every Claude session on this machine, including ones that don't have Reason Network loaded.
 
 use crate::{agent::ClaudeSocket, paths, util};
 use serde::Deserialize;
@@ -52,7 +52,7 @@ impl ClaudeSession {
     }
 }
 
-/// Whether tincan is one of Claude Code's MCP servers here (`reason network setup` chose Claude Code). Read once: the
+/// Whether Reason Network is one of Claude Code's MCP servers here (`reason network setup` chose Claude Code). Read once: the
 /// daemon restarts after setup.
 pub fn wired() -> bool {
     static WIRED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

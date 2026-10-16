@@ -2,9 +2,9 @@
 //! has them) and installs the daemon as a login service. `reason network setup --remove` undoes it. Every file it edits
 //! is backed up once, as `<file>.bak-reason`. Also `reason network doctor`.
 //!
-//! The upstream engine wired agents in as `tincan`. Each step here also takes out what this binary's path put
-//! there under that name, so an update moves an agent over and leaves nothing behind; a separately installed
-//! tincan (another path) keeps its wiring.
+//! Earlier builds wired agents in under `LEGACY_NAME`. Each step here also takes out what this binary's path put
+//! there under that name, so an update moves an agent over and leaves nothing behind; another program of that name
+//! (at another path) keeps its wiring.
 
 use crate::{AGENT_NAME, LEGACY_NAME, agent, client::Link, config::Config, paths, proto::*, render};
 use anyhow::{Context, Result, anyhow};
@@ -14,7 +14,7 @@ use std::{
     process::Command,
 };
 
-/// The service's name. A non-default `TINCAN_HOME` gets its own, so a second instance (or a test) can never
+/// The service's name. A non-default `REASON_NETWORK_HOME` gets its own, so a second instance (or a test) can never
 /// replace the real one.
 fn service_name() -> String {
     service_label("com.reasonmachines.network")
@@ -49,8 +49,8 @@ pub fn exe() -> Result<PathBuf> {
     Ok(exe.canonicalize()?)
 }
 
-/// The command line agents run through a shell: `'/path/to/tincan' hook codex stop`. On Windows that shell is
-/// PowerShell (`& 'C:\Users\Alex Smith\…\tincan.exe' hook codex stop`), and a path that needs no quotes also runs in
+/// The command line agents run through a shell: `'/path/to/reason-network' hook codex stop`. On Windows that shell is
+/// PowerShell (`& 'C:\Users\Alex Smith\…\reason-network.exe' hook codex stop`), and a path that needs no quotes also runs in
 /// cmd.exe.
 fn shell_cmd(exe: &Path, args: &str) -> String {
     let p = exe.display().to_string();
@@ -792,7 +792,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     }
     // Windows starts it with its command line and nothing else.
     if crate::paths::env_var_os("HOME").is_some() {
-        return Err(anyhow!("a logon entry can't set TINCAN_HOME"));
+        return Err(anyhow!("a logon entry can't set REASON_NETWORK_HOME"));
     }
     let command = format!("\"{}\" daemon --service", exe.display());
     let did = !run_entry().is_some_and(|v| v.contains(&command));
@@ -1070,11 +1070,10 @@ mod tests {
     fn hook_groups_merge_and_remove() {
         let mut hooks = serde_json::from_value::<Map<String, Value>>(json!({
             "Stop": [{ "hooks": [{ "type": "command", "command": "other-tool stop" }] }],
-            "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/x/tincan hook codex post-tool-use" }] }],
+            "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/x/reason-network hook codex post-tool-use" }] }],
         }))
         .unwrap();
-        let ours =
-            |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/tincan hook codex {e} ") }] });
+        let ours = |e: &str| json!({ "hooks": [{ "type": "command", "command": format!("/y/reason-network hook codex {e} ") }] });
         merge_hook_groups(
             &mut hooks,
             "codex",
@@ -1082,7 +1081,7 @@ mod tests {
             false,
         );
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 2, "keeps other tools' hooks");
-        assert_eq!(hooks["PostToolUse"].as_array().unwrap().len(), 1, "replaces the old tincan hook");
+        assert_eq!(hooks["PostToolUse"].as_array().unwrap().len(), 1, "replaces our earlier hook");
         merge_hook_groups(&mut hooks, "codex", vec![], true);
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 1);
         assert!(!hooks.contains_key("PostToolUse"));
@@ -1091,21 +1090,21 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn quoting() {
-        assert_eq!(shell_cmd(Path::new("/usr/local/bin/tincan"), "mcp"), "/usr/local/bin/tincan mcp");
-        assert_eq!(shell_cmd(Path::new("/Users/a b/tincan"), "mcp"), "'/Users/a b/tincan' mcp");
+        assert_eq!(shell_cmd(Path::new("/usr/local/bin/reason-network"), "mcp"), "/usr/local/bin/reason-network mcp");
+        assert_eq!(shell_cmd(Path::new("/Users/a b/reason-network"), "mcp"), "'/Users/a b/reason-network' mcp");
     }
 
     #[test]
     #[cfg(windows)]
     fn quoting() {
         assert_eq!(
-            shell_cmd(Path::new(r"C:\Users\alex\.local\bin\tincan.exe"), "mcp"),
-            r"C:\Users\alex\.local\bin\tincan.exe mcp"
+            shell_cmd(Path::new(r"C:\Users\alex\.local\bin\reason-network.exe"), "mcp"),
+            r"C:\Users\alex\.local\bin\reason-network.exe mcp"
         );
         assert_eq!(
-            shell_cmd(Path::new(r"C:\Users\Alex O'Neil\tincan.exe"), "mcp"),
-            r"& 'C:\Users\Alex O''Neil\tincan.exe' mcp"
+            shell_cmd(Path::new(r"C:\Users\Alex O'Neil\reason-network.exe"), "mcp"),
+            r"& 'C:\Users\Alex O''Neil\reason-network.exe' mcp"
         );
-        assert_eq!(me(Path::new(r"C:\a\tincan.exe")), r"C:\\a\\tincan.exe");
+        assert_eq!(me(Path::new(r"C:\a\reason-network.exe")), r"C:\\a\\reason-network.exe");
     }
 }

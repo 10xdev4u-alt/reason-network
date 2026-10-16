@@ -417,6 +417,7 @@ pub struct Ticket {
     pub peers: Vec<EndpointId>,
 }
 
+/// Wire format shared with every peer (and earlier builds): never change it.
 const TICKET_PREFIX: &str = "tincan1";
 /// In place of a length: an n0 relay, given by its region (`use1-1` for `https://use1-1.relay.n0.iroh.link./`).
 const N0_RELAY: u8 = 0xFF;
@@ -483,7 +484,7 @@ impl Ticket {
 
     pub fn decode(s: &str) -> Result<Self> {
         let s = s.trim().rsplit('#').next().unwrap_or_default();
-        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a tincan invite"))?;
+        let data = s.strip_prefix(TICKET_PREFIX).ok_or_else(|| anyhow!("not a Reason Network invite"))?;
         let b =
             BASE64URL_NOPAD.decode(data.as_bytes()).map_err(|_| anyhow!("this invite is damaged (was it cut off?)"))?;
         let damaged = || anyhow!("this invite is damaged (was it cut off?)");

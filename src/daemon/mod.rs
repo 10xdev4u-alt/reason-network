@@ -7,7 +7,6 @@ mod mail;
 mod reason;
 mod sessions;
 mod teamops;
-mod update;
 
 use crate::{
     config::Config,
@@ -36,7 +35,7 @@ use tokio::{
 const GIT_TTL: Duration = Duration::from_secs(30);
 const MAX_WAIT: u64 = 600;
 
-/// Runs the daemon. Only one runs per `TINCAN_HOME`: a second one exits, or with `service` waits its turn.
+/// Runs the daemon. Only one runs per state folder (`REASON_NETWORK_HOME`): a second one exits, or with `service` waits its turn.
 pub async fn run(service: bool) -> Result<()> {
     // Windows runs what starts at logon in a console window of its own: carry on in a hidden process instead.
     #[cfg(windows)]
@@ -64,9 +63,6 @@ pub async fn run(service: bool) -> Result<()> {
     }
     if daemon.cfg.reason {
         tokio::spawn(daemon.clone().reason_loop());
-    }
-    if update::allowed(daemon.cfg.auto_update) {
-        tokio::spawn(daemon.clone().update_loop());
     }
     loop {
         let stream = listener.accept().await?;

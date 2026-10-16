@@ -10,7 +10,7 @@ pub struct Config {
     pub person: Option<String>,
     /// Show teammates full working directories (otherwise only the last component, plus repo@branch).
     pub share_paths: bool,
-    /// Show teammates this machine's Claude Code sessions that don't have tincan loaded.
+    /// Show teammates this machine's Claude Code sessions that don't have Reason Network loaded.
     pub share_unmanaged: bool,
     /// Find teammates on the local network with mDNS.
     pub lan: bool,

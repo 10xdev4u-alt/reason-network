@@ -208,7 +208,7 @@ async fn connect_or_start(start: bool) -> Result<ipc::Stream> {
 }
 
 /// Starts `reason network daemon` (`--service` with `service`) detached from this process group, logging to
-/// `~/.tincan/daemon.log`.
+/// `~/.reason/network/daemon.log`.
 pub fn start_daemon(service: bool) -> Result<std::process::Child> {
     paths::ensure_home()?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(paths::log())?;
@@ -244,7 +244,7 @@ fn detach(cmd: &mut Command) -> std::io::Result<std::process::Child> {
 mod tests {
     #[test]
     fn a_daemon_runs_only_while_it_holds_the_lock() {
-        let dir = std::env::temp_dir().join(format!("tincan-lock-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("reason-network-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("daemon.lock");
         // A pid left behind by a daemon that exited (or a zombie): the lock is free.

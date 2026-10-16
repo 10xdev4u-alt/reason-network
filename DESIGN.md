@@ -1,4 +1,4 @@
-# tincan design
+# Reason Network design
 
 A team directory and message bus for coding agents. Any agent (Claude Code, Codex, Cursor, Gemini CLI,
 opencode, Copilot CLI, Amp, …) on any teammate's machine can see who is working on what, right now, and
@@ -55,23 +55,23 @@ unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
 
 ```
 ┌─ machine: alex-mbp ───────────────────────────────────────────┐
-│ claude ── tincan mcp ──┐                                       │
-│ codex  ── tincan mcp ──┤  unix socket       ┌──────────────┐   │      iroh QUIC (ed25519-authenticated)
-│ cursor ── tincan mcp ──┼──────────────────▶ │ tincan daemon │◀──┼──▶   direct on LAN (mDNS)
-│ hooks: tincan hook … ──┘  ~/.tincan/sock     │  SQLite      │   │      hole-punched over internet
-│ you:   tincan who/send ──────────────────▶  └──────────────┘   │      relay fallback over HTTPS :443
+│ claude ── reason-network mcp ──┐                                       │
+│ codex  ── reason-network mcp ──┤  unix socket       ┌──────────────┐   │      iroh QUIC (ed25519-authenticated)
+│ cursor ── reason-network mcp ──┼──────────────────▶ │ Reason Network daemon │◀──┼──▶   direct on LAN (mDNS)
+│ hooks: reason-network hook … ──┘  ~/.reason/network/sock     │  SQLite      │   │      hole-punched over internet
+│ you:   Reason Network who/send ──────────────────▶  └──────────────┘   │      relay fallback over HTTPS :443
 └───────────────────────────────────────────────────────────────┘
 ```
 
-One static Rust binary, `tincan`, with subcommands:
+One static Rust binary, `Reason Network`, with subcommands:
 
-- `tincan daemon`: per machine. Owns the iroh endpoint, roster, directory, mailboxes (SQLite). Started on
+- `reason network daemon`: per machine. Owns the iroh endpoint, roster, directory, mailboxes (SQLite). Started on
   demand by any other subcommand, or installed as a launchd/systemd user service (on Windows, started at logon
   from the user's Run key; there the local socket is a named pipe).
-- `tincan mcp`: stdio MCP server spawned by the agent. Thin client of the daemon. **Must handle many
+- `reason network mcp`: stdio MCP server spawned by the agent. Thin client of the daemon. **Must handle many
   sessions per process**: Codex, opencode and Cursor share one MCP process across threads/tabs.
-- `tincan hook <agent>`: hook handler (status, context injection, stop-continuation, wake).
-- `tincan who | send | listen | status | init | invite | join | setup | doctor`: the CLI. `send` goes out as
+- `reason network hook <agent>`: hook handler (status, context injection, stop-continuation, wake).
+- `reason network who | send | listen | status | init | invite | join | setup | doctor`: the CLI. `send` goes out as
   the agent session whose shell runs it, `--from <session>`, or from a plain terminal as `<you>/terminal`;
   `listen --as <name>` waits for the next message to `<you>/<name>`.
 
@@ -81,14 +81,14 @@ SDK) both exist and work today. Zig has neither, which is why agent-rpc's MCP sh
 ## Network layer (M1)
 
 **Transport: iroh 1.3.** Each daemon is an iroh `Endpoint` with a persistent secret key
-(`~/.tincan/machine.key`). Peers are dialed by `EndpointId`; iroh resolves addresses via n0 DNS/pkarr, finds
+(`~/.reason/network/machine.key`). Peers are dialed by `EndpointId`; iroh resolves addresses via n0 DNS/pkarr, finds
 LAN peers with `iroh-mdns-address-lookup` (works with no internet), hole-punches, and falls back to a relay
 over HTTPS. Default relays are n0's public ones (they only see encrypted QUIC). A team can set its own relay
-(`tincan relay <url>` or `tincan init --relay <url>`; the `iroh-relay` binary on any VPS, Let's Encrypt on :443,
+(`reason network relay <url>` or `reason network init --relay <url>`; the `iroh-relay` binary on any VPS, Let's Encrypt on :443,
 access limited to the roster's endpoint ids). Then its machines never contact n0: they use only that relay
 (teammates are dialed through it) and mDNS on the LAN, and invites come in the long form, since a four-word code
-needs n0's lookup. A machine that was off while the team switched relays can't find it on its own; `tincan doctor`
-there says to set the same relay with `tincan relay`.
+needs n0's lookup. A machine that was off while the team switched relays can't find it on its own; `reason network doctor`
+there says to set the same relay with `reason network relay`.
 That is the "HTTPS and local network, MagicDNS style" requirement with one stack and no server we must run.
 
 **Roster (membership).** Replicated to every machine, every entry signed by a member machine's key:
@@ -109,9 +109,9 @@ that was removed while away is first sent the state that says so; strangers lear
 **Invites.** The main way in is the **team link**: `https://<site>/join/#<ticket>`, where the ticket packs the
 team id, the team link's secret, the inviting machine's relay and LAN address hints, and up to six members' keys.
 The link secret is a reusable invite in the team state (any member can show the link and any online member can
-redeem it), replaced with `tincan link --new` and whenever someone is removed; removed machines are never sent it.
+redeem it), replaced with `reason network link --new` and whenever someone is removed; removed machines are never sent it.
 The page shows one command (`curl … install.sh | sh -s -- <ticket>`); the joiner only types a name. Four-word
-one-time codes (`tincan invite --code`, ~41 bits) derive a temporary iroh key the inviting machine listens on, for
+one-time codes (`reason network invite --code`, ~41 bits) derive a temporary iroh key the inviting machine listens on, for
 reading out loud or adding your own machines.
 
 **Presence and directory.** Daemons keep a connection to every online member (full mesh; fine to ~50
@@ -130,7 +130,7 @@ also holds mail for offline machines and keeps searchable team history. Same bin
 
 ## Local layer (M0)
 
-**Daemon API**: newline-delimited JSON over `~/.tincan/tincan.sock` (mode 0600). Requests carry an `id`; a
+**Daemon API**: newline-delimited JSON over `~/.reason/network/network.sock` (mode 0600). Requests carry an `id`; a
 session connection also receives pushed `deliver` events for its sessions.
 
 **Session registration**, by priority:
@@ -159,10 +159,10 @@ The hard part. Each session advertises a **delivery tier** so senders know when 
 | Claude Code | push | MCP child posts to the session's own inbox socket (`CLAUDE_CODE_MESSAGING_SOCKET`, `{"type":"user",…}` frame): delivered between tool calls, starts a turn if idle. Fallbacks: `asyncRewake` hook (documented idle wake), channels (`notifications/claude/channel`, needs a dev flag until allowlisted). |
 | Codex | push | `codex queue --thread <id>` / app-server `turn/start` (default daemon mode). Mid-turn: `PostToolUse` `additionalContext`. Stop: `decision:block`. Hooks need one-time approval in `/hooks`. |
 | opencode | push | Plugin: `client.session.promptAsync` (V1), `POST /api/session/:id/prompt` via `service.json` (V2). |
-| pi | push | Extension (`~/.pi/agent/extensions/tincan.ts`): registers the MCP server per session (`deferred`, with `TINCAN_SESSION`), `sendUserMessage` (`deliverAs: "steer"` mid-run, a new turn when idle), busy/idle from `agent_start`/`agent_settled`, the session name as `doing`. |
-| Reason | push | Its agent runs in Reason's cloud: the daemon lists live sessions (`reason session list --json`, when `reason = true`) and sends with `reason session send`. Replies go through the CLI: `tincan send <to> --from <its address>`. |
+| pi | push | Extension (`~/.pi/agent/extensions/reason-network.ts`): registers the MCP server per session (`deferred`, with `REASON_NETWORK_SESSION`), `sendUserMessage` (`deliverAs: "steer"` mid-run, a new turn when idle), busy/idle from `agent_start`/`agent_settled`, the session name as `doing`. |
+| Reason | push | Its agent runs in Reason's cloud: the daemon lists live sessions (`reason session list --json`, when `reason = true`) and sends with `reason session send`. Replies go through the CLI: `reason network send <to> --from <its address>`. |
 | Amp | push | Plugin: `thread.appendUserMessage(…, {steer:true})`. |
-| Cursor | turn | `postToolUse` `additional_context`; `stop` `followup_message`. Idle: background `tincan wait`. |
+| Cursor | turn | `postToolUse` `additional_context`; `stop` `followup_message`. Idle: background `reason network wait`. |
 | Gemini CLI | turn | `AfterTool` `additionalContext`; `AfterAgent` block. Idle: experimental background-shell inject. |
 | Copilot CLI | turn | `postToolUse` `additionalContext`; `agentStop` block; `notification` hook. |
 | any MCP client | pull | Tools + unread notice on every tool result + `check_inbox(wait_secs)` long-poll. |
@@ -170,7 +170,7 @@ The hard part. Each session advertises a **delivery tier** so senders know when 
 MCP notifications are not a delivery path: no client passes them to the model (checked Oct 2026).
 
 Gotcha: Cursor, Copilot CLI and Devin load **Claude Code's** hooks from `~/.claude/settings.json`, so
-`tincan hook` must detect which agent is actually calling it.
+`reason network hook` must detect which agent is actually calling it.
 
 ## What the agent sees
 
@@ -183,20 +183,20 @@ Three tools, none of which an agent has to call unless it wants to message someo
   prompts it". `wake:false` = FYI, read at the next natural pause.
 - `check_inbox(wait_secs?)`: unread messages; can block waiting for a reply.
 
-Agents never report what they are doing; tincan reads it from what they record anyway (`doing.rs`): the
+Agents never report what they are doing; Reason Network reads it from what they record anyway (`doing.rs`): the
 session's title (Claude Code's `ai-title` transcript entries, Codex's thread names in
 `~/.codex/session_index.jsonl`, opencode's session title) and the task in progress on its own todo list
 (Claude Code's `~/.claude/tasks/<session>/`, TodoWrite, Codex's `update_plan`, Gemini's `write_todos`,
 Cursor's `todo_write`, opencode's todos). Transcripts come from hooks (`transcript_path`) or, for Claude Code,
 from its session id; only what was appended since the last look is read. A Claude Code session renamed with
-`/rename` keeps that name on tincan.
+`/rename` keeps that name on Reason Network.
 
 Incoming messages are framed as peer input, never as the user:
 
 ```
-<tincan-message from="alice/api-cursor" agent="cursor" repo="acme/api" id="01JA…">
+<reason-message from="alice/api-cursor" agent="cursor" repo="acme/api" id="01JA…">
 Did you change the session token format? My tests started failing on refresh.
-</tincan-message>
+</reason-message>
 From alice's agent. Reply if useful with send_message to "alice/api-cursor".
 ```
 
@@ -209,7 +209,7 @@ not approve. Nothing changes how an agent works when it isn't messaging.
 - Only roster machines can connect (iroh handshake proves the key; hook rejects the rest).
 - Peer text is framed as peer input. Agents are told not to treat it as user instructions.
 - Per-machine inbound policy: `accept` (default within the team), `hold` (you approve with
-  `tincan held` / `tincan approve`), `refuse`; overridable per person. Claude Code adds its own
+  `reason network held` / `reason network approve`), `refuse`; overridable per person. Claude Code adds its own
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.
@@ -220,15 +220,15 @@ not approve. Nothing changes how an agent works when it isn't messaging.
 
 ```sh
 curl -fsSL https://…/install.sh | sh      # dist-built static binary; also Homebrew
-tincan init vibes --as alex                  # first person: creates the team
-tincan invite                               # prints: tincan join cm1…
-tincan join cm1… --as alice                 # friends: joins, installs service, wires up agents
+Reason Network init vibes --as alex                  # first person: creates the team
+Reason Network invite                               # prints: Reason Network join cm1…
+Reason Network join cm1… --as alice                 # friends: joins, installs service, wires up agents
 ```
 
-`join`/`init` run `tincan setup`, which detects installed agents and wires each one (backing up every file it
+`join`/`init` run `reason network setup`, which detects installed agents and wires each one (backing up every file it
 edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/config.toml` + `hooks.json`,
 `~/.cursor/mcp.json` + `hooks.json`, `~/.gemini/settings.json`, opencode plugin + MCP, Copilot
-`mcp-config.json` + hooks. Or paste one line into any agent: "install tincan and join cm1…".
+`mcp-config.json` + hooks. Or paste one line into any agent: "install Reason Network and join cm1…".
 
 ## Milestones
 
@@ -237,7 +237,7 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 - **M1, the team** (done): iroh endpoint, signed roster, `init`/`invite`/`join`/`remove`/`leave`, presence
   sync, routing with acks and outbox, hold/refuse policies, rate limit, mDNS, custom relay.
 - **M2, adapters** (done): Codex (`codex queue` + hooks), Cursor, Gemini, Copilot (hooks), opencode (plugin);
-  `tincan setup [--remove]`, launchd/systemd service, `tincan doctor`. Amp: MCP only, by hand.
+  `reason network setup [--remove]`, launchd/systemd service, `reason network doctor`. Amp: MCP only, by hand.
 - **M3, ship** (done, pending a first tagged release): GitHub Actions builds for macOS and Linux, `install.sh`
   (install and join in one line), GitHub Pages site. Later: Homebrew, a Claude Code plugin marketplace.
 - **M4, team features**: file-overlap warnings ("bob/api-codex is also editing src/auth.rs", from
@@ -245,7 +245,7 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 
 ## Defaults (easy to change)
 
-- Names: `tincan` for the binary, `tincan` for the repo.
+- Names: `Reason Network` for the binary, `Reason Network` for the repo.
 - License: MIT OR Apache-2.0.
 - Inbound policy between teammates: `accept` (per-person `hold`/`refuse` available).
 - Teammates see repo@branch and the last component of the working directory; full paths are opt-in.
@@ -263,30 +263,30 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 
 ## Config
 
-`~/.tincan/config.toml`:
+`~/.reason/network/config.toml`:
 
 | Key | Default | |
 |---|---|---|
 | `person` | `$USER` | your name (set by `init`/`join`) |
 | `share_paths` | `false` | show teammates full working directories |
-| `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have tincan loaded |
+| `share_unmanaged` | `false` | show teammates Claude Code sessions that don't have Reason Network loaded |
 | `tray` | `true` | macOS: show the menu bar icon while the background service runs |
 | `lan` | `true` | find teammates on the local network (mDNS) |
 | `auto_update` | `true` | install new releases when they come out (checked every few hours) |
-| `reason` | `false` | list your live Reason sessions (set by `tincan setup`) |
+| `reason` | `false` | list your live Reason sessions (set by `reason network setup`) |
 | `inbound` | accept | see above |
 
 ## Troubleshooting
 
-- **`tincan doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
-- **An agent doesn't have the tincan tools:** restart that session; agents load MCP servers at startup.
-- **A teammate shows as offline:** their machine is asleep or tincan isn't running there (`tincan doctor` on
+- **`reason network doctor`** checks the daemon, the team connection (direct or relayed, per machine) and every agent.
+- **An agent doesn't have the Reason Network tools:** restart that session; agents load MCP servers at startup.
+- **A teammate shows as offline:** their machine is asleep or Reason Network isn't running there (`reason network doctor` on
   their side). Messages wait in your outbox and go out when they're back. If it was off while the team changed
-  relays, run `tincan relay` there with the team's relay (`tincan team` shows it).
-- **macOS asks to let tincan find devices on your local network:** allow it for direct LAN connections. If you
-  don't, tincan still works over the internet.
-- **Windows asks to let tincan through the firewall:** allow it for direct and LAN connections. If you don't,
-  tincan still works, through a relay.
-- **Codex sessions don't show up until they use a tincan tool:** Codex hasn't been told to trust the hooks yet;
+  relays, run `reason network relay` there with the team's relay (`reason network team` shows it).
+- **macOS asks to let Reason Network find devices on your local network:** allow it for direct LAN connections. If you
+  don't, Reason Network still works over the internet.
+- **Windows asks to let Reason Network through the firewall:** allow it for direct and LAN connections. If you don't,
+  Reason Network still works, through a relay.
+- **Codex sessions don't show up until they use a Reason Network tool:** Codex hasn't been told to trust the hooks yet;
   run `/hooks` in Codex.
-- Logs: `~/.tincan/daemon.log`.
+- Logs: `~/.reason/network/daemon.log`.

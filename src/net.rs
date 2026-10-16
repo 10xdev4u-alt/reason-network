@@ -28,6 +28,7 @@ use std::{
 };
 use tokio::sync::{Notify, mpsc, oneshot};
 
+// Wire identifiers shared with every peer (and earlier builds): never change them.
 pub const ALPN: &[u8] = b"tincan/1";
 pub const JOIN_ALPN: &[u8] = b"tincan/join/1";
 const PROTO: u32 = 1;
@@ -141,7 +142,7 @@ pub async fn check_relay(key: SecretKey, url: &str) -> Result<()> {
 }
 
 /// mDNS, minus the relay a neighbour advertises: a teammate still on n0's relays (it missed a switch, or runs an older
-/// tincan) must not draw this machine onto them.
+/// Reason Network) must not draw this machine onto them.
 #[derive(Debug)]
 struct NoRelays(MdnsAddressLookup);
 

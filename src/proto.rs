@@ -1,5 +1,5 @@
 //! The local API between the daemon and its clients (`reason network mcp`, the CLI, hooks): one JSON object per line
-//! over `~/.tincan/tincan.sock`. Requests carry an `id` and get a [`Reply`] with the same id; a connection that
+//! over `~/.Reason Network/Reason Network.sock`. Requests carry an `id` and get a [`Reply`] with the same id; a connection that
 //! registered sessions also receives [`Event`]s for them.
 
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ pub enum Tier {
     Turn,
     /// Seen only when the agent checks its inbox.
     Pull,
-    /// Not on tincan: cannot receive.
+    /// Not on Reason Network: cannot receive.
     None,
 }
 

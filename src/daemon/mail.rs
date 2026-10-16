@@ -29,7 +29,7 @@ enum Channel {
     ClaudeSocket(u64),
     /// The agent's own CLI: `codex queue --thread <id> --message`, `reason session send <id> --message`.
     Command(&'static str, Vec<String>),
-    /// Straight into a Claude Code session's messaging socket (one without tincan's tools: it replies with the CLI).
+    /// Straight into a Claude Code session's messaging socket (one without Reason Network's tools: it replies with the CLI).
     ClaudeDirect(agent::ClaudeSocket),
     /// Hooks inject it at the next tool call or turn end.
     Hook,
@@ -366,7 +366,7 @@ impl Daemon {
             .and_then(|t| t.member(&peer).map(|m| m.person.clone()))
             .ok_or_else(|| anyhow!("not a team member"))?;
         let msg = clean(msg)?;
-        // Messages go between agent sessions; an older tincan may still send to or from a person.
+        // Messages go between agent sessions; an older Reason Network may still send to or from a person.
         if !msg.from.contains('/') || !msg.to.contains('/') {
             bail!(UPGRADE);
         }

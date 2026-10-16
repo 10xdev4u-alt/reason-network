@@ -1,6 +1,6 @@
 //! Reason sessions. Reason's agent runs in its cloud, so there is no hook or MCP server here: when `reason` is on
 //! (`reason network setup`), the daemon lists your live Reason sessions (`reason session list --json`) every few seconds,
-//! and delivers to them with `reason session send`. They reply through the tincan CLI, which runs here.
+//! and delivers to them with `reason session send`. They reply through the Reason Network CLI, which runs here.
 
 use super::{Daemon, log};
 use crate::{agent, git::GitInfo, proto::*, util};

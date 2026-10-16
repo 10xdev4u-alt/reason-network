@@ -22,8 +22,6 @@ jobs:
           - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
     runs-on: ${{ matrix.os }}
     env:
-      # The site team links and the installer point at; set the repo variable once the domain is live.
-      TINCAN_SITE_URL: ${{ vars.TINCAN_SITE_URL }}
       # Windows builds carry their C runtime, so they run without the Visual C++ redistributable.
       RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
     steps:

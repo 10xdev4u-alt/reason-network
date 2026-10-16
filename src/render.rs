@@ -33,7 +33,7 @@ const GREEN: &str = "32";
 const YELLOW: &str = "33";
 const CYAN: &str = "36";
 
-/// The team directory. For an agent (`agent`) it is compact, and sessions without tincan are only counted (it
+/// The team directory. For an agent (`agent`) it is compact, and sessions without Reason Network are only counted (it
 /// can't message them); people get more room, a dot for whether each machine is online, and colour.
 pub fn directory(d: &Directory, agent: bool, paint: Paint) -> String {
     let now = util::now_ms();
@@ -218,7 +218,7 @@ pub fn send_result(r: &SendResult) -> String {
 }
 
 /// Messages framed for an agent's context: clearly peer input, with what it needs to reply. `agent` is the
-/// recipient's agent kind, if known; `cli` when it has no tincan tools and replies with the CLI.
+/// recipient's agent kind, if known; `cli` when it has no Reason Network tools and replies with the CLI.
 pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     let mut out = String::new();
     for m in msgs {
@@ -240,7 +240,7 @@ pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     } else {
         format!("From {person}'s agent.")
     };
-    // No tincan tools (Reason's agent; a Claude session from before tincan), but commands run on this computer.
+    // No Reason Network tools (Reason's agent; a Claude session from before Reason Network), but commands run on this computer.
     let reply = if cli || agent == Some("reason") {
         format!("Reply if useful: reason network send {} --from {} \"<reply>\"", last.from, last.to)
     } else {

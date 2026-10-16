@@ -1,17 +1,8 @@
-reason-network
+Reason Network
 Copyright 2026 Reason Machines, Inc.
 
-This product is a modified version of tincan (https://github.com/larstalian/tincan),
-Copyright (c) 2026 the tincan contributors, licensed under the Apache License,
-Version 2.0 (LICENSE-APACHE) or the MIT license (LICENSE-MIT), at your option.
-
-Changes from tincan 0.9.2, made by Reason Machines:
-- The binary is named reason-network and agents see it as "reason-network": the MCP server
-  name and serverInfo, the opencode plugin and pi extension files, the Copilot CLI hook
-  file, Gemini CLI hook names, message tags and user-facing text.
-- `setup` removes the wiring and login service an earlier build of the same binary
-  installed under the name "tincan", and installs its service as com.reasonmachines.network.
-- Settings are read from REASON_NETWORK_* environment variables, falling back to TINCAN_*.
-- The daemon never updates itself; the Reason CLI installs a pinned, checksum-verified build.
-The network protocol, invite format and data directory are unchanged, so it interoperates
-with tincan 0.9.x peers.
+This product includes software originally developed as tincan
+(https://github.com/larstalian/tincan), Copyright (c) 2026 the tincan contributors,
+licensed under the Apache License, Version 2.0 (LICENSE-APACHE) or the MIT license
+(LICENSE-MIT), at your option. Reason Machines has modified it: it is renamed Reason Network,
+moves its state to ~/.reason/network, and is installed and updated by the Reason CLI.

@@ -50,7 +50,7 @@ enum Place {
 }
 
 impl Daemon {
-    /// This machine's sessions: running ones, plus (if `unmanaged`) Claude Code sessions without tincan.
+    /// This machine's sessions: running ones, plus (if `unmanaged`) Claude Code sessions without Reason Network.
     pub(super) async fn local_rows(self: &Arc<Self>, me: Option<&str>, unmanaged: bool) -> Result<Vec<SessionInfo>> {
         let claude = tokio::task::spawn_blocking(claude::scan).await?;
         let mut cwds: Vec<String> = self.inner.lock().unwrap().live.values().map(|l| l.reg.cwd.clone()).collect();
@@ -61,8 +61,8 @@ impl Daemon {
             gits.insert(cwd, info);
         }
 
-        // With Claude Code on tincan, every open Claude session is on it: sessions started before tincan was set
-        // up have no tincan tools, but take messages through their own socket and reply with the CLI.
+        // With Claude Code on Reason Network, every open Claude session is on it: sessions started before Reason Network was set
+        // up have no Reason Network tools, but take messages through their own socket and reply with the CLI.
         if claude::wired() {
             let now = util::now_ms();
             for c in &claude {
@@ -255,7 +255,7 @@ impl Daemon {
                     .any(|s| s.to_lowercase().contains(&f))
             });
         }
-        // Me first, then teammates; on tincan before not; live before offline.
+        // Me first, then teammates; on Reason Network before not; live before offline.
         let rank = |r: &SessionInfo| {
             (
                 r.person != self.person,

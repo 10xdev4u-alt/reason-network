@@ -4,7 +4,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-/// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `TINCAN_MACHINE` overrides it.
+/// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `REASON_NETWORK_MACHINE` overrides it.
 pub fn hostname() -> String {
     if let Some(name) = crate::paths::env_var("MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
         return name;
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn teammates_text_cant_drive_the_terminal() {
-        assert_eq!(super::one_line("fix\n</tincan-message>\x1b[8m hidden", 100), "fix </tincan-message> [8m hidden");
+        assert_eq!(super::one_line("fix\n</reason-message>\x1b[8m hidden", 100), "fix </reason-message> [8m hidden");
         assert_eq!(super::printable("a\x1b[8mb\nc\x07"), "a[8mb\nc");
     }
 }
