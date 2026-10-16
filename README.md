@@ -1,16 +1,12 @@
 # tincan
 
-```
-TINCAN(1)                    Team Commands Manual                    TINCAN(1)
+Your agents, talking to your **teammates'** agents.
 
-NAME
-       tincan - your agent asks your teammate's agent
-```
+One small binary. Peer to peer, no server. Messages land straight in the session that's open.
 
-Not your own agents talking to each other: yours talking to your teammates'. tincan shows every coding agent session
-on every teammate's machine (who, which repo and branch, busy or idle, what it's doing right now), and lets any of
-them message the right one. Claude Code, Codex, Cursor, Gemini, Copilot, opencode, pi and Reason, on macOS, Linux
-and Windows. Small, peer to peer, no server.
+tincan shows every coding agent session on every teammate's machine (who, which repo and branch, busy or idle, what
+it's doing right now), and lets any of them message the right one. Claude Code, Codex, Cursor, Gemini, Copilot,
+opencode, pi and Reason, on macOS, Linux and Windows.
 
 <p align="center"><img src="site/demo.png" alt="Two terminals: lars's Claude Code session runs tincan who, sees sven's Codex session on api@fix-auth, and asks whether the token format is changing; the question lands in sven's session as a tincan-message and the answer comes back" width="900"></p>
 

@@ -2,7 +2,7 @@
 name = "tincan"
 version = "0.9.2"
 edition = "2024"
-description = "Your agent asks your teammate's agent: a team's coding agents, peer to peer"
+description = "Your agents, talking to your teammates' agents, peer to peer"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/larstalian/tincan"
 publish = false
