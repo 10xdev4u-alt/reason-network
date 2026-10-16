@@ -4,6 +4,7 @@
 
 mod directory;
 mod mail;
+mod notify;
 mod reason;
 mod sessions;
 mod teamops;
@@ -103,6 +104,8 @@ pub struct Daemon {
     net: RwLock<Option<Arc<Net>>>,
     /// Recent message times per sender, for the rate limit.
     rate: Mutex<HashMap<String, VecDeque<Instant>>>,
+    /// When a notification from each sender was last shown here.
+    shown: Mutex<HashMap<String, Instant>>,
 }
 
 struct Inner {
@@ -181,6 +184,7 @@ impl Daemon {
             git_cache: Mutex::new(HashMap::new()),
             net: RwLock::new(None),
             rate: Mutex::new(HashMap::new()),
+            shown: Mutex::new(HashMap::new()),
         })
     }
 
@@ -260,8 +264,8 @@ impl Daemon {
             }
             Request::SetStatus { key, doing, name } => json!(self.set_status(&key, doing, name)?),
             Request::Who { me, filter, all } => json!(self.who(me, filter, all).await?),
-            Request::Send { from, to, body, reply_to, wake } => {
-                json!(self.send(from, &to, &body, reply_to, wake).await?)
+            Request::Send { from, to, body, reply_to, wake, notify } => {
+                json!(self.send(from, &to, &body, reply_to, wake, notify).await?)
             }
             Request::Inbox { key, wait_secs, peek } => json!(self.inbox(key, wait_secs.min(MAX_WAIT), peek).await?),
             Request::Unread { key } => json!(self.unread(&key)?),

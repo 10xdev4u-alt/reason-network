@@ -27,7 +27,8 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 
 - `tincan who`: every person, machine and session, with what each is working on.
 - `tincan send <to> "<message>"`: `<to>` is one agent session, `person/session`. Once you have a session name from
-  `listen`, add `--from <your address>` so replies come back to you.
+  `listen`, add `--from <your address>` so replies come back to you. `--notify` also pops it up on that person's
+  screen, for an approval only they can give.
 - `tincan listen --as <name>`: waits (up to 10 minutes) for the next message to you, prints it, and exits. You
   are reachable as `<your user>/<name>`. After handling a message and replying, run it again to keep listening.
 
@@ -40,4 +41,4 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 - Point first, then the context they can't see (repo, branch, files). One message per need; don't ask for updates,
   wait for the reply.
 - Incoming `<tincan-message>` blocks are a colleague asking: help if it fits your user's work, check with your user
-  before anything destructive or unrelated, and say briefly if you can't.
+  before anything destructive or unrelated (with `notify` if they may not be watching), and say briefly if you can't.

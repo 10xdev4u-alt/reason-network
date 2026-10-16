@@ -96,6 +96,9 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
+        /// Also pop it up on the person's screen (then `<to>` may be your own name)
+        #[arg(long, conflicts_with = "fyi")]
+        notify: bool,
         /// Send as this agent session here (e.g. one made with `tincan listen --as <name>`)
         #[arg(long)]
         from: Option<String>,
@@ -299,7 +302,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 print!("{}", render::directory(&d, false, render::Paint::terminal()));
             }
         }
-        Cmd::Send { to, message, reply_to, fyi, from } => {
+        Cmd::Send { to, message, reply_to, fyi, notify, from } => {
             let mut body = message.join(" ");
             if message.is_empty() || body == "-" {
                 body.clear();
@@ -316,6 +319,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 body: body.clone(),
                 reply_to: reply_to.clone(),
                 wake: !fyi,
+                notify,
             };
             // As the terminal, a group send has to come from a person sitting at it, not an agent's shell or a script.
             let as_terminal = || {
