@@ -194,6 +194,12 @@ fn yes() -> bool {
     true
 }
 
+/// `*`, `person/*` or `repo:<name>`, on any machine (`…@machine`): for a person at a terminal, never an agent.
+pub fn is_group(to: &str) -> bool {
+    let to = to.rsplit_once('@').map_or(to, |(s, _)| s);
+    to == "*" || to.starts_with("repo:") || to.ends_with("/*")
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Frame<T> {
     pub id: u64,

@@ -109,6 +109,10 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
+            // A person at a terminal may message a group; an agent picks the one session it needs.
+            if is_group(to) && !from_addr.ends_with("/terminal") {
+                bail!("agents message one session, not a group: pick it with list_team, or ask your user");
+            }
             let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
             for t in targets {
                 let msg = Message {
@@ -402,6 +406,12 @@ impl Daemon {
             if !g.loop_ok(&msg.from, &msg.to) {
                 return Ok(("refused".into(), LOOP_NOTE.into()));
             }
+            // Only an older tincan still sends an agent's group message; a teammate's isn't taken.
+            let sender = msg.from.split_once('/').map_or(msg.from.as_str(), |(p, _)| p);
+            if msg.via.is_some() && !msg.from.ends_with("/terminal") && sender != self.person {
+                let note = format!("refused: agents message one of {}'s sessions, not a group", self.person);
+                return Ok(("refused".into(), note));
+            }
             let held = policy == Policy::Hold;
             g.store.insert(&msg, held)?;
             match key {
@@ -513,10 +523,6 @@ impl Drop for Polling<'_> {
 
 fn unregistered() -> anyhow::Error {
     anyhow!("this session isn't registered with tincan; restart the agent session, or use the tincan tools")
-}
-
-fn is_group(to: &str) -> bool {
-    to == "*" || to.starts_with("repo:") || to.ends_with("/*")
 }
 
 /// Keeps a field to plain characters, so nothing a peer sends can reshape what agents are shown.

@@ -48,7 +48,7 @@ pub struct ListArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SendArgs {
-    /// "person/session" (or just "session"), "person/*" (all of a person's sessions), "repo:<name>", or "*".
+    /// "person/session" (or just "session").
     pub to: String,
     /// The message, with the point in the first line.
     pub message: String,
@@ -130,9 +130,7 @@ impl TincanMcp {
         Ok(self.finish(&key, res, true).await)
     }
 
-    #[tool(
-        description = "Send a message to a teammate's agent session, all of a person's sessions, everyone in a repo, or everyone."
-    )]
+    #[tool(description = "Send a message to one teammate's agent session.")]
     async fn send_message(
         &self,
         Parameters(a): Parameters<SendArgs>,

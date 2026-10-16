@@ -47,6 +47,9 @@ vibes    alex        alex-mbp     api-claude   (claude-code, acme/api@feat/auth,
 | `repo:acme/api` or `repo:api` | every live session working in that repo |
 | `*` | everyone |
 
+The groups (`alice/*`, `repo:`, `*`, with or without `@machine`) are for a person at a terminal: agents message
+one session.
+
 Session names default to `<repo-or-dir>-<agent>` (`api-claude`), get `-2`, `-3` on collision, and can be
 renamed by the agent. A new session in the same place with the same agent **inherits a stale name and its
 unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
@@ -213,6 +216,11 @@ not approve. Nothing changes how an agent works when it isn't messaging.
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.
+- Group guard: an agent's `*`, `person/*` or `repo:` message is refused before it goes anywhere, so it picks one
+  session. Only a sender that is `<person>/terminal` may use them: the CLI without `--from` when someone sits at the
+  terminal, or `--from <you>/terminal` from a script. A machine also refuses a group message from a teammate's agent
+  (an older tincan's). It doesn't stop a teammate's agent from messaging your sessions one by one; the loop guard
+  and the inbound policy cover that.
 - Nothing is sent to any service we run. Relays see ciphertext only. With its own relay, a team's machines never
   contact n0 either.
 

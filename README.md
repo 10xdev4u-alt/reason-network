@@ -43,6 +43,7 @@ That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent
 ```sh
 tincan who                    # who's around and what their sessions are doing
 tincan send alice/api-claude "did the token format change?"   # message one of alice's agents
+tincan send '*' "deploying api at 5"   # everyone (also alice/* or repo:api): from you at a terminal, never an agent
 tincan listen --as terminal   # replies to what you sent from this terminal
 tincan link                   # the team link again
 tincan setup                  # which agents are on tincan, and how messages are handled
