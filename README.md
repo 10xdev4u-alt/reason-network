@@ -1,5 +1,7 @@
-> **reason-network** is Reason Machines' build of tincan, the engine behind `reason network`. Agents see it as
-> `reason-network`. See [NOTICE](NOTICE) for what changed; everything below is tincan's own README.
+> **reason-network** is Reason Machines' build of [tincan](https://github.com/larstalian/tincan), the engine behind
+> `reason network`. tincan is created by Lars Talian and the tincan contributors and licensed under Apache-2.0 or MIT
+> (LICENSE-APACHE, LICENSE-MIT). Agents see this build as `reason-network`; [NOTICE](NOTICE) lists what changed.
+> Everything below is tincan's own README.
 
 # tincan
 
