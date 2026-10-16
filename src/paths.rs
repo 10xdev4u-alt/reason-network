@@ -41,10 +41,14 @@ pub fn home() -> PathBuf {
         return h.into();
     }
     let home = default_home();
-    if !home.exists() && legacy_home().is_dir() {
+    if !has_db(&home) && has_db(&legacy_home()) {
         return legacy_home();
     }
     home
+}
+
+fn has_db(home: &Path) -> bool {
+    home.join("network.db").exists() || home.join(format!("{LEGACY_NAME}.db")).exists()
 }
 
 /// What the state files are called in `home`: `network`, or the old name while they haven't been moved.
@@ -108,7 +112,14 @@ pub fn migrate() {
 fn migrate_unix() -> std::io::Result<()> {
     let explicit = env_var_os("HOME").map(PathBuf::from);
     let to = explicit.clone().unwrap_or_else(default_home);
-    let folder = || explicit.is_none() && !to.exists() && legacy_home().is_dir();
+    let legacy = legacy_home();
+    // The old folder itself (not the link left in its place), holding a team this folder doesn't have yet.
+    let folder = || {
+        explicit.is_none()
+            && std::fs::symlink_metadata(&legacy).is_ok_and(|m| m.is_dir())
+            && legacy.join(format!("{LEGACY_NAME}.db")).exists()
+            && !has_db(&to)
+    };
     let files = || stem(&to) == LEGACY_NAME;
     if !folder() && !files() {
         return Ok(());
@@ -117,24 +128,42 @@ fn migrate_unix() -> std::io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     let Some(_moving) = crate::util::lock(&dir.join(".network-move.lock"), true)? else { return Ok(()) };
     if folder() {
-        stop_daemon_in(&legacy_home())?;
-        std::fs::rename(legacy_home(), &to)?;
+        stop_daemon_in(&legacy)?;
+        // A folder in the way holds no team (`folder` checked): only an empty one goes, anything else stops the move.
+        let _ = std::fs::remove_dir(&to);
+        std::fs::rename(&legacy, &to)?;
     }
     if files() {
         stop_daemon_in(&to)?;
-        // The write-ahead log first: until the database itself is renamed, this all runs again and finishes.
-        for suffix in ["-wal", ""] {
-            let (old, new) = (to.join(format!("{LEGACY_NAME}.db{suffix}")), to.join(format!("network.db{suffix}")));
-            if old.exists() && !new.exists() {
-                std::fs::rename(old, new)?;
-            }
+        // Folding the write-ahead log into the database first makes the move one rename.
+        let old = to.join(format!("{LEGACY_NAME}.db"));
+        rusqlite::Connection::open(&old)
+            .and_then(|db| db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())))
+            .map_err(std::io::Error::other)?;
+        std::fs::rename(&old, to.join("network.db"))?;
+        for leftover in ["db-wal", "db-shm", "sock"] {
+            let _ = std::fs::remove_file(to.join(format!("{LEGACY_NAME}.{leftover}")));
         }
-        let _ = std::fs::remove_file(to.join(format!("{LEGACY_NAME}.db-shm")));
-        let _ = std::fs::remove_file(to.join(format!("{LEGACY_NAME}.sock")));
         // The earlier build's log talks about its own names; the moved state starts a fresh one.
         let _ = std::fs::remove_file(to.join("daemon.log"));
     }
+    // Agent sessions opened before the update keep running the earlier build's MCP server, which looks for the old
+    // folder (and the daemon's service may still log into it): a link there keeps them working until they restart.
+    if explicit.is_none() && !legacy.exists() && to.is_dir() {
+        let _ = std::fs::remove_dir(&legacy);
+        let _ = std::os::unix::fs::symlink(&to, &legacy);
+    }
     Ok(())
+}
+
+/// For the same sessions, the socket under its old name too.
+#[cfg(unix)]
+pub fn link_legacy_socket(sock: &Path) {
+    if sock.file_name().is_some_and(|n| n == "network.sock") {
+        let old = sock.with_file_name(format!("{LEGACY_NAME}.sock"));
+        let _ = std::fs::remove_file(&old);
+        let _ = std::os::unix::fs::symlink("network.sock", old);
+    }
 }
 
 /// Asks the daemon holding `home` (an earlier build, on the old names) to exit, and waits until it has.

@@ -58,6 +58,7 @@ impl Listener {
         let _ = std::fs::remove_file(&sock);
         let listener = tokio::net::UnixListener::bind(&sock).with_context(|| format!("binding {}", sock.display()))?;
         crate::util::chmod(&sock, 0o600)?;
+        paths::link_legacy_socket(&sock);
         Ok(Listener(listener))
     }
 
