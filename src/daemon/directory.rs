@@ -397,14 +397,14 @@ impl Daemon {
             theirs.sort();
             theirs.dedup();
             if theirs.is_empty() {
-                bail!("messages go to agent sessions, and {spec} has none on tincan right now");
+                bail!("messages go to agent sessions, and {spec} has none on reason ask right now");
             }
             bail!("messages go to agent sessions; {spec}'s are: {}", theirs.join(", "));
         } else {
             self.pick(cands.iter().copied().filter(|c| c.name == spec).collect(), spec, &target)?
         };
         if targets.is_empty() {
-            bail!("nobody matches '{to}' right now; run list_team (or `tincan who`) to see who is around");
+            bail!("nobody matches '{to}' right now; run list_team (or `reason ask who`) to see who is around");
         }
         Ok(targets)
     }
@@ -415,7 +415,7 @@ impl Daemon {
         let pool: Vec<&&Cand> = if live.is_empty() { found.iter().collect() } else { live };
         match pool.as_slice() {
             [] => bail!(
-                "no session called '{spec}'. Run list_team (or `tincan who`) to see who is around (sessions without tincan can't \
+                "no session called '{spec}'. Run list_team (or `reason ask who`) to see who is around (sessions without reason ask can't \
                  receive)."
             ),
             [one] => Ok(vec![target(one)]),

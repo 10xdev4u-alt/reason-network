@@ -1,10 +1,10 @@
-// tincan for pi: written by `tincan setup`, removed by `tincan setup --remove`.
-// Gives each session tincan's tools (deferred: kept out of the model's context until it looks for them), tells
-// tincan whether the session is busy and what it is called, and delivers teammates' messages into it.
+// reason ask for pi: written by `reason ask setup`, removed by `reason uninstall`.
+// Gives each session reason ask's tools (deferred: kept out of the model's context until it looks for them), tells
+// reason ask whether the session is busy and what it is called, and delivers teammates' messages into it.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { execFile } from "node:child_process"
 
-const TINCAN = "__TINCAN_EXE__"
+const ENGINE = "__ENGINE_EXE__"
 
 export default function (pi: ExtensionAPI) {
   let id = ""
@@ -15,7 +15,7 @@ export default function (pi: ExtensionAPI) {
 
   const hook = (args: string[]) =>
     new Promise<string>((resolve) =>
-      execFile(TINCAN, ["hook", "pi", ...args, "--session", id], { cwd, timeout: 10_000 }, (err, out) =>
+      execFile(ENGINE, ["hook", "pi", ...args, "--session", id], { cwd, timeout: 10_000 }, (err, out) =>
         resolve(err ? "" : String(out).trim()),
       ),
     )
@@ -34,10 +34,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     id = ctx.sessionManager.getSessionId()
     cwd = ctx.cwd
-    pi.registerMcpServer("tincan", {
-      command: TINCAN,
+    pi.registerMcpServer("reason-ask", {
+      command: ENGINE,
       args: ["mcp"],
-      env: { TINCAN_AGENT: "pi", TINCAN_SESSION: id },
+      env: { REASON_NETWORK_AGENT: "pi", REASON_NETWORK_SESSION: id },
       exposure: "deferred",
       description: "Message teammates' coding agents and see what each of their sessions is working on",
     })

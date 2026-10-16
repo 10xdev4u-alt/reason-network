@@ -123,7 +123,7 @@ struct Inner {
 struct Live {
     reg: SessionReg,
     name: String,
-    /// The client connection (`tincan mcp`) that owns it; `None` for sessions known only through hooks.
+    /// The client connection (`reason ask mcp`) that owns it; `None` for sessions known only through hooks.
     conn: Option<u64>,
     git: GitInfo,
     doing: Option<String>,

@@ -42,7 +42,7 @@ pub async fn connect() -> io::Result<Stream> {
     // SAFETY: asks about the pipe handle we hold.
     unsafe { windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut server) };
     if crate::client::running_daemon() != Some(server) {
-        return Err(io::Error::other(format!("{} is not this user's tincan daemon", paths::socket().display())));
+        return Err(io::Error::other(format!("{} is not this user's network daemon", paths::socket().display())));
     }
     Ok(pipe)
 }

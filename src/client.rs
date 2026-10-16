@@ -1,4 +1,4 @@
-//! Connection to the local daemon, starting it if needed. Long-lived clients (`tincan mcp`) reconnect on their
+//! Connection to the local daemon, starting it if needed. Long-lived clients (`reason ask mcp`) reconnect on their
 //! own and re-register their sessions, so a daemon restart is invisible to the agent.
 
 use crate::{ipc, paths, proto::*};
@@ -73,8 +73,8 @@ impl Link {
         let (tx, rx) = oneshot::channel();
         conn.pending.lock().unwrap().insert(id, tx);
         let line = serde_json::to_string(&Frame { id, body: req })?;
-        conn.tx.send(line).map_err(|_| anyhow!("tincan daemon connection closed"))?;
-        let reply = rx.await.map_err(|_| anyhow!("tincan daemon connection closed"))?;
+        conn.tx.send(line).map_err(|_| anyhow!("network daemon connection closed"))?;
+        let reply = rx.await.map_err(|_| anyhow!("network daemon connection closed"))?;
         if reply.ok {
             Ok(reply.result.unwrap_or(Value::Null))
         } else {
@@ -144,7 +144,7 @@ async fn reconnect(link: Weak<Link>) {
         let Some(link) = link.upgrade() else { return };
         match link.connect().await {
             Ok(_) => return,
-            Err(e) => eprintln!("tincan: reconnecting to daemon: {e:#}"),
+            Err(e) => eprintln!("reason ask: reconnecting to daemon: {e:#}"),
         }
         wait = (wait * 2).min(Duration::from_secs(30));
     }
@@ -169,20 +169,20 @@ async fn connect_or_start(start: bool) -> Result<ipc::Stream> {
         return Ok(s);
     }
     if !start {
-        bail!("the tincan daemon isn't running");
+        bail!("the network daemon isn't running");
     }
     // One is running (it may be starting or restarting): wait for it rather than start another.
     let mut child = None;
     if running_daemon().is_none() {
         // With the background service installed, the service starts it, so there is only ever its daemon.
         let by_service = crate::setup::service_installed()
-            && std::env::var_os("TINCAN_NO_SERVICE").is_none()
+            && crate::paths::env_var_os("NO_SERVICE").is_none()
             && crate::setup::start_service();
         if !by_service {
             child = Some(start_daemon(false)?);
         }
     }
-    let failed = || anyhow!("could not start the tincan daemon; see {}", paths::log().display());
+    let failed = || anyhow!("could not start the network daemon; see {}", paths::log().display());
     let mut connected = None;
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -200,14 +200,14 @@ async fn connect_or_start(start: bool) -> Result<ipc::Stream> {
             }
         }
     }
-    // Reaped when it exits, so a long-lived client (`tincan mcp`) never collects zombies.
+    // Reaped when it exits, so a long-lived client (`reason ask mcp`) never collects zombies.
     if let Some(mut c) = child {
         std::thread::spawn(move || c.wait());
     }
     connected.ok_or_else(failed)
 }
 
-/// Starts `tincan daemon` (`--service` with `service`) detached from this process group, logging to
+/// Starts `reason ask daemon` (`--service` with `service`) detached from this process group, logging to
 /// `~/.tincan/daemon.log`.
 pub fn start_daemon(service: bool) -> Result<std::process::Child> {
     paths::ensure_home()?;

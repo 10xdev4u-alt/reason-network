@@ -25,7 +25,7 @@ const IN_FLIGHT_TTL: Duration = Duration::from_secs(90);
 
 /// How a session on this machine gets a message into its conversation.
 enum Channel {
-    /// Its `tincan mcp` posts into Claude Code's session socket.
+    /// Its `reason ask mcp` posts into Claude Code's session socket.
     ClaudeSocket(u64),
     /// The agent's own CLI: `codex queue --thread <id> --message`, `reason session send <id> --message`.
     Command(&'static str, Vec<String>),
@@ -64,7 +64,7 @@ impl Inner {
     }
 }
 
-const UPGRADE: &str = "upgrade tincan (`tincan upgrade`): messages go between agent sessions now";
+const UPGRADE: &str = "update reason (then `reason ask setup`): messages go between agent sessions now";
 
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";
@@ -217,7 +217,7 @@ impl Daemon {
         let hook_note = if matches!(l.reg.agent.as_str(), "opencode" | "pi") {
             "queued: delivered within seconds once the session is idle"
         } else if l.reg.agent == "cli" {
-            "queued: it gets it the next time it runs `tincan listen`"
+            "queued: it gets it the next time it runs `reason ask listen`"
         } else {
             "queued: it sees it at its next tool call or when its turn ends"
         };
@@ -460,7 +460,7 @@ impl Daemon {
                 messages
             };
             if !messages.is_empty() || tokio::time::Instant::now() >= deadline {
-                // A `tincan listen` session replies with the CLI.
+                // A `reason ask listen` session replies with the CLI.
                 let text = render::for_agent(&messages, agent.as_deref(), agent.as_deref() == Some("cli"));
                 return Ok(Inbox { messages, text });
             }
@@ -512,7 +512,7 @@ impl Drop for Polling<'_> {
 }
 
 fn unregistered() -> anyhow::Error {
-    anyhow!("this session isn't registered with tincan; restart the agent session, or use the tincan tools")
+    anyhow!("this session isn't registered with reason ask; restart the agent session, or use the reason-ask tools")
 }
 
 fn is_group(to: &str) -> bool {

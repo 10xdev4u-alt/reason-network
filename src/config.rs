@@ -24,7 +24,7 @@ pub struct Config {
 }
 
 /// What happens to messages from teammates' agents: `accept` delivers them, `hold` waits for you to approve
-/// (`tincan held`), `refuse` bounces them.
+/// (`reason ask held`), `refuse` bounces them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inbound {
@@ -65,7 +65,7 @@ impl Default for Inbound {
 impl Config {
     pub fn load() -> Self {
         Self::load_strict().unwrap_or_else(|e| {
-            eprintln!("tincan: ignoring {} (fix or delete it): {e}", paths::config().display());
+            eprintln!("reason ask: ignoring {} (fix or delete it): {e}", paths::config().display());
             Config::default()
         })
     }
@@ -99,10 +99,10 @@ impl Config {
     }
 
     pub fn lan(&self) -> bool {
-        self.lan && std::env::var_os("TINCAN_NO_MDNS").is_none()
+        self.lan && crate::paths::env_var_os("NO_MDNS").is_none()
     }
 
     pub fn tray(&self) -> bool {
-        cfg!(target_os = "macos") && self.tray && std::env::var_os("TINCAN_NO_TRAY").is_none()
+        cfg!(target_os = "macos") && self.tray && crate::paths::env_var_os("NO_TRAY").is_none()
     }
 }

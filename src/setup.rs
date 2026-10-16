@@ -1,8 +1,12 @@
-//! `tincan setup`: wires tincan into every agent on this machine (MCP server, plus hooks where the agent has
-//! them) and installs the daemon as a login service. `tincan setup --remove` undoes it. Every file it edits is
-//! backed up once, as `<file>.bak-tincan`. Also `tincan doctor`.
+//! `reason ask setup`: wires reason ask into every agent on this machine (MCP server, plus hooks where the agent
+//! has them) and installs the daemon as a login service. `reason ask setup --remove` undoes it. Every file it edits
+//! is backed up once, as `<file>.bak-reason`. Also `reason ask doctor`.
+//!
+//! The upstream engine wired agents in as `tincan`. Each step here also takes out what this binary's path put
+//! there under that name, so an update moves an agent over and leaves nothing behind; a separately installed
+//! tincan (another path) keeps its wiring.
 
-use crate::{agent, client::Link, config::Config, paths, proto::*, render};
+use crate::{AGENT_NAME, LEGACY_NAME, agent, client::Link, config::Config, paths, proto::*, render};
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value, json};
 use std::{
@@ -13,9 +17,19 @@ use std::{
 /// The service's name. A non-default `TINCAN_HOME` gets its own, so a second instance (or a test) can never
 /// replace the real one.
 fn service_name() -> String {
-    match std::env::var("TINCAN_HOME") {
-        Ok(h) => format!("dev.tincan.daemon.{}", &blake3::hash(h.as_bytes()).to_hex()[..8]),
-        Err(_) => "dev.tincan.daemon".into(),
+    service_label("com.reasonmachines.network")
+}
+
+/// The upstream engine's service name, which this binary ran under before.
+#[cfg(unix)]
+fn legacy_service_name() -> String {
+    service_label("dev.tincan.daemon")
+}
+
+fn service_label(base: &str) -> String {
+    match crate::paths::env_var("HOME") {
+        Ok(h) => format!("{base}.{}", &blake3::hash(h.as_bytes()).to_hex()[..8]),
+        Err(_) => base.into(),
     }
 }
 
@@ -91,12 +105,19 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let backup = PathBuf::from(format!("{}.bak-tincan", path.display()));
-    if path.exists() && !backup.exists() {
+    let backup = PathBuf::from(format!("{}.bak-reason", path.display()));
+    // The upstream engine's backup is the same original under its old name.
+    let legacy_backup = PathBuf::from(format!("{}.bak-{LEGACY_NAME}", path.display()));
+    if !backup.exists() && legacy_backup.exists() {
+        std::fs::rename(&legacy_backup, &backup)?;
+    }
+    // A file that already runs this binary was backed up (or created) when it was first wired in.
+    let wired = exe().is_ok_and(|exe| has(path.to_path_buf(), &me(&exe)));
+    if path.exists() && !backup.exists() && !wired {
         std::fs::copy(path, &backup)?;
     }
     // Write then rename, so an agent never reads a half-written file.
-    let tmp = PathBuf::from(format!("{}.tmp-tincan", path.display()));
+    let tmp = PathBuf::from(format!("{}.tmp-reason", path.display()));
     std::fs::write(&tmp, content)?;
     // Keep its permissions (a config holding tokens may be 0600).
     if let Ok(meta) = std::fs::metadata(path) {
@@ -107,7 +128,7 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
 }
 
 fn write_json(path: &Path, v: &Value, dry: bool) -> Result<bool> {
-    // Removing tincan from a config that never existed leaves an empty shell: don't create a file for that.
+    // Removing reason ask from a config that never existed leaves an empty shell: don't create a file for that.
     if !path.exists() && hollow(v) {
         return Ok(false);
     }
@@ -136,7 +157,7 @@ fn obj(v: &mut Value) -> Result<&mut Map<String, Value>> {
 }
 
 /// Hook groups in the Claude Code style (`{matcher, hooks: [{type, command, ...}]}`), used by Codex and Gemini.
-/// Replaces any earlier tincan groups for `agent`, keeps everything else.
+/// Replaces any earlier groups of ours (or the upstream engine's) for `agent`, keeps everything else.
 fn merge_hook_groups(hooks: &mut Map<String, Value>, agent: &str, groups: Vec<(&str, Value)>, remove: bool) {
     let marker = format!(" hook {agent} ");
     let mine = |v: &Value| v.to_string().contains(&marker);
@@ -166,6 +187,24 @@ fn merge_hook_groups(hooks: &mut Map<String, Value>, agent: &str, groups: Vec<(&
     }
 }
 
+/// Takes out the server an earlier build of this binary added under the upstream engine's name.
+fn drop_legacy(servers: &mut Map<String, Value>, exe: &Path) {
+    if servers.get(LEGACY_NAME).is_some_and(|v| v.to_string().contains(&me(exe))) {
+        servers.remove(LEGACY_NAME);
+    }
+}
+
+/// Removes a file this binary wrote under the upstream engine's name (a plugin, an extension, a hook file).
+fn drop_legacy_file(path: &Path, exe: &Path, dry: bool, r: &mut Report) -> Result<()> {
+    if has(path.to_path_buf(), &me(exe)) {
+        if !dry {
+            std::fs::remove_file(path)?;
+        }
+        r.lines.push(format!("removed {}", crate::util::tilde(&path.display().to_string())));
+    }
+    Ok(())
+}
+
 fn changed(path: &Path, did: bool) -> String {
     let p = crate::util::tilde(&path.display().to_string());
     if did { format!("updated {p}") } else { format!("{p} unchanged") }
@@ -176,27 +215,44 @@ fn changed(path: &Path, did: bool) -> String {
 fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let Some(bin) = agent::find_bin("claude") else { return Ok(None) };
     let mut r = Report { agent: "Claude Code", lines: Vec::new(), notes: Vec::new() };
-    let get = Command::new(&bin).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output()?;
-    let existing = get.status.success();
-    let current = existing && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
-    if remove || (existing && !current) {
-        if existing && !dry {
+    let get = |name: &str| -> Result<(bool, bool)> {
+        let out = Command::new(&bin).args(["mcp", "get", name]).stdin(std::process::Stdio::null()).output()?;
+        let existing = out.status.success();
+        Ok((existing, existing && String::from_utf8_lossy(&out.stdout).contains(&exe.display().to_string())))
+    };
+    let drop = |name: &str| -> Result<()> {
+        if !dry {
             Command::new(&bin)
-                .args(["mcp", "remove", "tincan", "--scope", "user"])
+                .args(["mcp", "remove", name, "--scope", "user"])
                 .stdin(std::process::Stdio::null())
                 .output()?;
         }
+        Ok(())
+    };
+    if let (true, true) = get(LEGACY_NAME)? {
+        drop(LEGACY_NAME)?;
+        r.lines.push(format!("removed the {LEGACY_NAME} MCP server"));
+    }
+    let (existing, current) = get(AGENT_NAME)?;
+    if remove || (existing && !current) {
+        if existing {
+            drop(AGENT_NAME)?;
+        }
         if remove {
-            r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
+            r.lines.push(if existing {
+                format!("removed the {AGENT_NAME} MCP server")
+            } else {
+                "nothing to remove".into()
+            });
             return Ok(Some(r));
         }
     }
     if current {
-        r.lines.push("tincan MCP server already set".into());
+        r.lines.push(format!("{AGENT_NAME} MCP server already set"));
     } else {
         if !dry {
             let out = Command::new(&bin)
-                .args(["mcp", "add", "--scope", "user", "tincan", "--"])
+                .args(["mcp", "add", "--scope", "user", AGENT_NAME, "--"])
                 .arg(exe)
                 .arg("mcp")
                 .stdin(std::process::Stdio::null())
@@ -205,7 +261,7 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
                 return Err(anyhow!("claude mcp add failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
             }
         }
-        r.lines.push("added the tincan MCP server (user scope)".into());
+        r.lines.push(format!("added the {AGENT_NAME} MCP server (user scope)"));
     }
     Ok(Some(r))
 }
@@ -222,11 +278,21 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let cfg_path = dir.join("config.toml");
     let text = std::fs::read_to_string(&cfg_path).unwrap_or_default();
     let mut doc: toml_edit::DocumentMut = text.parse().with_context(|| format!("parsing {}", cfg_path.display()))?;
-    if remove {
-        if let Some(servers) = doc.get_mut("mcp_servers").and_then(|t| t.as_table_like_mut()) {
-            servers.remove("tincan");
+    if let Some(servers) = doc.get_mut("mcp_servers").and_then(|t| t.as_table_like_mut()) {
+        let ours = servers
+            .get(LEGACY_NAME)
+            .and_then(|t| t.as_table_like())
+            .and_then(|t| t.get("command"))
+            .and_then(|c| c.as_str())
+            .is_some_and(|c| c == exe.display().to_string());
+        if ours {
+            servers.remove(LEGACY_NAME);
         }
-    } else {
+        if remove {
+            servers.remove(AGENT_NAME);
+        }
+    }
+    if !remove {
         let servers = doc.entry("mcp_servers").or_insert(toml_edit::table());
         if let Some(t) = servers.as_table_mut() {
             t.set_implicit(true);
@@ -235,15 +301,15 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         t["command"] = toml_edit::value(exe.display().to_string());
         t["args"] = toml_edit::value(toml_edit::Array::from_iter(["mcp"]));
         let mut env = toml_edit::InlineTable::new();
-        env.insert("TINCAN_AGENT", "codex".into());
-        if let Ok(h) = std::env::var("TINCAN_HOME") {
-            env.insert("TINCAN_HOME", h.into());
+        env.insert("REASON_NETWORK_AGENT", "codex".into());
+        if let Ok(h) = crate::paths::env_var("HOME") {
+            env.insert("REASON_NETWORK_HOME", h.into());
         }
         t["env"] = toml_edit::value(env);
         // Room for check_inbox(wait_secs) long-polls.
         t["tool_timeout_sec"] = toml_edit::value(660);
         t["default_tools_approval_mode"] = toml_edit::value("approve");
-        servers["tincan"] = toml_edit::Item::Table(t);
+        servers[AGENT_NAME] = toml_edit::Item::Table(t);
     }
     r.lines.push(changed(&cfg_path, write_file(&cfg_path, &doc.to_string(), dry)?));
 
@@ -267,7 +333,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&hooks_path, &v, dry)?;
     r.lines.push(changed(&hooks_path, did));
     if did && !remove {
-        r.notes.push("Codex asks once to trust tincan's hooks: choose \"Trust all and continue\".".into());
+        r.notes.push("Codex asks once to trust reason ask's hooks: choose \"Trust all and continue\".".into());
     }
     Ok(Some(r))
 }
@@ -283,12 +349,13 @@ fn cursor(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mcp_path = dir.join("mcp.json");
     let mut v = read_json(&mcp_path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
+    drop_legacy(servers, exe);
     if remove {
-        servers.remove("tincan");
+        servers.remove(AGENT_NAME);
     } else {
         servers.insert(
-            "tincan".into(),
-            json!({ "type": "stdio", "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "cursor" } }),
+            AGENT_NAME.into(),
+            json!({ "type": "stdio", "command": exe.display().to_string(), "args": ["mcp"], "env": { "REASON_NETWORK_AGENT": "cursor" } }),
         );
     }
     r.lines.push(changed(&mcp_path, write_json(&mcp_path, &v, dry)?));
@@ -322,15 +389,16 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let path = dir.join("settings.json");
     let mut v = read_json(&path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
+    drop_legacy(servers, exe);
     if remove {
-        servers.remove("tincan");
+        servers.remove(AGENT_NAME);
     } else {
         servers.insert(
-            "tincan".into(),
-            json!({ "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "gemini" }, "timeout": 660000, "trust": true }),
+            AGENT_NAME.into(),
+            json!({ "command": exe.display().to_string(), "args": ["mcp"], "env": { "REASON_NETWORK_AGENT": "gemini" }, "timeout": 660000, "trust": true }),
         );
     }
-    let group = |event: &str, timeout: u64| json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("tincan-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] });
+    let group = |event: &str, timeout: u64| json!({ "matcher": "*", "hooks": [{ "type": "command", "name": format!("{AGENT_NAME}-{event}"), "command": shell_cmd(exe, &format!("hook gemini {event}")), "timeout": timeout }] });
     let groups = vec![
         ("SessionStart", group("session-start", 10000)),
         ("BeforeAgent", group("user-prompt-submit", 10000)),
@@ -342,7 +410,7 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&path, &v, dry)?;
     r.lines.push(changed(&path, did));
     if did && !remove {
-        r.notes.push("Gemini CLI only runs tincan in trusted folders (`/permissions trust`).".into());
+        r.notes.push("Gemini CLI only runs reason ask in trusted folders (`/permissions trust`).".into());
     }
     Ok(Some(r))
 }
@@ -358,17 +426,19 @@ fn copilot(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let mcp_path = dir.join("mcp-config.json");
     let mut v = read_json(&mcp_path)?;
     let servers = obj(obj(&mut v)?.entry("mcpServers").or_insert_with(|| json!({})))?;
+    drop_legacy(servers, exe);
     if remove {
-        servers.remove("tincan");
+        servers.remove(AGENT_NAME);
     } else {
         servers.insert(
-            "tincan".into(),
-            json!({ "type": "local", "command": exe.display().to_string(), "args": ["mcp"], "env": { "TINCAN_AGENT": "copilot" }, "tools": ["*"], "timeout": 660000 }),
+            AGENT_NAME.into(),
+            json!({ "type": "local", "command": exe.display().to_string(), "args": ["mcp"], "env": { "REASON_NETWORK_AGENT": "copilot" }, "tools": ["*"], "timeout": 660000 }),
         );
     }
     r.lines.push(changed(&mcp_path, write_json(&mcp_path, &v, dry)?));
 
-    let hooks_path = dir.join("hooks").join("tincan.json");
+    drop_legacy_file(&dir.join("hooks").join(format!("{LEGACY_NAME}.json")), exe, dry, &mut r)?;
+    let hooks_path = dir.join("hooks").join(format!("{AGENT_NAME}.json"));
     if remove {
         if hooks_path.exists() {
             if !dry {
@@ -402,23 +472,25 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let path = dir.join("opencode.json");
     if dir.join("opencode.jsonc").exists() && !path.exists() {
         r.notes.push(format!(
-            "opencode: you use opencode.jsonc, which tincan doesn't edit. Add under \"mcp\": \"tincan\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"TINCAN_AGENT\": \"opencode\"}}}}",
+            "opencode: you use opencode.jsonc, which reason ask doesn't edit. Add under \"mcp\": \"{AGENT_NAME}\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"REASON_NETWORK_AGENT\": \"opencode\"}}}}",
             exe.display()
         ));
     } else {
         let mut v = read_json(&path)?;
         let mcp = obj(obj(&mut v)?.entry("mcp").or_insert_with(|| json!({})))?;
+        drop_legacy(mcp, exe);
         if remove {
-            mcp.remove("tincan");
+            mcp.remove(AGENT_NAME);
         } else {
             mcp.insert(
-                "tincan".into(),
-                json!({ "type": "local", "command": [exe.display().to_string(), "mcp"], "environment": { "TINCAN_AGENT": "opencode" }, "enabled": true }),
+                AGENT_NAME.into(),
+                json!({ "type": "local", "command": [exe.display().to_string(), "mcp"], "environment": { "REASON_NETWORK_AGENT": "opencode" }, "enabled": true }),
             );
         }
         r.lines.push(changed(&path, write_json(&path, &v, dry)?));
     }
-    let plugin = dir.join("plugins").join("tincan.ts");
+    drop_legacy_file(&dir.join("plugins").join(format!("{LEGACY_NAME}.ts")), exe, dry, &mut r)?;
+    let plugin = dir.join("plugins").join(format!("{AGENT_NAME}.ts"));
     if remove {
         if plugin.exists() {
             if !dry {
@@ -428,7 +500,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
     } else {
         let code = include_str!("opencode-plugin.ts")
-            .replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+            .replace("__ENGINE_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&plugin, write_file(&plugin, &code, dry)?));
     }
     Ok(Some(r))
@@ -436,14 +508,15 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 // ---- pi ----
 
-/// One extension does it all: it adds tincan's MCP server to each session (deferred, so the tools stay out of
+/// One extension does it all: it adds reason ask's MCP server to each session (deferred, so the tools stay out of
 /// the model's context until it looks for them) and delivers messages.
 fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     if !pi_home().exists() && agent::find_bin("pi").is_none() {
         return Ok(None);
     }
     let mut r = Report { agent: "pi", lines: Vec::new(), notes: Vec::new() };
-    let ext = pi_home().join("extensions").join("tincan.ts");
+    drop_legacy_file(&pi_home().join("extensions").join(format!("{LEGACY_NAME}.ts")), exe, dry, &mut r)?;
+    let ext = pi_home().join("extensions").join(format!("{AGENT_NAME}.ts"));
     if remove {
         if ext.exists() {
             if !dry {
@@ -453,7 +526,7 @@ fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
     } else {
         let code = include_str!("pi-extension.ts")
-            .replace("__TINCAN_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+            .replace("__ENGINE_EXE__", &exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
         r.lines.push(changed(&ext, write_file(&ext, &code, dry)?));
     }
     Ok(Some(r))
@@ -462,7 +535,7 @@ fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 // ---- Reason ----
 
 /// Reason's agent runs in its cloud: nothing to install there. The daemon lists your live Reason sessions and
-/// delivers with `reason session send`; they reply with the tincan CLI.
+/// delivers with `reason session send`; they reply with the reason CLI.
 fn reason(_exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     if agent::find_bin("reason").is_none() {
         return Ok(None);
@@ -509,11 +582,45 @@ pub fn start_service() -> bool {
 
 #[cfg(unix)]
 fn service_path() -> PathBuf {
+    service_path_for(&service_name())
+}
+
+#[cfg(unix)]
+fn service_path_for(name: &str) -> PathBuf {
     if cfg!(target_os = "macos") {
-        home().join(format!("Library/LaunchAgents/{}.plist", service_name()))
+        home().join(format!("Library/LaunchAgents/{name}.plist"))
     } else {
-        home().join(format!(".config/systemd/user/{}.service", service_name()))
+        home().join(format!(".config/systemd/user/{name}.service"))
     }
+}
+
+/// Stops and removes the login service this binary ran under with the upstream engine's name. True if there was one.
+#[cfg(unix)]
+fn remove_legacy_service(exe: &Path, dry: bool) -> bool {
+    let name = legacy_service_name();
+    let path = service_path_for(&name);
+    if !has(path.clone(), &exe.display().to_string()) {
+        return false;
+    }
+    if dry {
+        return true;
+    }
+    if cfg!(target_os = "macos") {
+        let uid = unsafe { libc::getuid() };
+        let _ = Command::new("launchctl")
+            .args(["bootout", &format!("gui/{uid}/{name}")])
+            .stdin(std::process::Stdio::null())
+            .output();
+        let _ = std::fs::remove_file(&path);
+    } else {
+        let _ = Command::new("systemctl")
+            .args(["--user", "disable", "--now", &format!("{name}.service")])
+            .stdin(std::process::Stdio::null())
+            .output();
+        let _ = std::fs::remove_file(&path);
+        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output();
+    }
+    true
 }
 
 /// A PATH for the daemon that includes where agents usually live (it runs `codex queue`).
@@ -529,7 +636,8 @@ fn service_path_env() -> String {
 async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     let path = service_path();
     let uid = unsafe { libc::getuid() };
-    let tincan_home = std::env::var("TINCAN_HOME").ok();
+    let engine_home = crate::paths::env_var("HOME").ok();
+    let legacy = remove_legacy_service(exe, dry);
     if cfg!(target_os = "macos") {
         let target = format!("gui/{uid}/{}", service_name());
         if remove {
@@ -540,8 +648,8 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             }
             return Ok("removed the login service".into());
         }
-        let home_env = tincan_home
-            .map(|h| format!("\n    <key>TINCAN_HOME</key><string>{}</string>", xml(&h)))
+        let home_env = engine_home
+            .map(|h| format!("\n    <key>REASON_NETWORK_HOME</key><string>{}</string>", xml(&h)))
             .unwrap_or_default();
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -566,7 +674,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             xml(&paths::log().display().to_string()),
             xml(&service_path_env()),
         );
-        let did = write_file(&path, &plist, dry)?;
+        let did = write_file(&path, &plist, dry)? || legacy;
         let loaded = Command::new("launchctl")
             .args(["print", &target])
             .stdin(std::process::Stdio::null())
@@ -609,14 +717,14 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         if !user_systemd {
             return Err(anyhow!("systemctl --user isn't available here"));
         }
-        let home_env = tincan_home.map(|h| format!("Environment=\"TINCAN_HOME={h}\"\n")).unwrap_or_default();
+        let home_env = engine_home.map(|h| format!("Environment=\"REASON_NETWORK_HOME={h}\"\n")).unwrap_or_default();
         let unit = format!(
-            "[Unit]\nDescription=tincan daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Reason network daemon (reason ask)\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
             service_path_env(),
             paths::log().display()
         );
-        let did = write_file(&path, &unit, dry)?;
+        let did = write_file(&path, &unit, dry)? || legacy;
         if !dry {
             paths::ensure_home()?;
             crate::stop_daemon().await;
@@ -683,7 +791,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         return Ok("removed the login service".into());
     }
     // Windows starts it with its command line and nothing else.
-    if std::env::var_os("TINCAN_HOME").is_some() {
+    if crate::paths::env_var_os("HOME").is_some() {
         return Err(anyhow!("a logon entry can't set TINCAN_HOME"));
     }
     let command = format!("\"{}\" daemon --service", exe.display());
@@ -734,7 +842,7 @@ const AGENTS: [Agent; 8] = [
         wired: |_| {
             agent::find_bin("claude").is_some_and(|b| {
                 Command::new(b)
-                    .args(["mcp", "get", "tincan"])
+                    .args(["mcp", "get", AGENT_NAME])
                     .stdin(std::process::Stdio::null())
                     .output()
                     .is_ok_and(|o| o.status.success())
@@ -783,7 +891,7 @@ const AGENTS: [Agent; 8] = [
         name: "opencode",
         hint: "messages arrive within seconds",
         installed: || opencode_home().exists() || agent::find_bin("opencode").is_some(),
-        wired: |_| opencode_home().join("plugins/tincan.ts").exists(),
+        wired: |_| opencode_home().join(format!("plugins/{AGENT_NAME}.ts")).exists(),
         apply: opencode,
     },
     Agent {
@@ -791,7 +899,7 @@ const AGENTS: [Agent; 8] = [
         name: "pi",
         hint: "messages arrive within seconds",
         installed: || pi_home().exists() || agent::find_bin("pi").is_some(),
-        wired: |_| pi_home().join("extensions/tincan.ts").exists(),
+        wired: |_| pi_home().join(format!("extensions/{AGENT_NAME}.ts")).exists(),
         apply: pi,
     },
     Agent {
@@ -830,7 +938,7 @@ pub struct Applied {
     pub service: Option<bool>,
 }
 
-/// Wires tincan into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
+/// Wires reason ask into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
 /// (`Some(false)`) the login service.
 pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Option<bool>, dry: bool) -> Applied {
     let mut out = Applied::default();
@@ -853,8 +961,8 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
         }
     }
     if let Some(on) = service {
-        if std::env::var_os("TINCAN_NO_SERVICE").is_some() {
-            out.lines.push("service: skipped (TINCAN_NO_SERVICE is set)".into());
+        if crate::paths::env_var_os("NO_SERVICE").is_some() {
+            out.lines.push("service: skipped (REASON_NETWORK_NO_SERVICE is set)".into());
             return out;
         }
         match self::service(exe, !on, dry).await {
@@ -863,7 +971,7 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
                 out.service = Some(on);
             }
             Err(e) => {
-                out.notes.push(format!("Not running in the background: {e:#}; tincan starts when you use it."));
+                out.notes.push(format!("Not running in the background: {e:#}; reason ask starts it when you use it."));
             }
         }
     }
@@ -877,9 +985,9 @@ pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
     let verb = if dry {
         "Would change"
     } else if remove {
-        "Removing tincan"
+        "Removing reason ask"
     } else {
-        "Setting up tincan"
+        "Setting up reason ask"
     };
     println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
     if found.is_empty() && !remove {
@@ -905,7 +1013,7 @@ pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
 /// Read-only checks, one line each.
 pub async fn doctor() -> Result<()> {
     let exe = exe()?;
-    println!("tincan {} at {}", env!("CARGO_PKG_VERSION"), crate::util::tilde(&exe.display().to_string()));
+    println!("reason-network {} at {}", env!("CARGO_PKG_VERSION"), crate::util::tilde(&exe.display().to_string()));
     let link = Link::new(None);
     match link.call::<TeamInfo>(Request::Team).await {
         Ok(t) => {
@@ -922,18 +1030,18 @@ pub async fn doctor() -> Result<()> {
             }
             if others > 0 && online == 0 {
                 println!(
-                    "  ! no teammate connected: check your internet, or that their machines are on (`tincan doctor` there)"
+                    "  ! no teammate connected: check your internet, or that their machines are on (`reason ask doctor` there)"
                 );
                 // Nothing tells a machine that was off when the team changed relays where the team went.
                 println!(
-                    "  ! if the team changed relays while this machine was off, set the same one here: `tincan relay <url>`"
+                    "  ! if the team changed relays while this machine was off, set the same one here: `reason ask relay <url>`"
                 );
-                println!("    (or `default` for n0's); `tincan team` on a teammate's machine shows which");
+                println!("    (or `default` for n0's); `reason ask team` on a teammate's machine shows which");
             }
         }
         Err(e) if e.to_string().contains("not in a team") => {
             println!("✓ daemon running");
-            println!("- not in a team yet: run `tincan`");
+            println!("- not in a team yet: run `reason ask`");
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
@@ -941,13 +1049,13 @@ pub async fn doctor() -> Result<()> {
     println!(
         "{} login service: {}",
         if svc { "✓" } else { "-" },
-        if svc { "installed" } else { "not installed (`tincan setup`)" }
+        if svc { "installed" } else { "not installed (`reason ask setup`)" }
     );
     for f in detect(&exe) {
         if f.wired {
             println!("✓ {}: wired up", f.name);
         } else {
-            println!("- {}: installed, not on tincan (`tincan setup`)", f.name);
+            println!("- {}: installed, not on reason ask (`reason ask setup`)", f.name);
         }
     }
     Ok(())

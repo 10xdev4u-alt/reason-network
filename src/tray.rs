@@ -1,4 +1,4 @@
-//! `tincan tray`: the menu bar icon (macOS). The background service starts it and it exits with the daemon. It
+//! `reason ask tray`: the menu bar icon (macOS). The background service starts it and it exits with the daemon. It
 //! shows who's around and what their sessions are doing, and the messages waiting for you.
 
 #[cfg(not(target_os = "macos"))]
@@ -59,8 +59,8 @@ mod mac {
         tokio::spawn(poll(tx, actions));
 
         let tray = TrayIconBuilder::new()
-            .with_tooltip("tincan")
-            .with_autosave_name("dev.tincan.tray")
+            .with_tooltip("Reason")
+            .with_autosave_name("com.reasonmachines.network.tray")
             .with_menu(Box::new(Menu::new()))
             .build()?;
         set_icon(&tray, false, None, mtm);
@@ -133,7 +133,7 @@ mod mac {
         if let Some(button) = tray.ns_status_item().and_then(|i| i.button(mtm)) {
             let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                 &NSString::from_str(name),
-                Some(&NSString::from_str("tincan")),
+                Some(&NSString::from_str("Reason")),
             );
             button.setImage(image.as_deref());
             button.setImagePosition(NSCellImagePosition::ImageLeft);
@@ -151,7 +151,7 @@ mod mac {
             Some(t) => items.push(Box::new(info(&format!("{t} · you're {}", v.me)))),
             None => {
                 items.push(Box::new(info("Not in a team yet")));
-                items.push(Box::new(info("Run `tincan` in a terminal to set up")));
+                items.push(Box::new(info("Run `reason ask` in a terminal to set up")));
             }
         }
         items.push(Box::new(sep()));
@@ -182,7 +182,7 @@ mod mac {
                 }
             }
             if *without > 0 {
-                let _ = sub.append(&info(&format!("+ {without} without tincan")));
+                let _ = sub.append(&info(&format!("+ {without} without reason ask")));
             }
             let _ = sub.append(&sep());
             let _ = sub.append(&info("Click a session to copy its address"));
@@ -210,7 +210,7 @@ mod mac {
         }
     }
 
-    /// Hidden for good: `tincan setup` brings it back.
+    /// Hidden for good: `reason ask setup` brings it back.
     fn hide() -> ! {
         if let Ok(mut cfg) = Config::load_strict() {
             cfg.tray = false;

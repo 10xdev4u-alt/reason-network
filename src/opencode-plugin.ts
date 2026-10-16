@@ -1,17 +1,17 @@
-// tincan for opencode: written by `tincan setup`, removed by `tincan setup --remove`.
-// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to tincan, and
+// reason ask for opencode: written by `reason ask setup`, removed by `reason uninstall`.
+// Reports each session's busy/idle state and what it is doing (its title and todo in progress) to reason ask, and
 // delivers teammates' messages into idle sessions.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 
-const TINCAN = "__TINCAN_EXE__"
+const ENGINE = "__ENGINE_EXE__"
 
 const run = (args: string[], cwd: string) =>
   new Promise<string>((resolve) =>
-    execFile(TINCAN, args, { cwd, timeout: 10_000 }, (err, out) => resolve(err ? "" : String(out).trim())),
+    execFile(ENGINE, args, { cwd, timeout: 10_000 }, (err, out) => resolve(err ? "" : String(out).trim())),
   )
 
-export const Tincan: Plugin = async ({ client, directory }) => {
+export const ReasonAsk: Plugin = async ({ client, directory }) => {
   const idle = new Set<string>()
   const subagents = new Set<string>()
   const delivering = new Set<string>()

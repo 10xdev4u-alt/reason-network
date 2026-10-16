@@ -33,7 +33,12 @@ pub const SITE_URL: &str = match option_env!("TINCAN_SITE_URL") {
     _ => "https://larstalian.github.io/tincan",
 };
 
-/// The one line that installs tincan and runs `tincan <args>`: for macOS and Linux, and for Windows.
+/// The one line that installs tincan and runs `reason ask <args>`: for macOS and Linux, and for Windows.
+/// The name agents know this by: their MCP server, plugin and extension files, hook names.
+pub const AGENT_NAME: &str = "reason-ask";
+/// The name the upstream engine wired agents in under; `setup` takes out what this binary put there under it.
+pub const LEGACY_NAME: &str = "tincan";
+
 pub fn install_lines(args: &str) -> [String; 2] {
     [
         format!("curl -fsSL {SITE_URL}/install.sh | sh -s -- {args}"),
@@ -62,10 +67,10 @@ pub fn join_url(ticket: &str) -> String {
 
 #[derive(Parser)]
 #[command(
-    name = "tincan",
+    name = "reason-network",
     version,
-    about = "Your team's coding agents, talking to each other",
-    after_help = "Run `tincan` on its own to get set up, then to see who's working on what."
+    about = "The engine behind `reason ask`: your team's coding agents, talking to each other",
+    after_help = "Run `reason ask` on its own to get set up, then to see who's working on what."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -86,7 +91,7 @@ enum Cmd {
     },
     /// Send a message to an agent session (`person/session`), all of a person's (`person/*`), `repo:<name>` or `*`.
     /// It comes from the agent session whose shell runs it, `--from <session>`, or from a plain terminal,
-    /// `<you>/terminal` (read replies with `tincan listen --as terminal`)
+    /// `<you>/terminal` (read replies with `reason ask listen --as terminal`)
     Send {
         to: String,
         /// The message; read from stdin when omitted or `-`
@@ -96,7 +101,7 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
-        /// Send as this agent session here (e.g. one made with `tincan listen --as <name>`)
+        /// Send as this agent session here (e.g. one made with `reason ask listen --as <name>`)
         #[arg(long)]
         from: Option<String>,
     },
@@ -115,7 +120,7 @@ enum Cmd {
         /// Don't configure agents or install the background service
         #[arg(long)]
         no_setup: bool,
-        /// Your own iroh relay, from the start (see `tincan relay`)
+        /// Your own iroh relay, from the start (see `reason ask relay`)
         #[arg(long)]
         relay: Option<String>,
     },
@@ -238,7 +243,7 @@ async fn main() -> Result<()> {
             std::process::exit(0)
         }
         Some(cmd) => cli(cmd).await,
-        // `tincan` alone: get set up if needed, else show who's around.
+        // `reason ask` alone: get set up if needed, else show who's around.
         None => {
             let in_team = Link::new(None).call::<TeamInfo>(Request::Team).await.is_ok();
             if !in_team && wizard::interactive() {
@@ -246,7 +251,7 @@ async fn main() -> Result<()> {
             }
             if !in_team {
                 println!(
-                    "Not in a team yet. Run `tincan` in a terminal to get set up (or `tincan init <team>` / `tincan join <code>`)."
+                    "Not in a team yet. Run `reason ask` in a terminal to get set up (or `reason ask init <team>` / `reason ask join <code>`)."
                 );
                 return Ok(());
             }
@@ -256,7 +261,7 @@ async fn main() -> Result<()> {
 }
 
 /// The agent session this shell belongs to, if it runs inside one.
-/// A session driven from the command line (`tincan listen --as <id>`, or `terminal` for plain-terminal sends): kept
+/// A session driven from the command line (`reason ask listen --as <id>`, or `terminal` for plain-terminal sends): kept
 /// alive like a hook-known session, so it stays reachable between commands.
 async fn cli_session(link: &std::sync::Arc<Link>, id: &str, event: &str) -> Result<HookReply> {
     let req = Request::Hook(HookCall {
@@ -352,7 +357,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let l: LinkInfo = link.call(Request::Link { new }).await?;
             let copied = wizard::interactive() && wizard::copy(&l.url);
             println!("Team link for {}{}:\n\n{}\n", l.team, if copied { " (on your clipboard)" } else { "" }, l.url);
-            println!("Anyone with it can join: it opens a page with one command. `tincan link --new` replaces it.");
+            println!("Anyone with it can join: it opens a page with one command. `reason ask link --new` replaces it.");
         }
         Cmd::Invite { me: false, code: false, .. } => Box::pin(cli(Cmd::Link { new: false })).await?,
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
@@ -360,7 +365,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
         }
         Cmd::Init { team, person, no_setup, relay } => {
             let Some(team) = team else {
-                bail!("name the team: `tincan init <team>` (or run it in a terminal to be asked)")
+                bail!("name the team: `reason ask init <team>` (or run it in a terminal to be asked)")
             };
             let t: TeamInfo =
                 link.call(Request::CreateTeam { name: team, person: default_person(person), relay }).await?;
@@ -370,10 +375,10 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!();
                 setup::run(false, false, false).await?;
             }
-            println!("\nNext: `tincan link` prints the team link to send your teammates.");
+            println!("\nNext: `reason ask link` prints the team link to send your teammates.");
         }
         Cmd::Join { invite, person, no_setup } => {
-            let Some(invite) = invite else { bail!("give the invite code: `tincan join <code>`") };
+            let Some(invite) = invite else { bail!("give the invite code: `reason ask join <code>`") };
             let t: TeamInfo = link.call(Request::Join { ticket: invite, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Joined team {} as {} on {}.", t.name, t.person, t.machine);
@@ -400,16 +405,16 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
             let [unix, windows] = install_lines(&i.code);
-            println!("They run this, which installs tincan and joins the team (the second line on Windows):\n");
+            println!("They run this, which installs it and joins the team (the second line on Windows):\n");
             println!("  {unix}\n  {windows}\n");
             println!(
-                "(or `tincan join {}` if they have tincan). Works once, within {}h, while this machine is online.",
+                "(or `reason ask join {}` if they have reason). Works once, within {}h, while this machine is online.",
                 i.code, i.hours
             );
-            println!("If this machine will be offline, use the long form instead: tincan join {}", i.ticket);
+            println!("If this machine will be offline, use the long form instead: reason ask join {}", i.ticket);
             if me {
                 println!(
-                    "\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my tincan team as {}: {}",
+                    "\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my reason ask team as {}: {}",
                     default_person(None),
                     join_url(&i.ticket)
                 );
@@ -455,7 +460,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("Nothing held.");
             } else {
                 print!("{}", render::for_human(&msgs));
-                println!("`tincan approve <id>` delivers, `tincan reject <id>` drops (or --all).");
+                println!("`reason ask approve <id>` delivers, `reason ask reject <id>` drops (or --all).");
             }
         }
         Cmd::Approve { ids, all } | Cmd::Reject { ids, all } if ids.is_empty() && !all => {
@@ -472,13 +477,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Setup { dry_run, remove, no_service } => setup::run(dry_run, remove, no_service).await?,
         Cmd::Doctor => setup::doctor().await?,
         Cmd::Upgrade => {
-            let dir = util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
-            let status = installer(&dir).status()?;
-            if !status.success() {
-                bail!("upgrade failed");
-            }
-            stop_daemon().await;
-            println!("The daemon restarted on the new version. Restart agent sessions to update their tincan tools.");
+            bail!("the network engine updates with the reason CLI: update reason, then run `reason ask setup`");
         }
         Cmd::Stop => {
             if !stop_daemon().await {

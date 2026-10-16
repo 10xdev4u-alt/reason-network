@@ -175,7 +175,7 @@ impl Daemon {
         relay: Option<String>,
     ) -> Result<TeamInfo> {
         if let Some(t) = self.team_state() {
-            bail!("already in team '{}'; run `tincan leave` first", t.name());
+            bail!("already in team '{}'; run `reason ask leave` first", t.name());
         }
         let (name, person) = (name.trim(), util::slug(person));
         if name.is_empty() || person.is_empty() {
@@ -212,7 +212,7 @@ impl Daemon {
             others.dedup();
             if !others.is_empty() {
                 bail!(
-                    "already in team '{}' (with {}). To switch, run `tincan leave`, then join again",
+                    "already in team '{}' (with {}). To switch, run `reason ask leave`, then join again",
                     t.name(),
                     others.join(", ")
                 );
@@ -284,8 +284,9 @@ impl Daemon {
     /// Makes an invite: a code (this machine listens for it until it is used or expires) and the equivalent
     /// long ticket (which any teammate's machine can redeem).
     pub(super) async fn invite(&self, me: bool, hours: u64) -> Result<InviteInfo> {
-        let net =
-            self.net().ok_or_else(|| anyhow!("not connected to a team yet (run `tincan init` or `tincan join`)"))?;
+        let net = self
+            .net()
+            .ok_or_else(|| anyhow!("not connected to a team yet (run `reason ask init` or `reason ask join`)"))?;
         net.online(Duration::from_secs(5)).await;
         let hours = hours.clamp(1, 24 * 30);
         let code = invite::generate();
@@ -342,7 +343,7 @@ impl Daemon {
         }
         let state = {
             let mut g = self.inner.lock().unwrap();
-            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team yet: run `tincan`"))?;
+            let team = g.team.as_mut().ok_or_else(|| anyhow!("not in a team yet: run `reason ask`"))?;
             if new || team.link_secret().is_none() {
                 team.new_link(&self.key);
             }
@@ -361,7 +362,7 @@ impl Daemon {
     pub(super) fn team_info(&self) -> Result<TeamInfo> {
         let team = self
             .team_state()
-            .ok_or_else(|| anyhow!("not in a team yet: `tincan init <team>` or `tincan join <invite>`"))?;
+            .ok_or_else(|| anyhow!("not in a team yet: `reason ask init <team>` or `reason ask join <invite>`"))?;
         Ok(TeamInfo {
             name: team.name().into(),
             relay: team.meta.body.relay.clone(),
@@ -432,7 +433,7 @@ impl Daemon {
                 bail!("'{who}' matches machines of several people; say which: {}", opts.join(", "));
             }
             if hits.iter().any(|h| h.0 == me) {
-                bail!("that includes this machine; use `tincan leave` instead");
+                bail!("that includes this machine; use `reason ask leave` instead");
             }
             for (id, person, machine) in &hits {
                 team.put_member(&self.key, *id, person, machine, false);
@@ -450,7 +451,7 @@ impl Daemon {
             }
         }
         let names: Vec<String> = removed.iter().map(|(_, p, m)| format!("{p} on {m}")).collect();
-        Ok(format!("Removed {}. The team link changed too (`tincan link` shows the new one).", names.join(", ")))
+        Ok(format!("Removed {}. The team link changed too (`reason ask link` shows the new one).", names.join(", ")))
     }
 
     pub(super) async fn leave(self: &Arc<Self>, force: bool) -> Result<String> {
@@ -459,7 +460,7 @@ impl Daemon {
         if !anyone && !self.peer_ids().is_empty() && !force {
             bail!(
                 "no teammate is online to hear that this machine left. Try again when one is, or use --force (they'll \
-                 need to `tincan remove` it then)"
+                 need to `reason ask remove` it then)"
             );
         }
         let state = {
@@ -508,10 +509,10 @@ impl Daemon {
         }
         self.restart_soon();
         let (now, cmd) = match &url {
-            Some(u) => (format!("The team now uses relay {u}, and nothing of n0's."), format!("tincan relay {u}")),
-            None => ("The team now uses n0's public relays.".into(), "tincan relay default".into()),
+            Some(u) => (format!("The team now uses relay {u}, and nothing of n0's."), format!("reason ask relay {u}")),
+            None => ("The team now uses n0's public relays.".into(), "reason ask relay default".into()),
         };
-        let mut out = format!("{now} Team links from before stop working: `tincan link` shows the new one.");
+        let mut out = format!("{now} Team links from before stop working: `reason ask link` shows the new one.");
         // A machine that is off can't hear about it, and won't find the team where it looks when it's back.
         if !away.is_empty() {
             out += &format!(

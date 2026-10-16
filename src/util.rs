@@ -6,7 +6,7 @@ pub fn now_ms() -> i64 {
 
 /// Short machine name: `Sams-MacBook-Pro.local` -> `sams-macbook-pro`. `TINCAN_MACHINE` overrides it.
 pub fn hostname() -> String {
-    if let Some(name) = std::env::var("TINCAN_MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
+    if let Some(name) = crate::paths::env_var("MACHINE").ok().map(|n| slug(&n)).filter(|n| !n.is_empty()) {
         return name;
     }
     let raw = system_hostname();

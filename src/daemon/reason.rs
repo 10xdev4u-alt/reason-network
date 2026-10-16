@@ -1,5 +1,5 @@
 //! Reason sessions. Reason's agent runs in its cloud, so there is no hook or MCP server here: when `reason` is on
-//! (`tincan setup`), the daemon lists your live Reason sessions (`reason session list --json`) every few seconds,
+//! (`reason ask setup`), the daemon lists your live Reason sessions (`reason session list --json`) every few seconds,
 //! and delivers to them with `reason session send`. They reply through the tincan CLI, which runs here.
 
 use super::{Daemon, log};

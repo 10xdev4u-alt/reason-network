@@ -1,4 +1,4 @@
-//! The guided setup: what `tincan`, `tincan init`, `tincan join`, `tincan invite` and `tincan setup` do when a person
+//! The guided setup: what `reason ask`, `reason ask init`, `reason ask join`, `reason ask invite` and `reason ask setup` do when a person
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
@@ -13,14 +13,14 @@ use cliclack::{confirm, input, intro, log, multiselect, note, outro, outro_cance
 use std::io::IsTerminal;
 
 pub fn interactive() -> bool {
-    std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && std::env::var_os("TINCAN_NO_PROMPT").is_none()
+    std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && crate::paths::env_var_os("NO_PROMPT").is_none()
 }
 
 /// Runs a guided flow, turning Ctrl-C at a prompt into a quiet exit.
 pub async fn guided(f: impl std::future::Future<Output = Result<()>>) -> Result<()> {
     match f.await {
         Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Interrupted) => {
-            let _ = outro_cancel("Stopped. Run `tincan` to pick up where you left off.");
+            let _ = outro_cancel("Stopped. Run `reason ask` to pick up where you left off.");
             Ok(())
         }
         r => r,
@@ -48,18 +48,18 @@ fn ask_name() -> Result<String> {
 }
 
 /// Start or join a team. With an invite (a team link, from the installer), it only asks for your name.
-/// `start`: `Some(true)` from `tincan init`, `Some(false)` from `tincan join`, `None` to ask.
+/// `start`: `Some(true)` from `reason ask init`, `Some(false)` from `reason ask join`, `None` to ask.
 pub async fn onboard(
     start: Option<bool>,
     team: Option<String>,
     invite: Option<String>,
     person: Option<String>,
 ) -> Result<()> {
-    intro(" tincan ")?;
+    intro(" reason ask ")?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
-        outro("`tincan` shows who's around; `tincan invite` gives you the team link.")?;
+        outro("`reason ask` shows who's around; `reason ask invite` gives you the team link.")?;
         return Ok(());
     }
     let mut person = match person {
@@ -188,12 +188,12 @@ pub async fn agents_and_preferences() -> Result<()> {
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
         log::warning(
-            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `tincan setup`.",
+            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `reason ask setup`.",
         )?;
         Vec::new()
     } else {
         let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
-        let mut pick = multiselect("Which agents should be on tincan?  (space to toggle, enter to confirm)")
+        let mut pick = multiselect("Which agents should be on reason ask?  (space to toggle, enter to confirm)")
             .required(false)
             .initial_values(initial);
         for f in &found {
@@ -201,20 +201,20 @@ pub async fn agents_and_preferences() -> Result<()> {
         }
         pick.interact()?
     };
-    let service = confirm("Keep tincan running in the background, so teammates can always reach you?")
+    let service = confirm("Keep reason ask running in the background, so teammates can always reach you?")
         .initial_value(true)
         .interact()?;
     let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
     cfg.inbound.default = select("When a teammate's agent messages one of yours")
         .item(Policy::Accept, "Deliver it", "recommended")
-        .item(Policy::Hold, "Hold it until I approve", "you approve with `tincan held`")
+        .item(Policy::Hold, "Hold it until I approve", "you approve with `reason ask held`")
         .initial_value(cfg.inbound.default)
         .interact()?;
     cfg.share_paths = confirm("Show teammates your full working directories? (otherwise just the folder name)")
         .initial_value(cfg.share_paths)
         .interact()?;
     if cfg!(target_os = "macos") && service {
-        cfg.tray = confirm("Show tincan in the menu bar?").initial_value(cfg.tray).interact()?;
+        cfg.tray = confirm("Show Reason in the menu bar?").initial_value(cfg.tray).interact()?;
     }
     cfg.save()?;
 
@@ -247,7 +247,7 @@ pub async fn show_link(new: bool) -> Result<String> {
     };
     note(
         title,
-        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `tincan link --new`.",
+        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `reason ask link --new`.",
     )?;
     Ok(l.url)
 }
@@ -260,7 +260,7 @@ pub async fn show_code(me: bool) -> Result<()> {
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: {unix}\n(on Windows: {windows})\n(or `tincan join {}` if tincan is there already)\nWorks once, within {}h, while this machine is online.",
+            "On {who}: {unix}\n(on Windows: {windows})\n(or `reason ask join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
             i.code, i.hours
         ),
     )?;
@@ -290,27 +290,27 @@ pub fn copy(text: &str) -> bool {
     })
 }
 
-/// `tincan invite` in a terminal: the team link, or a one-time code for another machine of yours.
+/// `reason ask invite` in a terminal: the team link, or a one-time code for another machine of yours.
 pub async fn invite() -> Result<()> {
-    intro(" tincan invite ")?;
+    intro(" reason ask invite ")?;
     let what = select("Who's joining?")
         .item(0, "Friends", "the team link, works for everyone")
         .item(1, "Another machine of mine", "a one-time code")
         .interact()?;
     if what == 0 {
         let url = show_link(false).await?;
-        outro("They'll show up in `tincan` once they've joined.")?;
+        outro("They'll show up in `reason ask` once they've joined.")?;
         println!("\n{url}\n");
     } else {
         show_code(true).await?;
-        outro("It'll show up in `tincan` once it has joined.")?;
+        outro("It'll show up in `reason ask` once it has joined.")?;
     }
     Ok(())
 }
 
-/// `tincan setup` in a terminal.
+/// `reason ask setup` in a terminal.
 pub async fn setup_agents() -> Result<()> {
-    intro(" tincan setup ")?;
+    intro(" reason ask setup ")?;
     agents_and_preferences().await?;
     outro("Done.")?;
     Ok(())

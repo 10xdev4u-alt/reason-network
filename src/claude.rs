@@ -52,7 +52,7 @@ impl ClaudeSession {
     }
 }
 
-/// Whether tincan is one of Claude Code's MCP servers here (`tincan setup` chose Claude Code). Read once: the
+/// Whether tincan is one of Claude Code's MCP servers here (`reason ask setup` chose Claude Code). Read once: the
 /// daemon restarts after setup.
 pub fn wired() -> bool {
     static WIRED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -64,7 +64,7 @@ pub fn wired() -> bool {
         std::fs::read(file)
             .ok()
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .is_some_and(|v| v["mcpServers"]["tincan"].is_object())
+            .is_some_and(|v| v["mcpServers"][crate::AGENT_NAME].is_object())
     })
 }
 

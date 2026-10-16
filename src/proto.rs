@@ -1,4 +1,4 @@
-//! The local API between the daemon and its clients (`tincan mcp`, the CLI, hooks): one JSON object per line
+//! The local API between the daemon and its clients (`reason ask mcp`, the CLI, hooks): one JSON object per line
 //! over `~/.tincan/tincan.sock`. Requests carry an `id` and get a [`Reply`] with the same id; a connection that
 //! registered sessions also receives [`Event`]s for them.
 
@@ -74,7 +74,7 @@ pub struct HookCall {
     /// What the session is doing, from agents that say so themselves (the opencode plugin).
     #[serde(default)]
     pub doing: Option<String>,
-    /// The session's name, for sessions that pick one (`tincan listen --as`).
+    /// The session's name, for sessions that pick one (`reason ask listen --as`).
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -133,7 +133,7 @@ pub enum Request {
         key: String,
         ids: Vec<String>,
     },
-    /// An agent hook fired (`tincan hook`): keeps hook-only sessions alive and returns mail to inject.
+    /// An agent hook fired (`reason ask hook`): keeps hook-only sessions alive and returns mail to inject.
     Hook(HookCall),
     /// For agents whose MCP calls carry no session id (Cursor, opencode): the hook-known session of this agent
     /// that is most likely making the call.
@@ -168,7 +168,7 @@ pub enum Request {
         who: String,
     },
     Leave {
-        /// Leave even if no teammate is online to hear it (they'll need to `tincan remove` this machine).
+        /// Leave even if no teammate is online to hear it (they'll need to `reason ask remove` this machine).
         #[serde(default)]
         force: bool,
     },

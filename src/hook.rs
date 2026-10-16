@@ -1,4 +1,4 @@
-//! `tincan hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
+//! `reason ask hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
 //! or idle), and prints whatever makes the agent show incoming mail. It never fails loudly: a broken tincan must
 //! not break the agent.
 
@@ -93,7 +93,9 @@ async fn handle(
         (Some(t), ..) => t,
         // Say who it is on tincan once, at session start.
         (None, "start", Some(addr)) => {
-            format!("tincan: you are {addr}. Teammates' agents can message you; list_team and send_message reach them.")
+            format!(
+                "reason ask: you are {addr}. Teammates' agents can message you; list_team and send_message reach them."
+            )
         }
         _ => return None,
     };

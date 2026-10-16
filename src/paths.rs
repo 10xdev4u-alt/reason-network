@@ -9,8 +9,18 @@ pub fn user_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// A setting from the environment: `REASON_NETWORK_<name>`, else the engine's original `TINCAN_<name>` (which
+/// earlier Reason CLIs and agent configs set).
+pub fn env_var(name: &str) -> Result<String, std::env::VarError> {
+    std::env::var(format!("REASON_NETWORK_{name}")).or_else(|_| std::env::var(format!("TINCAN_{name}")))
+}
+
+pub fn env_var_os(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(format!("REASON_NETWORK_{name}")).or_else(|| std::env::var_os(format!("TINCAN_{name}")))
+}
+
 pub fn home() -> PathBuf {
-    std::env::var_os("TINCAN_HOME").map(PathBuf::from).unwrap_or_else(|| user_home().join(".tincan"))
+    env_var_os("HOME").map(PathBuf::from).unwrap_or_else(|| user_home().join(".tincan"))
 }
 
 /// `~/.tincan/tincan.sock`, unless that is too long for a Unix socket address (104 bytes on macOS): then a short

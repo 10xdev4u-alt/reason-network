@@ -1,4 +1,4 @@
-//! `tincan mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
+//! `reason ask mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
 
 use crate::{
     agent::{self, ClaudeSocket},
@@ -33,7 +33,7 @@ const SKILL: &str = include_str!("../site/skill/SKILL.md");
 fn instructions() -> String {
     // Windows checkouts may have turned the file's line ends into \r\n.
     let rules = SKILL.split_once("## How to behave").map_or(String::new(), |(_, r)| r.trim().replace('\r', ""));
-    format!("tincan connects you with your teammates' coding agents.\n\n{rules}")
+    format!("reason ask connects you with your teammates' coding agents.\n\n{rules}")
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -65,7 +65,7 @@ pub struct InboxArgs {
 }
 
 #[derive(Clone)]
-pub struct TincanMcp {
+pub struct ReasonAskMcp {
     link: Arc<Link>,
     env_agent: Option<&'static str>,
     claude: Option<Arc<ClaudeSocket>>,
@@ -76,12 +76,12 @@ pub struct TincanMcp {
 
 pub async fn run() -> Result<()> {
     let (tx, mut events) = mpsc::unbounded_channel();
-    let server = TincanMcp {
+    let server = ReasonAskMcp {
         link: Link::new(Some(tx)),
         env_agent: agent::detect_env(),
         claude: agent::claude_socket().map(Arc::new),
         client_agent: Default::default(),
-        tool_router: TincanMcp::tool_router(),
+        tool_router: ReasonAskMcp::tool_router(),
     };
     let service = server.clone().serve(stdio()).await?;
 
@@ -101,7 +101,7 @@ pub async fn run() -> Result<()> {
         if !agent::multiplexed(agent)
             && let Err(e) = s.session(agent, None).await
         {
-            eprintln!("tincan: registering session: {e:#}");
+            eprintln!("reason ask: registering session: {e:#}");
         }
     });
 
@@ -110,7 +110,7 @@ pub async fn run() -> Result<()> {
 }
 
 #[tool_router]
-impl TincanMcp {
+impl ReasonAskMcp {
     #[tool(
         description = "List your team's live agent sessions: who, which machine and agent, repo@branch, busy/idle, \
                        and what each is doing. Use it to find the right recipient.",
@@ -185,10 +185,10 @@ impl TincanMcp {
 }
 
 #[tool_handler(router = self.tool_router)]
-impl ServerHandler for TincanMcp {
+impl ServerHandler for ReasonAskMcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("tincan", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new(crate::AGENT_NAME, env!("CARGO_PKG_VERSION")))
             .with_instructions(instructions())
     }
 
@@ -206,7 +206,7 @@ impl ServerHandler for TincanMcp {
     }
 }
 
-impl TincanMcp {
+impl ReasonAskMcp {
     /// Whether messages reach this session by being pushed into it: Claude Code, through its inbox.
     fn pushed(&self, agent: &str) -> bool {
         agent == agent::CLAUDE_CODE && self.claude.is_some()
@@ -291,8 +291,8 @@ impl TincanMcp {
             Ok(Ok(())) => {
                 let _ = self.link.call::<Value>(Request::Delivered { key, ids }).await;
             }
-            Ok(Err(e)) => eprintln!("tincan: delivering to Claude Code: {e}"),
-            Err(e) => eprintln!("tincan: delivering to Claude Code: {e}"),
+            Ok(Err(e)) => eprintln!("reason ask: delivering to Claude Code: {e}"),
+            Err(e) => eprintln!("reason ask: delivering to Claude Code: {e}"),
         }
     }
 }
