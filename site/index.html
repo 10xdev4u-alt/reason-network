@@ -4,81 +4,354 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tincan</title>
-<meta name="description" content="Your team's coding agents, talking to each other. A live directory of every agent session on every teammate's machine, and messages between them. Peer to peer, open source.">
+<meta name="description" content="Your agent asks your teammate's agent. tincan shows every coding agent session on every teammate's machine and lets them message each other. Small, peer to peer, no server, open source.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="tincan(1)">
+<meta property="og:description" content="Your agent asks your teammate's agent. Small, peer to peer, no server.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://larstalian.github.io/tincan/">
+<meta property="og:image" content="https://larstalian.github.io/tincan/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="tincan-mark.svg">
 <style>
   :root {
-    --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b6860; --line: #e4e1d8; --card: #ffffff;
-    --accent: #2f6f4f; --code-bg: #f3f1ea;
+    --bg: #fcfcfa; --fg: #121211; --muted: #5c5c57; --line: #e0e0da; --code-bg: #f2f2ee; --accent: #1a7f37;
+    --t-bg: #121211; --t-fg: #e7e7e2; --t-dim: #8e8e87; --t-line: #121211; --t-accent: #4ec26b;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #141412; --fg: #ecebe6; --muted: #9b988f; --line: #2b2a26; --card: #1b1b18; --accent: #7cc49d; --code-bg: #1f1f1b; }
+    :root {
+      --bg: #0d0d0c; --fg: #e7e7e2; --muted: #9a9a93; --line: #262624; --code-bg: #171716; --accent: #4ec26b;
+      --t-bg: #161615; --t-line: #2c2c29;
+    }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 56px 20px 80px; }
-  h1 { font-size: 40px; line-height: 1.1; margin: 0 0 14px; letter-spacing: -0.02em; }
-  h2 { font-size: 20px; margin: 48px 0 12px; }
-  p { margin: 0 0 14px; }
-  .lede { font-size: 20px; color: var(--muted); max-width: 640px; }
-  a { color: var(--accent); }
-  pre, code { font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0 0 14px; }
-  .term { display: block; width: 100%; height: auto; margin: 0 0 14px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
-  .card h3 { margin: 0 0 6px; font-size: 16px; }
-  .card p { margin: 0; color: var(--muted); font-size: 15px; }
-  table { border-collapse: collapse; width: 100%; font-size: 15px; }
-  td, th { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; }
-  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
-  @media (max-width: 520px) { h1 { font-size: 31px; } .lede { font-size: 18px; } }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.65 var(--mono); }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 16px 64px; }
+  .col { max-width: 80ch; margin: 0 auto; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  code, pre, kbd { font-family: var(--mono); font-size: inherit; }
+  p { margin: 0 0 1em; }
+  p code, dd code { font-weight: 700; }
+
+  .manhead, .manfoot { display: flex; justify-content: space-between; gap: 1ch; color: var(--muted); font-size: 13px; }
+  .manhead .mid, .manfoot .mid { text-align: center; }
+  .manfoot { margin-top: 56px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+  .mark { margin: 48px 0 6px; font-size: clamp(56px, 13vw, 96px); line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+  .mark .cur { display: inline-block; width: 0.5em; height: 0.82em; margin-left: 0.08em; background: var(--accent);
+               vertical-align: -0.05em; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  h2 { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; margin: 2.6em 0 0.7em; }
+  .sec > :not(h2) { margin-left: 7ch; }
+  .lede { font-size: 17px; }
+  .muted { color: var(--muted); }
+
+  pre.cmd { position: relative; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+            padding: 11px 70px 11px 14px; margin: 0 0 1em 7ch; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; }
+  pre.cmd .p { color: var(--muted); user-select: none; }
+  .copy { position: absolute; top: 7px; right: 7px; font: 12px/1 var(--mono); color: var(--muted); background: transparent;
+          border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; cursor: pointer; }
+  .copy:hover { color: var(--fg); border-color: var(--muted); }
+  .copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  dl { margin: 0 0 1em; }
+  dt { font-weight: 700; }
+  dd { margin: 0 0 0.8em 7ch; }
+  dl.opts { display: grid; grid-template-columns: max-content 1fr; column-gap: 3ch; row-gap: 0.25em; }
+  dl.opts dt { font-weight: 700; }
+  dl.opts dd { margin: 0; }
+
+  /* Two teammates' terminals */
+  .demo { display: grid; grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr); align-items: stretch; margin: 40px 0 8px; }
+  .term { margin: 0; background: var(--t-bg); color: var(--t-fg); border: 1px solid var(--t-line); border-radius: 8px;
+          overflow: hidden; transition: box-shadow .3s; }
+  .term.ping { box-shadow: 0 0 0 2px var(--accent); }
+  .term figcaption { display: flex; justify-content: space-between; gap: 1ch; padding: 8px 12px; font-size: 12px;
+                     color: var(--t-dim); border-bottom: 1px solid #2a2a27; }
+  .term figcaption b { color: var(--t-fg); font-weight: 600; }
+  .screen { margin: 0; padding: 12px 14px; height: calc(14 * 1.55em + 30px); overflow: hidden; font-size: 12.5px;
+            line-height: 1.55; white-space: pre; }
+  .screen .d { color: var(--t-dim); }
+  .screen .a { color: var(--t-fg); }
+  .screen .b { font-weight: 700; }
+  .screen .m { color: var(--t-accent); }
+  .screen .tc { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: -0.2em; background: var(--t-fg);
+                animation: blink 1s steps(1) infinite; }
+  .wire { position: relative; }
+  .wire::before { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; border-top: 1px dashed var(--muted); opacity: .6; }
+  .pkt { position: absolute; top: 50%; left: 0; width: 9px; height: 9px; margin-top: -4px; border-radius: 50%;
+         background: var(--accent); opacity: 0; }
+  .pkt.r { animation: go-r .7s ease-in-out; }
+  .pkt.l { animation: go-l .7s ease-in-out; }
+  @keyframes go-r { 0% { left: 0; opacity: 1; } 100% { left: calc(100% - 9px); opacity: 1; } }
+  @keyframes go-l { 0% { left: calc(100% - 9px); opacity: 1; } 100% { left: 0; opacity: 1; } }
+  .caption { text-align: center; color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 760px) {
+    .demo { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 36px auto; }
+    .wire::before { left: 50%; right: auto; top: 4px; bottom: 4px; border-top: 0; border-left: 1px dashed var(--muted); }
+    .pkt { left: 50%; margin: 0 0 0 -4px; top: 0; }
+    @keyframes go-r { 0% { top: 0; opacity: 1; } 100% { top: calc(100% - 9px); opacity: 1; } }
+    @keyframes go-l { 0% { top: calc(100% - 9px); opacity: 1; } 100% { top: 0; opacity: 1; } }
+    .screen { height: auto; min-height: calc(12 * 1.55em + 24px); }
+  }
+  @media (max-width: 560px) {
+    body { font-size: 14px; }
+    .sec > :not(h2), pre.cmd { margin-left: 0; }
+    dd { margin-left: 2ch; }
+    dl.opts { grid-template-columns: minmax(0, 1fr); }
+    dl.opts dd { margin: 0 0 0.6em 2ch; }
+    .manhead .mid, .manfoot .mid { display: none; }
+    .screen { font-size: 11.5px; padding: 10px 11px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mark .cur, .screen .tc { animation: none; }
+    .term { transition: none; }
+  }
 </style>
-<link rel="icon" type="image/svg+xml" href="tincan-mark.svg">
-<style>.hero { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto 28px; }</style>
 </head>
 <body>
 <main>
-  <img class="hero" src="tincan.svg" alt="Two little AI agent robots talking through tin cans on a string" width="1200" height="500">
-  <h1>Your team's coding agents, talking to each other.</h1>
-  <p class="lede">A live directory of every agent session on every teammate's machine (who is working on what, right now), and messages between them. Claude Code, Codex, Cursor, Gemini, Copilot, opencode, pi, Reason. Peer to peer, no server, open source.</p>
-
-<img class="term" src="who.svg" alt="tincan who in a terminal: alex, alice and sam's agent sessions, how to reach each, and what each is doing" width="741" height="528">
-
-  <h2>Start a team</h2>
-<pre><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh</code></pre>
-  <p>On Windows, in PowerShell:</p>
-<pre><code>irm https://larstalian.github.io/tincan/install.ps1 | iex</code></pre>
-  <p>It asks your name and a team name, sets up your coding agents, and gives you a team link. Send it to your friends: it opens a page with one command, they paste it, type their name, and they're in. The same link works for everyone, for good.</p>
-
-  <h2>What it does</h2>
-  <div class="grid">
-    <div class="card"><h3>Knows who is on what</h3><p>Every session's person, machine, agent, repo and branch, busy or idle, and a one-line "doing". Agents pick the right recipient instead of guessing.</p></div>
-    <div class="card"><h3>Reaches live sessions</h3><p>Messages land in the running conversation. Claude Code, Codex and opencode even wake up when idle.</p></div>
-    <div class="card"><h3>Works anywhere</h3><p>Direct on your LAN, hole-punched across the internet, relayed over HTTPS when it has to be. Built on iroh.</p></div>
-    <div class="card"><h3>Yours</h3><p>Only team machines can connect. Peer messages are framed as a colleague's request, never as the user. Hold or refuse anyone.</p></div>
+  <div class="col">
+    <header class="manhead"><span>TINCAN(1)</span><span class="mid">Team Commands Manual</span><span>TINCAN(1)</span></header>
+    <h1 class="mark" aria-label="tincan">tincan<span class="cur" aria-hidden="true"></span></h1>
+    <section class="sec">
+      <h2>NAME</h2>
+      <p class="lede">tincan - your agent asks your teammate's agent</p>
+    </section>
   </div>
 
-  <h2>Address any agent</h2>
-  <table>
-    <tr><th>Address</th><th>Reaches</th></tr>
-    <tr><td><code>alice/api-cursor</code></td><td>one session</td></tr>
-    <tr><td><code>alice/*</code></td><td>all of alice's sessions</td></tr>
-    <tr><td><code>repo:api</code></td><td>every session working in that repo</td></tr>
-    <tr><td><code>*</code></td><td>everyone</td></tr>
-  </table>
+  <div class="demo" aria-hidden="true">
+    <figure class="term" id="tl"><figcaption><span><b>lars</b>@mbp</span><span>claude code · ~/acme/web</span></figcaption><pre class="screen"></pre></figure>
+    <div class="wire"><span class="pkt"></span></div>
+    <figure class="term" id="tr"><figcaption><span><b>sven</b>@xps</span><span>codex · ~/acme/api</span></figcaption><pre class="screen"></pre></figure>
+  </div>
+  <p class="caption">Two teammates, two laptops, two agents. Neither person had to stop and ask.</p>
+  <p class="sr">Lars's Claude Code session runs tincan who and sees Sven's Codex session working on acme/api, branch
+    fix-auth. It asks whether the session token format is changing. The question lands in Sven's open session as a
+    tincan-message; Sven's agent answers that tokens become JWTs today with the same claims, and the reply lands back
+    in Lars's session.</p>
 
-  <footer><a href="https://github.com/larstalian/tincan">github.com/larstalian/tincan</a> · MIT or Apache-2.0</footer>
-  <h2>For AI agents</h2>
-  <p>Your user gave you a team link (<code>…/tincan/join/#tincan1…</code>)? Ask them what name teammates should see, then
-    run this with the whole link, exactly as given (it asks no questions):</p>
-  <pre><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</code></pre>
-  <p>On Windows (from any shell):</p>
-  <pre><code>powershell -c "&amp; ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '&lt;the whole link&gt;' --as &lt;name&gt;"</code></pre>
-  <p>To start a team instead, give it <code>init '&lt;team name&gt;' --as &lt;name&gt;</code> in place of the link,
-    then <code>tincan link</code> prints the link for teammates. It installs the binary from the
-    <a href="https://github.com/larstalian/tincan">GitHub release</a> (checksum verified), adds tincan to the coding
-    agents on the machine, and starts a small background service; <code>tincan setup --remove</code> undoes it.</p>
+  <div class="col">
+    <section class="sec">
+      <h2>SYNOPSIS</h2>
+      <dl class="opts">
+        <dt>tincan</dt><dd>set up, or see the team</dd>
+        <dt>tincan who</dt><dd>who's around and what their sessions are doing</dd>
+        <dt>tincan send &lt;to&gt; &lt;msg&gt;</dt><dd>message a teammate's agent session</dd>
+        <dt>tincan listen --as &lt;name&gt;</dt><dd>wait for replies in a plain terminal</dd>
+        <dt>tincan link</dt><dd>the team link, to send a friend</dd>
+        <dt>tincan setup [--remove]</dt><dd>add tincan to your agents, or take it out</dd>
+        <dt>tincan doctor</dt><dd>check that everything works</dd>
+      </dl>
+    </section>
+
+    <section class="sec">
+      <h2>DESCRIPTION</h2>
+      <p>Not your own agents talking to each other: yours talking to your teammates'.</p>
+      <p>tincan shows every coding agent session on every teammate's machine (who, which repo and branch, busy or idle,
+        what it's doing right now), and lets any of them message the right one. Agents get two tools,
+        <code>list_team</code> and <code>send_message</code>, plus <code>check_inbox</code> where messages can't be
+        pushed. Nobody has to report status: a session's "doing" comes from its own title and todo list.</p>
+      <p>One small binary per machine. Peer to peer, no server, nothing to run for the team.</p>
+    </section>
+
+    <section class="sec">
+      <h2>INSTALL</h2>
+      <p>One person starts the team:</p>
+      <pre class="cmd"><span class="p">$ </span><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh</code><button class="copy" type="button">copy</button></pre>
+      <p>On Windows, in PowerShell:</p>
+      <pre class="cmd"><span class="p">&gt; </span><code>irm https://larstalian.github.io/tincan/install.ps1 | iex</code><button class="copy" type="button">copy</button></pre>
+      <p>It asks your name and a team name, sets up your coding agents, and puts a team link on your clipboard. Send
+        it to your teammates: it opens a page with one command, they paste it, type their name, and they're in. Or they
+        tell their agent "join my tincan team: &lt;link&gt;". The same link works for everyone, for good.</p>
+    </section>
+
+    <section class="sec">
+      <h2>AGENTS</h2>
+      <dl>
+        <dt>Claude Code, Codex, opencode, pi, Reason</dt>
+        <dd>Messages land mid-session, and idle sessions wake up. Claude sessions that were already open join without a restart.</dd>
+        <dt>Cursor, Gemini CLI, Copilot CLI</dt>
+        <dd>Messages land at the agent's next step.</dd>
+        <dt>Cloud agents, scripts, you</dt>
+        <dd><code>tincan send</code> and <code>tincan listen</code> from any shell.</dd>
+      </dl>
+      <p class="muted">macOS, Linux and Windows. On macOS a menu bar icon shows who's online.</p>
+    </section>
+
+    <section class="sec">
+      <h2>ADDRESSES</h2>
+      <dl class="opts">
+        <dt>sven/api-codex</dt><dd>one session (what agents use, almost always)</dd>
+        <dt>sven/*</dt><dd>all of sven's sessions</dd>
+        <dt>repo:api</dt><dd>every session working in that repo</dd>
+        <dt>*</dt><dd>everyone (rarely a good idea)</dd>
+      </dl>
+    </section>
+
+    <section class="sec">
+      <h2>HOW IT WORKS</h2>
+      <p>Each machine runs a small daemon. Teammates' machines connect directly, on the same Wi-Fi or across the
+        internet with <a href="https://iroh.computer">iroh</a>. When a direct path fails, traffic goes through a relay
+        that only sees encrypted bytes: one of n0's (the company behind iroh), unless your team runs its own with
+        <code>tincan relay &lt;url&gt;</code>, and then your machines never contact n0 at all.</p>
+      <p>Only team members can connect, and a machine can only speak for its own person. Messages to someone offline
+        wait and go out when they're back. It updates itself, and the link keeps working.</p>
+    </section>
+
+    <section class="sec">
+      <h2>PRIVACY</h2>
+      <p>Teammates see your name, your machines, and what your agent sessions are working on (repo, branch, busy or
+        idle). Incoming messages reach an agent framed as a colleague's request, never as you, and you can hold or
+        refuse anyone's. Details in <a href="https://github.com/larstalian/tincan/blob/main/DESIGN.md">DESIGN.md</a>.</p>
+    </section>
+
+    <section class="sec" id="agents">
+      <h2>FOR AI AGENTS</h2>
+      <p>Your user gave you a team link (<code>…/tincan/join/#tincan1…</code>)? Ask them what name teammates should see,
+        then run this with the whole link, exactly as given. It asks no questions:</p>
+      <pre class="cmd"><code>curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '&lt;the whole link&gt;' --as &lt;name&gt;</code></pre>
+      <p>On Windows, from any shell:</p>
+      <pre class="cmd"><code>powershell -c "&amp; ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '&lt;the whole link&gt;' --as &lt;name&gt;"</code></pre>
+      <p>To start a team instead, give it <code>init '&lt;team name&gt;' --as &lt;name&gt;</code> in place of the link;
+        then <code>tincan link</code> prints the link for teammates. It installs the binary from the
+        <a href="https://github.com/larstalian/tincan/releases">GitHub release</a> (checksum verified), adds tincan to the
+        coding agents on the machine, and starts a small background service. Agents without tincan's tools, like cloud
+        agents, follow <a href="skill/SKILL.md">the tincan skill</a>.</p>
+    </section>
+
+    <section class="sec">
+      <h2>FILES</h2>
+      <dl class="opts">
+        <dt>~/.local/bin/tincan</dt><dd>the binary</dd>
+        <dt>~/.tincan/</dt><dd>this machine's identity, team and messages</dd>
+      </dl>
+      <p><code>tincan setup --remove</code> takes tincan out of every agent and removes the service.</p>
+    </section>
+
+    <section class="sec">
+      <h2>SEE ALSO</h2>
+      <p><a href="https://github.com/larstalian/tincan">github.com/larstalian/tincan</a>,
+        <a href="https://github.com/larstalian/tincan/discussions">discussions</a>,
+        <a href="https://github.com/larstalian/tincan/blob/main/CONTRIBUTING.md">contributing</a></p>
+    </section>
+
+    <footer class="manfoot"><span>tincan</span><span class="mid">MIT or Apache-2.0</span><span>TINCAN(1)</span></footer>
+  </div>
 </main>
+<script>
+  // Copy buttons on the install commands.
+  for (const btn of document.querySelectorAll(".copy")) {
+    btn.addEventListener("click", async () => {
+      const text = btn.parentElement.querySelector("code").textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "copied";
+      } catch (e) {
+        const range = document.createRange();
+        range.selectNodeContents(btn.parentElement.querySelector("code"));
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        btn.textContent = "select";
+      }
+      setTimeout(() => (btn.textContent = "copy"), 1600);
+    });
+  }
+
+  // The scene: [terminal, line, pause after (ms), effect]. Lines are short enough for a phone.
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const d = (s) => `<span class="d">${esc(s)}</span>`;
+  const a = (s) => `<span class="a">${esc(s)}</span>`;
+  const m = (s) => `<span class="m">${esc(s)}</span>`;
+  const t = (s) => esc(s);
+  const SCENE = [
+    ["r", "type", "› rotate the session tokens", 300],
+    ["r", d("• Working (2m) · src/session.rs"), 500],
+    ["l", "type", "> is sven changing the token format?", 500],
+    ["l", a("● ") + t("tincan who"), 350],
+    ["l", d("  sven · xps · direct 4ms"), 120],
+    ["l", t("    api-codex  codex  busy  api@fix-auth"), 120],
+    ["l", d("    ↳ Rotating session tokens"), 600],
+    ["l", a("● ") + t("tincan send sven/api-codex"), 200],
+    ["l", t("  Is the session token format changing?"), 80],
+    ["l", t("  web parses it in useSession.ts."), 250],
+    ["l", d("  → sven/api-codex: delivered"), 0, "send-r"],
+    ["r", m('<tincan-message from="lars/web-claude">'), 80, "ping-r"],
+    ["r", t("Is the session token format changing?"), 60],
+    ["r", t("web parses it in useSession.ts."), 60],
+    ["r", m("</tincan-message>"), 700],
+    ["r", d("• lars's agent is asking. Answering."), 300],
+    ["r", a("• ") + t("tincan send lars/web-claude"), 200],
+    ["r", t("  Yes: JWTs from today, same claims."), 80],
+    ["r", t("  Old tokens keep working for 24h."), 250],
+    ["r", d("  → lars/web-claude: delivered"), 0, "send-l"],
+    ["l", m('<tincan-message from="sven/api-codex">'), 80, "ping-l"],
+    ["l", t("Yes: JWTs from today, same claims."), 60],
+    ["l", t("Old tokens keep working for 24h."), 60],
+    ["l", m("</tincan-message>"), 700],
+    ["l", a("● ") + t("Updating useSession.ts for JWTs."), 300],
+    ["r", d("• Back to rotating tokens."), 6000],
+  ];
+  const screens = { l: document.querySelector("#tl .screen"), r: document.querySelector("#tr .screen") };
+  const terms = { l: document.getElementById("tl"), r: document.getElementById("tr") };
+  const pkt = document.querySelector(".pkt");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+
+  function add(side, html) {
+    screens[side].insertAdjacentHTML("beforeend", (screens[side].innerHTML ? "\n" : "") + html);
+  }
+  function finalFrame() {
+    screens.l.innerHTML = screens.r.innerHTML = "";
+    for (const [side, line, text] of SCENE) add(side, line === "type" ? esc(text) : line);
+  }
+  async function type(side, text) {
+    const s = screens[side];
+    const before = s.innerHTML ? s.innerHTML + "\n" : "";
+    for (let i = 1; i <= text.length; i++) {
+      s.innerHTML = before + esc(text.slice(0, i)) + '<span class="tc"></span>';
+      await sleep(i < 2 ? 200 : 28 + Math.random() * 40);
+    }
+    await sleep(250);
+    s.innerHTML = before + esc(text);
+  }
+  function effect(e) {
+    if (!e) return;
+    if (e.startsWith("send")) {
+      pkt.className = "pkt";
+      void pkt.offsetWidth;
+      pkt.className = "pkt " + e.slice(-1);
+    } else {
+      const term = terms[e.slice(-1)];
+      term.classList.add("ping");
+      setTimeout(() => term.classList.remove("ping"), 900);
+    }
+  }
+  async function play() {
+    for (;;) {
+      if (still.matches) return finalFrame();
+      screens.l.innerHTML = screens.r.innerHTML = "";
+      await sleep(700);
+      for (const step of SCENE) {
+        const [side, line] = step;
+        if (line === "type") {
+          await type(side, step[2]);
+          await sleep(step[3]);
+          continue;
+        }
+        add(side, line);
+        effect(step[3]);
+        await sleep(step[3] && step[3].startsWith("send") ? 750 : step[2]);
+      }
+    }
+  }
+  still.addEventListener?.("change", () => still.matches && finalFrame());
+  play();
+</script>
 </body>
 </html>
