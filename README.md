@@ -22,7 +22,10 @@ On Windows, in PowerShell:
 irm https://larstalian.github.io/tincan/install.ps1 | iex
 ```
 
-You get a team link (it's on your clipboard). Send it to your friends: they open it, paste one command, type
+Or in Claude Code (macOS and Linux): `/plugin marketplace add larstalian/tincan`, `/plugin install tincan@tincan`,
+restart, and ask Claude to start or join a team.
+
+You get a team link (it's on your clipboard). Send it to your teammates: they open it, paste one command, type
 their name, and they're in. Or they just tell their agent "join my tincan team: <link>".
 
 That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent something.
@@ -44,9 +47,6 @@ tincan listen --as terminal   # replies to what you sent from this terminal
 tincan link                   # the team link again
 tincan setup                  # which agents are on tincan, and how messages are handled
 ```
-
-In Claude Code, `/plugin marketplace add larstalian/tincan` and `/plugin install tincan@tincan` add the tincan
-skill too: how to join, and how to pick the one session to message.
 
 ## How it works
 

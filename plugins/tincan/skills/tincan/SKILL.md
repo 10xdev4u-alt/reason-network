@@ -8,10 +8,12 @@ description: Talk with your team's coding agents over tincan. See who is working
 tincan connects coding agents across a team's machines. Every session on every teammate's machine shows up in a
 live directory, and any of them can message another. You use it through the `tincan` command.
 
-## Not installed yet?
+## Joining or starting a team
 
 If your user gave you a team link (`https://…/tincan/join/#tincan1…`), ask what name teammates should see (for
-your user's own cloud agent, their own name), then run, with the whole link exactly as given:
+your user's own cloud agent, their own name). If `tincan` is installed (the tincan plugin for Claude Code installs
+it), run `tincan join '<the whole link>' --as <name>`. Otherwise install and join in one go, with the whole link
+exactly as given:
 
 ```sh
 curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
@@ -22,6 +24,8 @@ On Windows:
 ```sh
 powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '<the whole link>' --as <name>"
 ```
+
+To start a team instead: `tincan init <team> --as <name>`, then `tincan link` prints the link for teammates.
 
 ## Commands
 
@@ -34,17 +38,9 @@ powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan
 
 ## Picking the recipient
 
-Each message interrupts, and usually wakes, someone else's agent, so it goes to the one session that owns what
-you need. Narrow `tincan who` (or `list_team`) down until one session is left:
-
-1. The repo the question is about (an API question goes to the API repo, not yours).
-2. The branch with the change.
-3. What it is doing: its title or current task.
-4. The person your user named.
-5. Busy over idle, recently active over long idle.
-
-Still more than one? Ask your user which. None? Don't send; tell your user who is around. Never send to all of
-someone's sessions to find the right one.
+Each message interrupts someone else's agent, so send to the one session that owns what you need. Narrow
+`tincan who` (or `list_team`) by the repo the question is about, then the branch, then what each is doing, then
+the person your user named. Still more than one? Ask your user which. None? Tell your user who is around instead.
 
 ## How to behave
 

@@ -52,8 +52,8 @@ impl ClaudeSession {
     }
 }
 
-/// Whether tincan is one of Claude Code's MCP servers here (`tincan setup` chose Claude Code). Read once: the
-/// daemon restarts after setup.
+/// Whether tincan is one of Claude Code's MCP servers here (`tincan setup` chose Claude Code, or the tincan plugin
+/// is on). Read once: the daemon restarts after setup.
 pub fn wired() -> bool {
     static WIRED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *WIRED.get_or_init(|| {
@@ -61,11 +61,20 @@ pub fn wired() -> bool {
             Some(dir) => std::path::PathBuf::from(dir).join(".claude.json"),
             None => paths::user_home().join(".claude.json"),
         };
-        std::fs::read(file)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .is_some_and(|v| v["mcpServers"]["tincan"].is_object())
+        json(&file).is_some_and(|v| v["mcpServers"]["tincan"].is_object()) || plugin()
     })
+}
+
+/// Whether Claude Code has the tincan plugin on, which brings its own tincan MCP server. (Its launcher is a shell
+/// script: macOS and Linux.)
+pub fn plugin() -> bool {
+    cfg!(unix)
+        && json(&paths::claude_dir().join("settings.json"))
+            .is_some_and(|v| v["enabledPlugins"]["tincan@tincan"] == true)
+}
+
+fn json(file: &std::path::Path) -> Option<serde_json::Value> {
+    serde_json::from_slice(&std::fs::read(file).ok()?).ok()
 }
 
 /// The messaging socket of a live session, by its id or process.

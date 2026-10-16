@@ -8,7 +8,7 @@
     {
       "name": "tincan",
       "source": "./plugins/tincan",
-      "description": "How to use tincan: joining a team, finding the right teammate's agent, and messaging it.",
+      "description": "Your agents, talking to your teammates' agents: tincan's tools and skill for Claude Code.",
       "homepage": "https://larstalian.github.io/tincan"
     }
   ]
