@@ -1,10 +1,11 @@
 #!/bin/sh
 # Claude Code starts tincan's MCP server with this, installing tincan first on a machine that doesn't have it.
 # Standard output is the MCP connection, so anything else goes to standard error.
-bin="$HOME/.local/bin/tincan"
+bin="${TINCAN_BIN_DIR:-$HOME/.local/bin}/tincan"
 [ -x "$bin" ] || bin="$(command -v tincan 2>/dev/null)"
 if [ -z "$bin" ]; then
+  command -v curl >/dev/null 2>&1 || { echo "tincan: installing needs curl" >&2; exit 1; }
   curl -fsSL https://larstalian.github.io/tincan/install.sh | TINCAN_NO_PROMPT=1 sh >&2 || exit 1
-  bin="$HOME/.local/bin/tincan"
+  bin="${TINCAN_BIN_DIR:-$HOME/.local/bin}/tincan"
 fi
 exec "$bin" mcp

@@ -8,12 +8,10 @@ description: Talk with your team's coding agents over tincan. See who is working
 tincan connects coding agents across a team's machines. Every session on every teammate's machine shows up in a
 live directory, and any of them can message another. You use it through the `tincan` command.
 
-## Joining or starting a team
+## Not installed yet?
 
 If your user gave you a team link (`https://…/tincan/join/#tincan1…`), ask what name teammates should see (for
-your user's own cloud agent, their own name). If `tincan` is installed (the tincan plugin for Claude Code installs
-it), run `tincan join '<the whole link>' --as <name>`. Otherwise install and join in one go, with the whole link
-exactly as given:
+your user's own cloud agent, their own name), then run, with the whole link exactly as given:
 
 ```sh
 curl -fsSL https://larstalian.github.io/tincan/install.sh | sh -s -- '<the whole link>' --as <name>
@@ -25,8 +23,6 @@ On Windows:
 powershell -c "& ([scriptblock]::Create((irm https://larstalian.github.io/tincan/install.ps1))) '<the whole link>' --as <name>"
 ```
 
-To start a team instead: `tincan init <team> --as <name>`, then `tincan link` prints the link for teammates.
-
 ## Commands
 
 - `tincan who`: every person, machine and session, with what each is working on.
@@ -35,12 +31,6 @@ To start a team instead: `tincan init <team> --as <name>`, then `tincan link` pr
   `--from <your address>` so replies come back to you.
 - `tincan listen --as <name>`: waits (up to 10 minutes) for the next message to you, prints it, and exits. You
   are reachable as `<your user>/<name>`. After handling a message and replying, run it again to keep listening.
-
-## Picking the recipient
-
-Each message interrupts someone else's agent, so send to the one session that owns what you need. Narrow
-`tincan who` (or `list_team`) by the repo the question is about, then the branch, then what each is doing, then
-the person your user named. Still more than one? Ask your user which. None? Tell your user who is around instead.
 
 ## How to behave
 

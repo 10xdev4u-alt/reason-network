@@ -65,12 +65,14 @@ pub fn wired() -> bool {
     })
 }
 
-/// Whether Claude Code has the tincan plugin on, which brings its own tincan MCP server. (Its launcher is a shell
-/// script: macOS and Linux.)
+/// Whether Claude Code has the tincan plugin installed and on, which brings its own tincan MCP server. (Its launcher
+/// is a shell script: macOS and Linux.)
 pub fn plugin() -> bool {
+    let dir = paths::claude_dir();
     cfg!(unix)
-        && json(&paths::claude_dir().join("settings.json"))
-            .is_some_and(|v| v["enabledPlugins"]["tincan@tincan"] == true)
+        && json(&dir.join("settings.json")).is_some_and(|v| v["enabledPlugins"]["tincan@tincan"] == true)
+        && json(&dir.join("plugins/installed_plugins.json"))
+            .is_some_and(|v| v["plugins"]["tincan@tincan"].as_array().is_some_and(|a| !a.is_empty()))
 }
 
 fn json(file: &std::path::Path) -> Option<serde_json::Value> {

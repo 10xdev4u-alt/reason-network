@@ -240,8 +240,9 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
   `tincan setup [--remove]`, launchd/systemd service, `tincan doctor`. Amp: MCP only, by hand.
 - **M3, ship** (done, pending a first tagged release): GitHub Actions builds for macOS and Linux, `install.sh`
   (install and join in one line), GitHub Pages site. Later: Homebrew. The repo is a Claude Code
-  plugin marketplace: its plugin brings the MCP server (installing tincan first if needed; `tincan setup` then
-  leaves Claude Code alone) and the skill (`plugins/tincan/skills/tincan/SKILL.md`, also on the site).
+  plugin marketplace: its plugin brings only the MCP server (installing tincan first if needed; `tincan setup` then
+  leaves Claude Code alone), no skill: the skill teaches the CLI, which inside Claude Code would compete with the
+  tools.
 - **M4, team features**: file-overlap warnings ("bob/api-codex is also editing src/auth.rs", from
   `PostToolUse` edit paths), anchor mailbox and history, hold/approve notifications, web dashboard.
 

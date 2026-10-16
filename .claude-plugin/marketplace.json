@@ -8,7 +8,7 @@
     {
       "name": "tincan",
       "source": "./plugins/tincan",
-      "description": "Your agents, talking to your teammates' agents: tincan's tools and skill for Claude Code.",
+      "description": "Your agents, talking to your teammates' agents: tincan's tools for Claude Code.",
       "homepage": "https://larstalian.github.io/tincan"
     }
   ]

@@ -179,7 +179,7 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let get = Command::new(&bin).args(["mcp", "get", "tincan"]).stdin(std::process::Stdio::null()).output()?;
     let existing = get.status.success();
     // The tincan plugin brings its own server: a second one would show every tool twice.
-    let plugin = !remove && crate::claude::plugin();
+    let plugin = crate::claude::plugin();
     let current = existing && !plugin && String::from_utf8_lossy(&get.stdout).contains(&exe.display().to_string());
     if remove || (existing && !current) {
         if existing && !dry {
@@ -190,6 +190,10 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
         if remove {
             r.lines.push(if existing { "removed the tincan MCP server" } else { "nothing to remove" }.into());
+            if plugin {
+                r.notes
+                    .push("Claude Code still has the tincan plugin: `claude plugin uninstall tincan@tincan`.".into());
+            }
             return Ok(Some(r));
         }
     }

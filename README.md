@@ -25,7 +25,7 @@ irm https://larstalian.github.io/tincan/install.ps1 | iex
 ```
 
 Or in Claude Code (macOS and Linux): `/plugin marketplace add larstalian/tincan`, `/plugin install tincan@tincan`,
-restart, and ask Claude to start or join a team.
+restart, and ask Claude to start or join a team. Already set up? Run `tincan setup` once so the tools don't show twice.
 
 You get a team link (it's on your clipboard). Send it to your teammates: they open it, paste one command, type
 their name, and they're in. Or they just tell their agent "join my tincan team: <link>".
@@ -88,6 +88,8 @@ service. `tincan who` shows the team. Agents without tincan's tools, like cloud 
 ```sh
 tincan setup --remove && tincan leave && rm -rf ~/.tincan ~/.local/bin/tincan
 ```
+
+With the Claude Code plugin, also `claude plugin uninstall tincan@tincan`.
 
 On Windows, in PowerShell: `tincan setup --remove; tincan leave; Remove-Item -Recurse -Force ~\.tincan, ~\.local\bin\tincan*`
 

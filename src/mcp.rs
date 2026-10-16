@@ -27,8 +27,8 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-/// How agents should use tincan, kept once: in the plugin's skill, which cloud agents also read on the site.
-const SKILL: &str = include_str!("../plugins/tincan/skills/tincan/SKILL.md");
+/// How agents should use tincan, kept once: in the skill, which cloud agents read on the site.
+const SKILL: &str = include_str!("../site/skill/SKILL.md");
 
 fn instructions() -> String {
     // Windows checkouts may have turned the file's line ends into \r\n.
@@ -267,8 +267,13 @@ impl TincanMcp {
         Ok(key)
     }
 
-    /// Tool result text, plus a note about unread mail so pull-only agents notice it.
+    /// Tool result text, plus a note about unread mail so pull-only agents notice it, and how to join a team on a
+    /// machine that isn't in one.
     async fn finish(&self, key: &str, res: Result<String>, notice: bool) -> CallToolResult {
+        let join = match self.link.call::<TeamInfo>(Request::Team).await {
+            Err(e) if e.to_string().contains("not in a team") => Some(join_hint()),
+            _ => None,
+        };
         match res {
             Ok(mut text) => {
                 if notice
@@ -278,9 +283,16 @@ impl TincanMcp {
                     text.push_str("\n\n");
                     text.push_str(&n);
                 }
+                if let Some(j) = join {
+                    text.push_str("\n\n");
+                    text.push_str(&j);
+                }
                 CallToolResult::success(vec![ContentBlock::text(text)])
             }
-            Err(e) => failure(e),
+            Err(e) => failure(match join {
+                Some(j) => anyhow::anyhow!("{e:#}\n\n{j}"),
+                None => e,
+            }),
         }
     }
 
@@ -299,6 +311,15 @@ impl TincanMcp {
 
 fn failure(e: anyhow::Error) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(format!("{e:#}"))])
+}
+
+/// Getting this machine into a team, with this binary's own path (the plugin's may not be on PATH).
+fn join_hint() -> String {
+    let exe = crate::setup::exe().map_or_else(|_| "tincan".into(), |p| p.display().to_string());
+    format!(
+        "This machine isn't in a team yet. Ask your user for the team link and the name teammates should see, then run \
+         `{exe} join '<link>' --as <name>`; to start a team instead, `{exe} init <team> --as <name>`."
+    )
 }
 
 #[cfg(test)]
