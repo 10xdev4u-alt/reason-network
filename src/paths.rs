@@ -131,6 +131,8 @@ fn migrate_unix() -> std::io::Result<()> {
         }
         let _ = std::fs::remove_file(to.join(format!("{LEGACY_NAME}.db-shm")));
         let _ = std::fs::remove_file(to.join(format!("{LEGACY_NAME}.sock")));
+        // The earlier build's log talks about its own names; the moved state starts a fresh one.
+        let _ = std::fs::remove_file(to.join("daemon.log"));
     }
     Ok(())
 }
