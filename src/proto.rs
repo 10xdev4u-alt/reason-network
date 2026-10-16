@@ -109,6 +109,9 @@ pub enum Request {
         reply_to: Option<String>,
         #[serde(default = "yes")]
         wake: bool,
+        /// Also show it on the person's screen. With it, `to` may be just a person.
+        #[serde(default)]
+        notify: bool,
     },
     /// A session's unread messages. With `peek` nothing is marked read: the client acknowledges with `Delivered`
     /// after showing the messages, so nothing is lost if it goes away first.
@@ -242,6 +245,9 @@ pub struct Message {
     pub reply_to: Option<String>,
     pub body: String,
     pub wake: bool,
+    /// Show it on the person's screen too (and, sent to a person rather than a session, only there).
+    #[serde(default)]
+    pub notify: bool,
     pub sent_at: i64,
 }
 

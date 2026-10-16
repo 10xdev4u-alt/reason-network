@@ -55,6 +55,10 @@ pub struct SendArgs {
     /// Id of the message you are replying to.
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// Also pop it up on that person's screen, for when they must act themselves (an approval, a decision). Then `to`
+    /// may be just a person, your own user included.
+    #[serde(default)]
+    pub notify: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -142,7 +146,9 @@ impl TincanMcp {
             Ok(k) => k,
             Err(e) => return Ok(failure(e)),
         };
-        let req = Request::Send { from: key.clone(), to: a.to, body: a.message, reply_to: a.reply_to, wake: true };
+        let notify = a.notify.unwrap_or(false);
+        let req =
+            Request::Send { from: key.clone(), to: a.to, body: a.message, reply_to: a.reply_to, wake: true, notify };
         let res = self.link.call::<SendResult>(req).await.map(|r| render::send_result(&r));
         Ok(self.finish(&key, res, true).await)
     }

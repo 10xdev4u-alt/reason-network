@@ -178,9 +178,13 @@ Three tools, none of which an agent has to call unless it wants to message someo
 
 - `list_team(filter?, all?)`: the directory, grouped by person then machine. One line per session: name,
   agent, status and for how long, repo@branch, `doing`, tier. Marks `← you`.
-- `send_message(to, message, reply_to?, wake?)`: returns per-recipient state (`delivered` / `queued` /
+- `send_message(to, message, reply_to?, notify?)`: returns per-recipient state (`delivered` / `queued` /
   `held`) and tier, e.g. "queued: alice/web-cursor is idle and turn-only, it sees this when alice next
-  prompts it". `wake:false` = FYI, read at the next natural pause.
+  prompts it". (`tincan send --fyi` doesn't wake: read at the next natural pause.) `notify` also pops it up on
+  the person's screen, for an approval or decision only they can make: osascript on macOS, notify-send on Linux,
+  a PowerShell toast on Windows, at most one per sender a minute; a machine without a desktop says so. With
+  `notify`, `to` may be a person (their own user included): then only the pop-up, on each of their machines that
+  is on.
 - `check_inbox(wait_secs?)`: unread messages; can block waiting for a reply.
 
 Agents never report what they are doing; tincan reads it from what they record anyway (`doing.rs`): the

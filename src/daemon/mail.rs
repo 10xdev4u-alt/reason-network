@@ -77,10 +77,14 @@ impl Daemon {
         body: &str,
         reply_to: Option<String>,
         wake: bool,
+        notify: bool,
     ) -> Result<SendResult> {
         let (body, to) = (body.trim(), to.trim());
         if body.is_empty() {
             bail!("empty message");
+        }
+        if notify && is_group(to) {
+            bail!("notify is for one session or one person, not a group");
         }
         if body.len() > MAX_BODY {
             bail!(
@@ -109,7 +113,46 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
-            let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
+            let people = g.team.as_ref().map(|t| t.people()).unwrap_or_default();
+            if notify && (to == self.person || people.iter().any(|p| p == to)) {
+                // A person, not a session: just the notification, on each of their machines that is on now.
+                let msg = Message {
+                    id: Ulid::new().to_string(),
+                    from: from_addr.clone(),
+                    from_agent: from_agent.clone(),
+                    from_repo: from_repo.clone(),
+                    to: to.to_string(),
+                    via: None,
+                    reply_to: reply_to.clone(),
+                    body: body.to_string(),
+                    wake: false,
+                    notify: true,
+                    sent_at: now,
+                };
+                res.ids.push(msg.id.clone());
+                if to == self.person {
+                    let (shown, note) = self.notify(&msg);
+                    let state = if shown { "notified" } else { "not notified" };
+                    res.recipients.push(Recipient { address: to.to_string(), state: state.into(), note });
+                }
+                for m in g.team.iter().flat_map(|t| t.active()).filter(|m| m.person == to) {
+                    // Machines we've never heard from (and this one) aren't in `remotes`.
+                    let Some(online) = remotes.get(&m.endpoint).map(|r| r.online) else { continue };
+                    let address = format!("{to}@{}", m.machine);
+                    if online {
+                        let note = format!("no answer from {} yet", m.machine);
+                        remote_jobs.push((res.recipients.len(), m.endpoint, m.machine.clone(), true, msg.clone()));
+                        res.recipients.push(Recipient { address, state: "not notified".into(), note });
+                    } else {
+                        let note = format!("not notified: {} is offline", m.machine);
+                        res.recipients.push(Recipient { address, state: "not notified".into(), note });
+                    }
+                }
+                if res.recipients.is_empty() {
+                    bail!("none of {to}'s machines is online to show it");
+                }
+            }
+            let targets = if res.ids.is_empty() { self.resolve(&g, &remotes, to, Some(&exclude))? } else { Vec::new() };
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
@@ -121,10 +164,12 @@ impl Daemon {
                     reply_to: reply_to.clone(),
                     body: body.to_string(),
                     wake,
+                    notify,
                     sent_at: now,
                 };
                 res.ids.push(msg.id.clone());
-                let (state, note) = match t {
+                let here = !matches!(t, Target::Remote { .. });
+                let (state, mut note): (String, String) = match t {
                     _ if !matches!(t, Target::Remote { .. }) && !g.loop_ok(&msg.from, &msg.to) => {
                         ("refused".into(), LOOP_NOTE.into())
                     }
@@ -145,6 +190,9 @@ impl Daemon {
                         )
                     }
                 };
+                if notify && here && state != "refused" {
+                    note = format!("{note}; {}", self.notify(&msg).1);
+                }
                 res.recipients.push(Recipient { address: msg.to.clone(), state, note });
             }
         }
@@ -165,6 +213,7 @@ impl Daemon {
                         r.state = state;
                         r.note = note;
                     }
+                    None if r.state == "not notified" => r.note = format!("not notified: no answer from {name}"),
                     None => r.note = format!("queued: no answer from {name} yet; it will be retried"),
                 }
             }
@@ -366,8 +415,9 @@ impl Daemon {
             .and_then(|t| t.member(&peer).map(|m| m.person.clone()))
             .ok_or_else(|| anyhow!("not a team member"))?;
         let msg = clean(msg)?;
-        // Messages go between agent sessions; an older tincan may still send to or from a person.
-        if !msg.from.contains('/') || !msg.to.contains('/') {
+        // Messages go between agent sessions (or, with notify, to a person's screen); an older tincan may still send
+        // to or from a person.
+        if !msg.from.contains('/') || (!msg.to.contains('/') && !msg.notify) {
             bail!(UPGRADE);
         }
         // A machine speaks only for its own agents.
@@ -384,7 +434,13 @@ impl Daemon {
                 format!("queued: {} is receiving a lot right now; retrying shortly", self.machine),
             ));
         }
-        let Some((person, name)) = msg.to.split_once('/') else { bail!(UPGRADE) };
+        let Some((person, name)) = msg.to.split_once('/') else {
+            if msg.to != self.person {
+                bail!("{} is not on this machine", msg.to);
+            }
+            let (shown, note) = self.notify(&msg);
+            return Ok((if shown { "notified" } else { "not notified" }.into(), note));
+        };
         if person != self.person {
             bail!("{} is not on this machine", msg.to);
         }
@@ -404,11 +460,12 @@ impl Daemon {
             }
             let held = policy == Policy::Hold;
             g.store.insert(&msg, held)?;
-            match key {
+            let (state, note) = match key {
                 _ if held => ("held".into(), format!("held until {} approves it", self.person)),
                 Some(key) => self.deliver(&mut g, &key, vec![msg.clone()], msg.wake),
                 None => ("queued".into(), "queued: the session is offline; delivered when it is back".into()),
-            }
+            };
+            if msg.notify { (state, format!("{note}; {}", self.notify(&msg).1)) } else { (state, note) }
         };
         self.arrived.notify_waiters();
         // The sender's session can be answered right away, before its machine's next presence names it.

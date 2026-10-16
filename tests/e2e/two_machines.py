@@ -14,6 +14,8 @@ H = {"alex": os.path.join(D, "alex"), "alice": os.path.join(D, "alice")}
 MACHINE = {"alex": "laptop", "alice": "desktop"}
 FAKE_CODEX = os.path.join(D, "fake-codex.sh")
 QUEUE_LOG = os.path.join(D, "codex-queue.log")
+# Stands in for osascript / notify-send, so the test shows nothing on screen: each machine logs what it would show.
+FAKE_NOTIFY = os.path.join(D, "fake-notify.sh")
 IN_CLAUDE = "CLAUDE_CODE_MESSAGING_SOCKET" in os.environ
 results = []
 
@@ -25,6 +27,8 @@ def check(name, ok, detail=""):
 
 def env(who, strip_claude=True):
     e = dict(os.environ, TINCAN_HOME=H[who], TINCAN_MACHINE=MACHINE[who], TINCAN_NO_MDNS="1", TINCAN_NO_SERVICE="1", TINCAN_CODEX_BIN=FAKE_CODEX)
+    e.update({"TINCAN_OSASCRIPT_BIN": FAKE_NOTIFY, "TINCAN_NOTIFY-SEND_BIN": FAKE_NOTIFY, "DBUS_SESSION_BUS_ADDRESS": "test",
+              "NOTIFY_LOG": os.path.join(D, f"notify-{who}.log")})
     if strip_claude:
         for k in list(e):
             if k.startswith("CLAUDE"):
@@ -76,6 +80,15 @@ class Mcp:
 with open(FAKE_CODEX, "w") as f:
     f.write(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {QUEUE_LOG}\necho "Queued message"\n')
 os.chmod(FAKE_CODEX, 0o755)
+with open(FAKE_NOTIFY, "w") as f:
+    f.write('#!/bin/sh\nprintf "%s\\n" "$*" >> "$NOTIFY_LOG"\n')
+os.chmod(FAKE_NOTIFY, 0o755)
+
+
+def shown(who):
+    time.sleep(0.5)
+    p = os.path.join(D, f"notify-{who}.log")
+    return open(p).read() if os.path.exists(p) else ""
 os.makedirs(os.path.join(D, "work"), exist_ok=True)
 
 # --- team formation ---
@@ -146,6 +159,18 @@ check("…and is gone once read", out.startswith("No messages."), out)
 out = cli("alice", "send", "alex", "dinner at 8?")
 check("a person is not an address: the error lists their agent sessions",
       "messages go to agent sessions; alex's are:" in out and f"alex/{claude_name}" in out, out)
+out = codex.tool("send_message", {"to": f"alex/{claude_name}", "message": "can you approve the deploy? (e2e test, ignore)", "notify": True}, meta)
+check("notify: the message also pops up on the person's screen", "shown on alex's screen (laptop)" in out, out)
+log = shown("alex")
+check("…naming who asks, which session, and the ask", f"alice/work-codex → {claude_name}" in log and "approve the deploy" in log, log)
+out = codex.tool("send_message", {"to": "alex", "message": "and the second one? (e2e test, ignore)", "notify": True}, meta)
+check("notify to a person: no session, and one pop-up per sender a minute", "not shown: laptop showed one from alice/work-codex" in out, out)
+out = cli("alice", "send", "alex", "--notify", "from alice's terminal (e2e test, ignore)")
+check("…another sender's does show", "shown on alex's screen" in out and "from alice's terminal" in shown("alex"), out)
+out = codex.tool("send_message", {"to": "alice", "message": "need your ok (e2e test, ignore)", "notify": True}, meta)
+check("an agent can tap its own user on the shoulder", "shown on alice's screen (desktop)" in out and "need your ok" in shown("alice"), out)
+out = codex.tool("send_message", {"to": "alex/*", "message": "x", "notify": True}, meta)
+check("notify doesn't go to groups", "not a group" in out, out)
 # No waiting for presence: the terminal that just messaged alice can be answered at once.
 out = codex.tool("send_message", {"to": "alex/terminal", "message": "codex here: replying to your terminal"}, meta)
 check("an agent can reply at once to a terminal that just messaged it", "→ alex/terminal: queued" in out or "→ alex/terminal: delivered" in out, out)

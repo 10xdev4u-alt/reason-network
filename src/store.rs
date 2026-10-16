@@ -231,6 +231,7 @@ fn message(r: &Row) -> rusqlite::Result<Message> {
         reply_to: r.get(6)?,
         body: r.get(7)?,
         wake: r.get(8)?,
+        notify: false,
         sent_at: r.get(9)?,
     })
 }
