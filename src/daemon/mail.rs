@@ -5,11 +5,10 @@
 //! show them a second time.
 
 use super::{Daemon, Inner, directory::Target, log};
-use crate::{agent, claude, config::Policy, net::Remote, proto::*, render, util};
+use crate::{agent, claude, config::Policy, proto::*, render, util};
 use anyhow::{Result, anyhow, bail};
 use iroh::EndpointId;
 use std::{
-    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -67,9 +66,6 @@ impl Inner {
 
 const UPGRADE: &str = "upgrade tincan (`tincan upgrade`): messages go between agent sessions now";
 
-const GROUP_NOTE: &str = "not sent: an agent's group message only reaches your own user's sessions. If this is the \
-                          one session that needs it, send to it directly";
-
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";
 
@@ -113,20 +109,11 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
-            let mut targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
-            // A person may message everyone; an agent picks the one teammate's session it needs.
+            // A person at a terminal may message a group; an agent picks the one session it needs.
             if is_group(to) && !from_addr.ends_with("/terminal") {
-                let (keep, skip): (Vec<_>, Vec<_>) =
-                    targets.into_iter().partition(|t| !matches!(t, Target::Remote { .. }));
-                targets = keep;
-                for t in skip {
-                    let note = match about(&remotes, &t) {
-                        Some(about) => format!("{GROUP_NOTE} ({about})"),
-                        None => GROUP_NOTE.into(),
-                    };
-                    res.recipients.push(Recipient { address: t.address(), state: "refused".into(), note });
-                }
+                bail!("agents message one session, not a group: pick it with list_team, or ask your user");
             }
+            let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
@@ -419,25 +406,11 @@ impl Daemon {
             if !g.loop_ok(&msg.from, &msg.to) {
                 return Ok(("refused".into(), LOOP_NOTE.into()));
             }
-            // Only an older tincan still sends a teammate's agent's group message here: it gets the list to pick from.
-            if msg.via.is_some() && !msg.from.ends_with("/terminal") {
-                let mut mine: Vec<String> = g
-                    .live
-                    .values()
-                    .map(|l| match &l.git.repo {
-                        Some(repo) => format!("{} ({repo})", self.addr(&l.name)),
-                        None => self.addr(&l.name),
-                    })
-                    .collect();
-                mine.sort();
-                return Ok((
-                    "refused".into(),
-                    format!(
-                        "{} doesn't take group messages from agents; send to the one session that needs it: {}",
-                        self.person,
-                        mine.join(", ")
-                    ),
-                ));
+            // Only an older tincan still sends an agent's group message; a teammate's isn't taken.
+            let sender = msg.from.split_once('/').map_or(msg.from.as_str(), |(p, _)| p);
+            if msg.via.is_some() && !msg.from.ends_with("/terminal") && sender != self.person {
+                let note = format!("refused: agents message one of {}'s sessions, not a group", self.person);
+                return Ok(("refused".into(), note));
             }
             let held = policy == Policy::Hold;
             g.store.insert(&msg, held)?;
@@ -550,26 +523,6 @@ impl Drop for Polling<'_> {
 
 fn unregistered() -> anyhow::Error {
     anyhow!("this session isn't registered with tincan; restart the agent session, or use the tincan tools")
-}
-
-/// A teammate's session in a few words (repo@branch, what it's doing), from its machine's presence.
-fn about(remotes: &HashMap<EndpointId, Remote>, t: &Target) -> Option<String> {
-    let Target::Remote { address, machine, .. } = t else { return None };
-    let name = address.split_once('/')?.1;
-    let s = remotes.get(machine)?.presence.sessions.iter().find(|s| s.name == name)?;
-    let place = match (&s.repo, &s.branch) {
-        (Some(r), Some(b)) => format!("{r}@{b}"),
-        (Some(r), None) => r.clone(),
-        _ => s.cwd.clone(),
-    };
-    Some(match &s.doing {
-        Some(d) => format!("{place}: {}", util::one_line(d, 80)),
-        None => place,
-    })
-}
-
-fn is_group(to: &str) -> bool {
-    to == "*" || to.starts_with("repo:") || to.ends_with("/*")
 }
 
 /// Keeps a field to plain characters, so nothing a peer sends can reshape what agents are shown.

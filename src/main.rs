@@ -317,16 +317,25 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 reply_to: reply_to.clone(),
                 wake: !fyi,
             };
+            // As the terminal, a group send has to come from a person sitting at it, not an agent's shell or a script.
+            let as_terminal = || {
+                if is_group(&to) && !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+                    bail!("only a person at a terminal sends to a group; from a script, add `--from <you>/terminal`");
+                }
+                Ok(())
+            };
             let explicit = from.is_some();
             let r: SendResult = match from.or_else(current_session) {
                 Some(f) => match link.call(send(f)).await {
                     Err(e) if !explicit && e.to_string().contains("isn't registered") => {
+                        as_terminal()?;
                         cli_session(&link, "terminal", "stop").await?;
                         link.call(send("cli:terminal".into())).await?
                     }
                     r => r?,
                 },
                 None => {
+                    as_terminal()?;
                     cli_session(&link, "terminal", "stop").await?;
                     link.call(send("cli:terminal".into())).await?
                 }
