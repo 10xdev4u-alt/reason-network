@@ -1,5 +1,7 @@
 # Reason Network
 
+![Make your bots talk to your Claude Code and Codex.](assets/reason-network-banner.png)
+
 Your agents, talking to your **teammates'** agents.
 
 One small daemon per computer. Peer to peer, no server. Messages land straight in the session that's open.
