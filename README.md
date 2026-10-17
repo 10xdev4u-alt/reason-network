@@ -23,6 +23,8 @@ It asks one thing: sign in with Reason, or not.
   (on your clipboard). Teammates open it, paste one command, type their name, and they're in. Or they tell their
   agent "join my Reason Network team: <link>".
 
+That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent something.
+
 On Windows (no account), in PowerShell:
 
 ```powershell
@@ -42,6 +44,8 @@ irm https://github.com/reason-machines/reason-network/releases/latest/download/i
   approval or a decision their agent can't make. Agents can reach their own user that way too. (On macOS the pop-ups
   come from Script Editor: allow its notifications once in System Settings.)
 - **A menu bar icon** on macOS shows who's online and what they're doing.
+- **No setup to maintain.** It runs in the background and stays up to date (on its own, or with the Reason CLI), and
+  the link keeps working.
 
 ```sh
 reason-network who                                             # who's around and what their sessions are doing
@@ -59,10 +63,45 @@ for the answer).
 ## How it works
 
 Each computer runs a small daemon. Teammates' computers connect directly (on the same Wi-Fi, or across the internet
-with [iroh](https://iroh.computer)); if that fails, traffic goes through a relay that only sees encrypted bytes. Only
-team members can connect, and a computer can only speak for its own person. Messages to someone offline wait and go
-out when they're back. Teammates see your name, your computers, and what your agent sessions are working on (repo,
-branch, busy or idle). State lives in `~/.reason/network`. Details: [DESIGN.md](DESIGN.md).
+with [iroh](https://iroh.computer)); if that fails, traffic goes through a relay that only sees encrypted bytes.
+That's one of n0's (the company behind iroh) unless your team runs its own (`reason-network relay <url>`): then your
+computers never contact n0 at all. Only team members can connect, and a computer can only speak for its own person.
+Messages to someone offline wait and go out when they're back.
+
+Teammates see your name, your computers, and what your agent sessions are working on (repo, branch, busy or idle).
+State lives in `~/.reason/network`. Details: [DESIGN.md](DESIGN.md).
+
+## For AI agents
+
+If your user gave you a Reason Network team link (`https://…/network/join/#tincan1…`) and wants to join: ask them
+what name teammates should see, then run this with the whole link, exactly as given. It asks no questions and needs no
+account:
+
+```sh
+curl -fsSL https://github.com/reason-machines/reason-network/releases/latest/download/install.sh | sh -s -- '<the whole link>' --as <name>
+```
+
+On Windows (from any shell):
+
+```sh
+powershell -c "& ([scriptblock]::Create((irm https://github.com/reason-machines/reason-network/releases/latest/download/install.ps1))) '<the whole link>' --as <name>"
+```
+
+To start a team instead, give it `init '<team>' --as <name>` in place of the link, then `reason-network link` prints
+the link for teammates. It installs the `reason-network` binary from this repo's GitHub release (checksum verified)
+into `~/.local/bin`, adds it to the coding agents on the machine (an MCP server and hooks), and starts a background
+service. `reason-network who` shows the team. Agents without its tools, like cloud agents, can follow
+[the skill](src/skill.md).
+
+## Uninstall
+
+```sh
+reason-network setup --remove && reason-network leave && rm -rf ~/.reason/network ~/.local/bin/reason-network
+```
+
+On Windows, in PowerShell: `reason-network setup --remove; reason-network leave; Remove-Item -Recurse -Force ~\.reason\network, ~\.local\bin\reason-network*`
+
+With the Reason CLI: `reason network setup --remove`, then `reason network leave`.
 
 ## Build
 
@@ -74,6 +113,10 @@ python3 tests/e2e/hooks.py && python3 tests/e2e/guided.py
 
 A `v*` tag builds the macOS, Linux and Windows archives and the install scripts; the Reason CLI pins the macOS and
 Linux ones.
+
+## Contributing
+
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
