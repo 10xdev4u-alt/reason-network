@@ -457,7 +457,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
             let [unix, windows] = install_lines(&i.code);
-            if managed() {
+            if managed() && !me {
                 println!("Teammates in your Reason workspace just run `reason network`. Anyone else:\n");
             }
             println!("They run this, which installs Reason Network (no account needed) and joins the team:\n");

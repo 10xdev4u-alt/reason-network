@@ -39,6 +39,11 @@ async fn update() -> Result<Option<String>> {
         return Ok(None);
     }
     let dir = crate::util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    // A tincan copy still waiting to be moved over (see `migrate`) is a copy of this binary: it stays one.
+    let exe = dir.join(format!("{}{}", crate::AGENT_NAME, std::env::consts::EXE_SUFFIX));
+    let copy = crate::setup::legacy_exe(&exe);
+    let waiting = std::fs::symlink_metadata(&copy).is_ok_and(|m| m.is_file())
+        && std::fs::read(&copy).is_ok_and(|b| std::fs::read(&exe).is_ok_and(|o| o == b));
     let mut cmd = tokio::process::Command::from(crate::installer(&dir));
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -65,9 +70,11 @@ async fn update() -> Result<Option<String>> {
     if !out.status.success() {
         bail!("install failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
+    if waiting && std::fs::remove_file(&copy).is_ok() {
+        let _ = std::fs::copy(&exe, &copy);
+    }
     // Restart only on a binary that really is newer (a release tagged without bumping its version must not loop).
-    let installed = dir.join(format!("{}{}", crate::AGENT_NAME, std::env::consts::EXE_SUFFIX));
-    let installed = tokio::process::Command::new(installed).arg("--version").kill_on_drop(true).output();
+    let installed = tokio::process::Command::new(&exe).arg("--version").kill_on_drop(true).output();
     let installed = tokio::time::timeout(Duration::from_secs(30), installed).await??;
     let installed =
         String::from_utf8_lossy(&installed.stdout).trim().rsplit(' ').next().unwrap_or_default().to_string();

@@ -839,20 +839,26 @@ fn run_entry() -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Moves the Run entry a standalone tincan install made over to this binary. True if there was one.
+/// The Run entry a standalone tincan install made, if it still starts this binary or the tincan it replaced.
 #[cfg(windows)]
-pub fn move_legacy_run_entry(exe: &Path) -> bool {
+pub fn legacy_run_entry(exe: &Path) -> bool {
+    Command::new("reg")
+        .args(["query", RUN_KEY, "/v", "dev.tincan.daemon"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|o| o.status.success() && ours(&String::from_utf8_lossy(&o.stdout), exe))
+}
+
+/// Moves that Run entry over to this binary (ours first, then the old one goes).
+#[cfg(windows)]
+pub fn move_legacy_run_entry(exe: &Path) {
     let reg = |args: &[&str]| Command::new("reg").args(args).stdin(std::process::Stdio::null()).output();
-    let legacy = "dev.tincan.daemon";
-    let had = reg(&["query", RUN_KEY, "/v", legacy])
-        .is_ok_and(|o| o.status.success() && ours(&String::from_utf8_lossy(&o.stdout), exe));
-    if had {
+    if legacy_run_entry(exe) {
         let command = format!("\"{}\" daemon --service", exe.display());
         if reg(&["add", RUN_KEY, "/v", &service_name(), "/d", &command, "/f"]).is_ok_and(|o| o.status.success()) {
-            let _ = reg(&["delete", RUN_KEY, "/v", legacy, "/f"]);
+            let _ = reg(&["delete", RUN_KEY, "/v", "dev.tincan.daemon", "/f"]);
         }
     }
-    had
 }
 
 #[cfg(windows)]

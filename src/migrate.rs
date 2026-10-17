@@ -67,7 +67,7 @@ pub async fn run(log: fn(&str)) {
     #[cfg(unix)]
     let service_moved = !legacy || swap;
     #[cfg(windows)]
-    let service_moved = true;
+    let service_moved = !setup::legacy_run_entry(&exe);
     let left = setup::legacy_wiring(&exe);
     if !left.is_empty() {
         log(&format!("moved over from {LEGACY_NAME}: kept it for {} until they move over", left.join(", ")));
