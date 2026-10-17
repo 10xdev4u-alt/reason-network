@@ -39,11 +39,8 @@ async fn update() -> Result<Option<String>> {
         return Ok(None);
     }
     let dir = crate::util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
-    // A tincan copy still waiting to be moved over (see `migrate`) is a copy of this binary: it stays one.
     let exe = dir.join(format!("{}{}", crate::AGENT_NAME, std::env::consts::EXE_SUFFIX));
-    let copy = crate::setup::legacy_exe(&exe);
-    let waiting = std::fs::symlink_metadata(&copy).is_ok_and(|m| m.is_file())
-        && std::fs::read(&copy).is_ok_and(|b| std::fs::read(&exe).is_ok_and(|o| o == b));
+    let waiting = crate::migrate::waiting(&exe);
     let mut cmd = tokio::process::Command::from(crate::installer(&dir));
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -70,11 +67,8 @@ async fn update() -> Result<Option<String>> {
     if !out.status.success() {
         bail!("install failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
-    // A new file renamed over it: never a moment without tincan, nor a half-written one. (A tincan.exe that's running
-    // can't be replaced: it stays as it was, still handing over to us.)
-    let new = copy.with_extension("new");
-    if waiting && std::fs::copy(&exe, &new).is_ok() && std::fs::rename(&new, &copy).is_err() {
-        let _ = std::fs::remove_file(&new);
+    if waiting {
+        crate::migrate::keep_waiting_copy(&exe);
     }
     // Restart only on a binary that really is newer (a release tagged without bumping its version must not loop).
     let installed = tokio::process::Command::new(&exe).arg("--version").kill_on_drop(true).output();

@@ -540,8 +540,13 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 bail!("the network engine updates with the reason CLI: update reason, then run `{CLI} setup`");
             }
             let dir = util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+            let exe = dir.join(format!("{AGENT_NAME}{}", std::env::consts::EXE_SUFFIX));
+            let waiting = migrate::waiting(&exe);
             if !installer(&dir).status()?.success() {
                 bail!("upgrade failed");
+            }
+            if waiting {
+                migrate::keep_waiting_copy(&exe);
             }
             stop_daemon().await;
             println!("The daemon restarted on the new version. Restart agent sessions to update their tools.");

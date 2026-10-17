@@ -22,6 +22,24 @@ pub fn as_ours() {
     }
 }
 
+/// Whether a tincan copy beside `exe` is still waiting to be moved over: a copy of this very binary.
+pub fn waiting(exe: &std::path::Path) -> bool {
+    let old = setup::legacy_exe(exe);
+    std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_file())
+        && std::fs::read(&old).is_ok_and(|b| std::fs::read(exe).is_ok_and(|o| o == b))
+}
+
+/// After an update replaced `exe`, keeps a copy that was waiting a copy of the new binary, so the move-over can still
+/// finish. A new file renamed over it: never a moment without tincan, nor a half-written one. (A tincan.exe that's
+/// running can't be replaced: it stays as it was, still handing over to us.)
+pub fn keep_waiting_copy(exe: &std::path::Path) {
+    let old = setup::legacy_exe(exe);
+    let new = old.with_extension("new");
+    if std::fs::copy(exe, &new).is_err() || std::fs::rename(&new, &old).is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+}
+
 /// Moves this machine's agents and login service over from the tincan beside us, if that hasn't happened yet.
 /// Lines go to `log`.
 pub async fn run(log: fn(&str)) {
@@ -29,8 +47,7 @@ pub async fn run(log: fn(&str)) {
     let old = setup::legacy_exe(&exe);
     // Only tincan's last update leaves this: a copy of this very binary under the old name. Anything else called tincan
     // (a tincan of its own, a script) isn't ours to move. Once moved, it's a link to us, or gone.
-    let copy = std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_file())
-        && std::fs::read(&old).is_ok_and(|b| std::fs::read(&exe).is_ok_and(|o| o == b));
+    let copy = waiting(&exe);
     // Where the Reason CLI's engine is installed too, it owns the agents and the service.
     let reason_cli = paths::user_home().join(".reason").join("bin").join(exe.file_name().unwrap_or_default()).exists();
     if util::from_source() || crate::managed() || reason_cli || !copy {
