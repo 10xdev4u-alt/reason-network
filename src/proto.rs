@@ -109,6 +109,9 @@ pub enum Request {
         reply_to: Option<String>,
         #[serde(default = "yes")]
         wake: bool,
+        /// Also pop it up on the person's screen. With it, `to` may be your own user.
+        #[serde(default)]
+        notify: bool,
     },
     /// A session's unread messages. With `peek` nothing is marked read: the client acknowledges with `Delivered`
     /// after showing the messages, so nothing is lost if it goes away first.
@@ -194,6 +197,12 @@ fn yes() -> bool {
     true
 }
 
+/// `*`, `person/*` or `repo:<name>`, on any machine (`…@machine`): for a person at a terminal, never an agent.
+pub fn is_group(to: &str) -> bool {
+    let to = to.rsplit_once('@').map_or(to, |(s, _)| s);
+    to == "*" || to.starts_with("repo:") || to.ends_with("/*")
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Frame<T> {
     pub id: u64,
@@ -242,6 +251,9 @@ pub struct Message {
     pub reply_to: Option<String>,
     pub body: String,
     pub wake: bool,
+    /// Pop it up on the person's screen too (and, sent to your own user rather than a session, only that).
+    #[serde(default)]
+    pub notify: bool,
     pub sent_at: i64,
 }
 

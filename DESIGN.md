@@ -47,6 +47,9 @@ vibes    alex        alex-mbp     api-claude   (claude-code, acme/api@feat/auth,
 | `repo:acme/api` or `repo:api` | every live session working in that repo |
 | `*` | everyone |
 
+The groups (`alice/*`, `repo:`, `*`, with or without `@machine`) are for a person at a terminal: agents message
+one session.
+
 Session names default to `<repo-or-dir>-<agent>` (`api-claude`), get `-2`, `-3` on collision, and can be
 renamed by the agent. A new session in the same place with the same agent **inherits a stale name and its
 unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
@@ -178,9 +181,13 @@ Three tools, none of which an agent has to call unless it wants to message someo
 
 - `list_team(filter?, all?)`: the directory, grouped by person then machine. One line per session: name,
   agent, status and for how long, repo@branch, `doing`, tier. Marks `← you`.
-- `send_message(to, message, reply_to?, wake?)`: returns per-recipient state (`delivered` / `queued` /
+- `send_message(to, message, reply_to?, notify?)`: returns per-recipient state (`delivered` / `queued` /
   `held`) and tier, e.g. "queued: alice/web-cursor is idle and turn-only, it sees this when alice next
-  prompts it". `wake:false` = FYI, read at the next natural pause.
+  prompts it". (`reason network send --fyi` doesn't wake: read at the next natural pause.) `notify` also pops it up on
+  the person's screen, for an approval or decision only they can make: osascript on macOS, notify-send on Linux,
+  a PowerShell toast on Windows, at most one per person sending a minute, none for messages over 15 minutes old;
+  a machine without a desktop says so. With `notify`, `to` may be your own user: then only the pop-up, on each of
+  your machines that is on (an agent that needs its user).
 - `check_inbox(wait_secs?)`: unread messages; can block waiting for a reply.
 
 Agents never report what they are doing; Reason Network reads it from what they record anyway (`doing.rs`): the
@@ -213,6 +220,11 @@ not approve. Nothing changes how an agent works when it isn't messaging.
   `crossSessionInbound` setting on top.
 - Loop guard: rate limit per sender, and a cap on consecutive agent↔agent messages in a thread without
   any human input.
+- Group guard: an agent's `*`, `person/*` or `repo:` message is refused before it goes anywhere, so it picks one
+  session. Only a sender that is `<person>/terminal` may use them: the CLI without `--from` when someone sits at the
+  terminal, or `--from <you>/terminal` from a script. A machine also refuses a group message from a teammate's agent
+  (an older Reason Network's). It doesn't stop a teammate's agent from messaging your sessions one by one; the loop guard
+  and the inbound policy cover that.
 - Nothing is sent to any service we run. Relays see ciphertext only. With its own relay, a team's machines never
   contact n0 either.
 

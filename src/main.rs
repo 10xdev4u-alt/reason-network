@@ -49,7 +49,7 @@ pub fn join_url(ticket: &str) -> String {
 #[command(
     name = "reason-network",
     version,
-    about = "The engine behind `reason network`: your team's coding agents, talking to each other",
+    about = "The engine behind `reason network`: your agents, talking to your teammates' agents",
     after_help = "Run `reason network` on its own to get set up, then to see who's working on what."
 )]
 struct Cli {
@@ -81,6 +81,9 @@ enum Cmd {
         /// Don't wake the recipient; it reads this at its next natural pause
         #[arg(long)]
         fyi: bool,
+        /// Also pop it up on the person's screen (then `<to>` may be your own name)
+        #[arg(long, conflicts_with = "fyi")]
+        notify: bool,
         /// Send as this agent session here (e.g. one made with `reason network listen --as <name>`)
         #[arg(long)]
         from: Option<String>,
@@ -286,7 +289,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 print!("{}", render::directory(&d, false, render::Paint::terminal()));
             }
         }
-        Cmd::Send { to, message, reply_to, fyi, from } => {
+        Cmd::Send { to, message, reply_to, fyi, notify, from } => {
             let mut body = message.join(" ");
             if message.is_empty() || body == "-" {
                 body.clear();
@@ -303,17 +306,27 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 body: body.clone(),
                 reply_to: reply_to.clone(),
                 wake: !fyi,
+                notify,
+            };
+            // As the terminal, a group send has to come from a person sitting at it, not an agent's shell or a script.
+            let as_terminal = || {
+                if is_group(&to) && !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+                    bail!("only a person at a terminal sends to a group; from a script, add `--from <you>/terminal`");
+                }
+                Ok(())
             };
             let explicit = from.is_some();
             let r: SendResult = match from.or_else(current_session) {
                 Some(f) => match link.call(send(f)).await {
                     Err(e) if !explicit && e.to_string().contains("isn't registered") => {
+                        as_terminal()?;
                         cli_session(&link, "terminal", "stop").await?;
                         link.call(send("cli:terminal".into())).await?
                     }
                     r => r?,
                 },
                 None => {
+                    as_terminal()?;
                     cli_session(&link, "terminal", "stop").await?;
                     link.call(send("cli:terminal".into())).await?
                 }

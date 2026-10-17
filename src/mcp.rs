@@ -48,13 +48,17 @@ pub struct ListArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SendArgs {
-    /// "person/session" (or just "session"), "person/*" (all of a person's sessions), "repo:<name>", or "*".
+    /// "person/session" (or just "session").
     pub to: String,
     /// The message, with the point in the first line.
     pub message: String,
     /// Id of the message you are replying to.
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// Also pop it up on that person's screen, for when they must act themselves (an approval, a decision). `to` may
+    /// then be your own user's name, to reach them.
+    #[serde(default)]
+    pub notify: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -130,9 +134,7 @@ impl ReasonNetworkMcp {
         Ok(self.finish(&key, res, true).await)
     }
 
-    #[tool(
-        description = "Send a message to a teammate's agent session, all of a person's sessions, everyone in a repo, or everyone."
-    )]
+    #[tool(description = "Send a message to one teammate's agent session.")]
     async fn send_message(
         &self,
         Parameters(a): Parameters<SendArgs>,
@@ -142,7 +144,9 @@ impl ReasonNetworkMcp {
             Ok(k) => k,
             Err(e) => return Ok(failure(e)),
         };
-        let req = Request::Send { from: key.clone(), to: a.to, body: a.message, reply_to: a.reply_to, wake: true };
+        let notify = a.notify.unwrap_or(false);
+        let req =
+            Request::Send { from: key.clone(), to: a.to, body: a.message, reply_to: a.reply_to, wake: true, notify };
         let res = self.link.call::<SendResult>(req).await.map(|r| render::send_result(&r));
         Ok(self.finish(&key, res, true).await)
     }
@@ -267,8 +271,13 @@ impl ReasonNetworkMcp {
         Ok(key)
     }
 
-    /// Tool result text, plus a note about unread mail so pull-only agents notice it.
+    /// Tool result text, plus a note about unread mail so pull-only agents notice it, and how to join a team on a
+    /// machine that isn't in one.
     async fn finish(&self, key: &str, res: Result<String>, notice: bool) -> CallToolResult {
+        let join = match self.link.call::<TeamInfo>(Request::Team).await {
+            Err(e) if e.to_string().contains("not in a team") => Some(join_hint()),
+            _ => None,
+        };
         match res {
             Ok(mut text) => {
                 if notice
@@ -278,9 +287,16 @@ impl ReasonNetworkMcp {
                     text.push_str("\n\n");
                     text.push_str(&n);
                 }
+                if let Some(j) = join {
+                    text.push_str("\n\n");
+                    text.push_str(&j);
+                }
                 CallToolResult::success(vec![ContentBlock::text(text)])
             }
-            Err(e) => failure(e),
+            Err(e) => failure(match join {
+                Some(j) => anyhow::anyhow!("{e:#}\n\n{j}"),
+                None => e,
+            }),
         }
     }
 
@@ -299,6 +315,11 @@ impl ReasonNetworkMcp {
 
 fn failure(e: anyhow::Error) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(format!("{e:#}"))])
+}
+
+/// Getting this machine into a team: the Reason CLI does it.
+fn join_hint() -> String {
+    "This machine isn't on a Reason Network yet: ask your user to run `reason network`.".into()
 }
 
 #[cfg(test)]

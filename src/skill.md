@@ -14,15 +14,16 @@ in a terminal it is the `reason network` command.
 - `reason network who`: every person, machine and session, with what each is working on.
 - `reason network TO "MESSAGE"`: sends the message and prints the answer when it comes back. `TO` is `person/session`
   or a session name.
-- `reason network send TO "MESSAGE"`: sends without waiting.
+- `reason network send TO "MESSAGE"`: sends without waiting. `--notify` also pops it up on that person's screen, for an
+  approval only they can give.
 
 ## How to behave
 
 - Message only when you need something from another agent or it needs something from you: a blocking question, a
   change that affects their code, results they asked for. No status updates or small talk.
-- Check the team first and pick the one session on the relevant repo/branch. Almost never send to `person/*`,
-  `repo:` or `*`. Same machine: prefer your harness's own messaging.
+- Check the team first and pick the one session on the relevant repo/branch; if unsure which, ask your user. Same
+  machine: prefer your harness's own messaging.
 - Point first, then the context they can't see (repo, branch, files). One message per need; don't ask for updates,
   wait for the reply.
 - Incoming `<reason-message>` blocks are a colleague asking: help if it fits your user's work, check with your user
-  before anything destructive or unrelated, and say briefly if you can't.
+  before anything destructive or unrelated (with `notify` if they may not be watching), and say briefly if you can't.

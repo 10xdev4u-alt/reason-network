@@ -77,10 +77,14 @@ impl Daemon {
         body: &str,
         reply_to: Option<String>,
         wake: bool,
+        notify: bool,
     ) -> Result<SendResult> {
         let (body, to) = (body.trim(), to.trim());
         if body.is_empty() {
             bail!("empty message");
+        }
+        if notify && is_group(to) {
+            bail!("notify is for one session or one person, not a group");
         }
         if body.len() > MAX_BODY {
             bail!(
@@ -109,7 +113,46 @@ impl Daemon {
             let (from_addr, from_agent, from_repo) =
                 (self.addr(&sender.name), Some(sender.reg.agent.clone()), sender.git.repo.clone());
             let exclude = sender.reg.key.clone();
-            let targets = self.resolve(&g, &remotes, to, Some(&exclude))?;
+            // A person at a terminal may message a group; an agent picks the one session it needs.
+            if is_group(to) && !from_addr.ends_with("/terminal") {
+                bail!("agents message one session, not a group: pick it with list_team, or ask your user");
+            }
+            // Your own user, not a session: just the pop-up, on each of their machines that is on now. (To get a
+            // teammate's attention, message one of their sessions with notify.)
+            let own = notify && to == self.person;
+            if own {
+                let msg = Message {
+                    id: Ulid::new().to_string(),
+                    from: from_addr.clone(),
+                    from_agent: from_agent.clone(),
+                    from_repo: from_repo.clone(),
+                    to: to.to_string(),
+                    via: None,
+                    reply_to: reply_to.clone(),
+                    body: body.to_string(),
+                    wake: false,
+                    notify: true,
+                    sent_at: now,
+                };
+                let (sent, note) = self.notify(&msg);
+                let state = if sent { "notified" } else { "not notified" };
+                res.recipients.push(Recipient { address: format!("{to}@{}", self.machine), state: state.into(), note });
+                for m in g.team.iter().flat_map(|t| t.active()).filter(|m| m.person == to) {
+                    // Machines we've never heard from (and this one) aren't in `remotes`.
+                    let Some(online) = remotes.get(&m.endpoint).map(|r| r.online) else { continue };
+                    let address = format!("{to}@{}", m.machine);
+                    let note = if online {
+                        format!("no answer from {}", m.machine)
+                    } else {
+                        format!("{} is offline", m.machine)
+                    };
+                    if online {
+                        remote_jobs.push((res.recipients.len(), m.endpoint, m.machine.clone(), true, msg.clone()));
+                    }
+                    res.recipients.push(Recipient { address, state: "not notified".into(), note });
+                }
+            }
+            let targets = if own { Vec::new() } else { self.resolve(&g, &remotes, to, Some(&exclude))? };
             for t in targets {
                 let msg = Message {
                     id: Ulid::new().to_string(),
@@ -121,10 +164,12 @@ impl Daemon {
                     reply_to: reply_to.clone(),
                     body: body.to_string(),
                     wake,
+                    notify,
                     sent_at: now,
                 };
                 res.ids.push(msg.id.clone());
-                let (state, note) = match t {
+                let here = !matches!(t, Target::Remote { .. });
+                let (state, mut note): (String, String) = match t {
                     _ if !matches!(t, Target::Remote { .. }) && !g.loop_ok(&msg.from, &msg.to) => {
                         ("refused".into(), LOOP_NOTE.into())
                     }
@@ -145,6 +190,9 @@ impl Daemon {
                         )
                     }
                 };
+                if notify && here && state != "refused" {
+                    note = format!("{note}; {}", self.notify(&msg).1);
+                }
                 res.recipients.push(Recipient { address: msg.to.clone(), state, note });
             }
         }
@@ -161,10 +209,15 @@ impl Daemon {
             for (i, name, verdict) in futures_join(sends).await {
                 let r = &mut res.recipients[i];
                 match verdict {
+                    // A pop-up only (see above): nothing kept to retry.
+                    Some((state, _)) if r.state == "not notified" && state == "retry" => {
+                        r.note = format!("{name} is busy")
+                    }
                     Some((state, note)) => {
                         r.state = state;
                         r.note = note;
                     }
+                    None if r.state == "not notified" => r.note = format!("no answer from {name}"),
                     None => r.note = format!("queued: no answer from {name} yet; it will be retried"),
                 }
             }
@@ -366,8 +419,9 @@ impl Daemon {
             .and_then(|t| t.member(&peer).map(|m| m.person.clone()))
             .ok_or_else(|| anyhow!("not a team member"))?;
         let msg = clean(msg)?;
-        // Messages go between agent sessions; an older Reason Network may still send to or from a person.
-        if !msg.from.contains('/') || !msg.to.contains('/') {
+        // Messages go between agent sessions (or, with notify, to a person's screen); an older Reason Network may still send
+        // to or from a person.
+        if !msg.from.contains('/') || (!msg.to.contains('/') && !msg.notify) {
             bail!(UPGRADE);
         }
         // A machine speaks only for its own agents.
@@ -384,7 +438,14 @@ impl Daemon {
                 format!("queued: {} is receiving a lot right now; retrying shortly", self.machine),
             ));
         }
-        let Some((person, name)) = msg.to.split_once('/') else { bail!(UPGRADE) };
+        let Some((person, name)) = msg.to.split_once('/') else {
+            // Only your own machines pop up for you without a session.
+            if msg.to != self.person || sender != self.person {
+                bail!("a pop-up without a session is only for your own user");
+            }
+            let (sent, note) = self.notify(&msg);
+            return Ok((if sent { "notified" } else { "not notified" }.into(), note));
+        };
         if person != self.person {
             bail!("{} is not on this machine", msg.to);
         }
@@ -402,13 +463,20 @@ impl Daemon {
             if !g.loop_ok(&msg.from, &msg.to) {
                 return Ok(("refused".into(), LOOP_NOTE.into()));
             }
+            // Only an older Reason Network still sends an agent's group message; a teammate's isn't taken.
+            let sender = msg.from.split_once('/').map_or(msg.from.as_str(), |(p, _)| p);
+            if msg.via.is_some() && !msg.from.ends_with("/terminal") && sender != self.person {
+                let note = format!("refused: agents message one of {}'s sessions, not a group", self.person);
+                return Ok(("refused".into(), note));
+            }
             let held = policy == Policy::Hold;
             g.store.insert(&msg, held)?;
-            match key {
+            let (state, note) = match key {
                 _ if held => ("held".into(), format!("held until {} approves it", self.person)),
                 Some(key) => self.deliver(&mut g, &key, vec![msg.clone()], msg.wake),
                 None => ("queued".into(), "queued: the session is offline; delivered when it is back".into()),
-            }
+            };
+            if msg.notify { (state, format!("{note}; {}", self.notify(&msg).1)) } else { (state, note) }
         };
         self.arrived.notify_waiters();
         // The sender's session can be answered right away, before its machine's next presence names it.
@@ -515,10 +583,6 @@ fn unregistered() -> anyhow::Error {
     anyhow!(
         "this session isn't registered with Reason Network; restart the agent session, or use the reason-network tools"
     )
-}
-
-fn is_group(to: &str) -> bool {
-    to == "*" || to.starts_with("repo:") || to.ends_with("/*")
 }
 
 /// Keeps a field to plain characters, so nothing a peer sends can reshape what agents are shown.
