@@ -104,7 +104,7 @@ out = cli("alex", "team")
 check("founder sees alice connected", re.search(r"alice\s+desktop\s+(direct|relay)", out) is not None, out)
 out = cli("alice", "join", link.group(1), "--as", "bob", "--no-setup")
 check("joining a second team is refused while yours has others, and says how to switch",
-      "already in team 'vibes' (with alex)" in out and "Reason Network leave" in out, out)
+      "already in team 'vibes' (with alex)" in out and "reason network leave" in out, out)
 # Installed on its own and started a team by itself first: the team link still just works.
 sam = dict(env("alice"), REASON_NETWORK_HOME=os.path.join(D, "sam"), REASON_NETWORK_MACHINE="mini")
 r = subprocess.run([BIN, "init", "solo", "--as", "sam", "--no-setup"], env=sam, capture_output=True, text=True, timeout=90)

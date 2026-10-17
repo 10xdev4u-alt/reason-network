@@ -85,7 +85,7 @@ try:
     t.wait()
     check("start a team with two answers (name, team) and get the team link", True)
     cfg = open(os.path.join(env("alex")["HOME"], ".codex", "config.toml")).read()
-    check("agents found were set up without asking", "[mcp_servers.Reason Network]" in cfg, cfg)
+    check("agents found were set up without asking", "[mcp_servers.reason-network]" in cfg, cfg)
 except AssertionError as e:
     check("start a team by prompts", False, str(e))
 
