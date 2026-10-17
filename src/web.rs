@@ -2,12 +2,10 @@
 //! Served by the daemon over HTTP on 127.0.0.1 by default. Vanilla JS frontend, polling + SSE triggers.
 
 use crate::daemon::Daemon;
-use crate::proto::*;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 
 pub async fn run(daemon: Arc<Daemon>, bind: &str, port: u16, token: Option<String>) {
     let addr = format!("{bind}:{port}");

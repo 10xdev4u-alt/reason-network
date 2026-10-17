@@ -627,20 +627,20 @@ where
 
 // -- web dashboard helpers --
 impl Daemon {
-    pub fn inner_held(&self) -> Vec<Message> {
+    pub fn inner_held(self: &Arc<Self>) -> Vec<Message> {
         self.inner.lock().unwrap().store.held().unwrap_or_default()
     }
 
-    pub async fn inbox_json(&self, key: &str) -> Result<serde_json::Value> {
+    pub async fn inbox_json(self: &Arc<Self>, key: &str) -> Result<serde_json::Value> {
         let i = self.inbox(key.to_string(), 0, true).await?;
         Ok(serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
     }
 
-    pub async fn send_web(&self, from: String, to: &str, body: &str, notify: bool) -> Result<SendResult> {
+    pub async fn send_web(self: &Arc<Self>, from: String, to: &str, body: &str, notify: bool) -> Result<SendResult> {
         self.send(from, to, body, None, true, notify).await
     }
 
-    pub fn settle_web(&self, ids: &[String], release: bool) -> usize {
+    pub fn settle_web(self: &Arc<Self>, ids: &[String], release: bool) -> usize {
         self.settle(ids, release).unwrap_or(0)
     }
 }
