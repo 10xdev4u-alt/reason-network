@@ -1,4 +1,4 @@
-//! `reason network mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
+//! `reason-network mcp`: the stdio MCP server an agent spawns. A thin client of the daemon.
 
 use crate::{
     agent::{self, ClaudeSocket},
@@ -105,7 +105,7 @@ pub async fn run() -> Result<()> {
         if !agent::multiplexed(agent)
             && let Err(e) = s.session(agent, None).await
         {
-            eprintln!("reason network: registering session: {e:#}");
+            eprintln!("reason-network: registering session: {e:#}");
         }
     });
 
@@ -307,8 +307,8 @@ impl ReasonNetworkMcp {
             Ok(Ok(())) => {
                 let _ = self.link.call::<Value>(Request::Delivered { key, ids }).await;
             }
-            Ok(Err(e)) => eprintln!("reason network: delivering to Claude Code: {e}"),
-            Err(e) => eprintln!("reason network: delivering to Claude Code: {e}"),
+            Ok(Err(e)) => eprintln!("reason-network: delivering to Claude Code: {e}"),
+            Err(e) => eprintln!("reason-network: delivering to Claude Code: {e}"),
         }
     }
 }
@@ -322,7 +322,8 @@ fn join_hint() -> String {
     if crate::managed() {
         return "This machine isn't on a Reason Network yet: ask your user to run `reason network`.".into();
     }
-    let exe = crate::setup::exe().map_or_else(|_| crate::AGENT_NAME.into(), |p| p.display().to_string());
+    let exe = crate::setup::exe()
+        .map_or_else(|_| crate::AGENT_NAME.into(), |p| crate::setup::shell_cmd(&p, "").trim_end().to_string());
     format!(
         "This machine isn't in a team yet. Ask your user for the team link and the name teammates should see, then run \
          `{exe} join '<link>' --as <name>`; to start a team instead, `{exe} init <team> --as <name>`."

@@ -52,7 +52,7 @@ pub fn exe() -> Result<PathBuf> {
 /// The command line agents run through a shell: `'/path/to/reason-network' hook codex stop`. On Windows that shell is
 /// PowerShell (`& 'C:\Users\Alex Smith\…\reason-network.exe' hook codex stop`), and a path that needs no quotes also runs in
 /// cmd.exe.
-fn shell_cmd(exe: &Path, args: &str) -> String {
+pub fn shell_cmd(exe: &Path, args: &str) -> String {
     let p = exe.display().to_string();
     let plain = |extra: &str| p.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
     let quoted = if cfg!(windows) {
@@ -998,9 +998,13 @@ pub fn legacy_wiring(exe: &Path) -> Vec<&'static str> {
                 .output()
                 .is_ok_and(|o| o.status.success() && ours(&String::from_utf8_lossy(&o.stdout), exe))
         }),
-        "opencode" => opencode_home().join(format!("plugins/{LEGACY_NAME}.ts")).exists(),
-        "pi" => pi_home().join(format!("extensions/{LEGACY_NAME}.ts")).exists(),
-        "reason" => Config::load().reason,
+        "opencode" => std::fs::read_to_string(opencode_home().join(format!("plugins/{LEGACY_NAME}.ts")))
+            .is_ok_and(|t| ours(&t, exe)),
+        "pi" => {
+            std::fs::read_to_string(pi_home().join(format!("extensions/{LEGACY_NAME}.ts"))).is_ok_and(|t| ours(&t, exe))
+        }
+        // Its setting moved over with the state; nothing of it names the tincan binary.
+        "reason" => false,
         _ => (a.wired)(&old),
     };
     AGENTS.iter().filter(|a| (a.installed)() && wired(a)).map(|a| a.id).collect()

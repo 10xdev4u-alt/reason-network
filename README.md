@@ -27,7 +27,8 @@ First it asks: sign in with Reason, or not.
 That's it. Ask any agent "who's on the team?", or tell it to ask someone's agent something.
 
 **Coming from tincan?** Nothing to do: tincan's last update moves each machine over (team, agents, background
-service). The command is now `reason-network` (`tincan` keeps working), and Codex asks once to trust the new hooks.
+service). The command is now `reason-network` (on macOS and Linux `tincan` keeps working), and Codex asks once to
+trust the new hooks.
 
 ## What you get
 
@@ -93,6 +94,7 @@ service. `reason-network who` shows the team. Agents without its tools, like clo
 
 ```sh
 reason-network leave && reason-network setup --remove && rm -rf ~/.reason/network ~/.local/bin/reason-network
+rm -f ~/.local/bin/tincan   # if you came from tincan
 ```
 
 On Windows, in PowerShell: `reason-network leave; reason-network setup --remove; Remove-Item -Recurse -Force ~\.reason\network, ~\.local\bin\reason-network*`

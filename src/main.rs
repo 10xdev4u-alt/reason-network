@@ -65,7 +65,7 @@ pub const ENGINE: Engine = Engine;
 impl std::fmt::Display for Engine {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match setup::exe() {
-            Ok(p) if managed() => write!(f, "{}", p.display()),
+            Ok(p) if managed() => f.write_str(setup::shell_cmd(&p, "").trim_end()),
             _ => f.write_str(AGENT_NAME),
         }
     }

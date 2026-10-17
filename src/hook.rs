@@ -1,4 +1,4 @@
-//! `reason network hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
+//! `reason-network hook <agent> <event>`: run by an agent's hook system. Tells the daemon the session is alive (and busy
 //! or idle), and prints whatever makes the agent show incoming mail. It never fails loudly: a broken Reason Network must
 //! not break the agent.
 
@@ -94,7 +94,7 @@ async fn handle(
         // Say who it is on Reason Network once, at session start.
         (None, "start", Some(addr)) => {
             format!(
-                "reason network: you are {addr}. Teammates' agents can message you; list_team and send_message reach them."
+                "Reason Network: you are {addr}. Teammates' agents can message you; list_team and send_message reach them."
             )
         }
         _ => return None,

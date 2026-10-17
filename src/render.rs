@@ -305,7 +305,7 @@ pub fn unread_notice(u: &Unread) -> Option<String> {
     (u.count > 0).then(|| {
         let plural = if u.count == 1 { "" } else { "s" };
         format!(
-            "[reason network] {} unread message{plural} from {}. Call check_inbox to read.",
+            "[Reason Network] {} unread message{plural} from {}. Call check_inbox to read.",
             u.count,
             u.from.join(", ")
         )

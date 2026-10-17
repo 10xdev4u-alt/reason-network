@@ -44,8 +44,9 @@ pub async fn run(log: fn(&str)) {
     // very process; ours takes over when it's gone).
     let service = paths::env_var_os("NO_SERVICE").is_none();
     #[cfg(unix)]
-    let swap = service
-        && setup::legacy_service(&exe)
+    let legacy = service && setup::legacy_service(&exe);
+    #[cfg(unix)]
+    let swap = legacy
         && match setup::install_service_from_daemon(&exe).await {
             Ok(s) => {
                 log(&format!("moved over from {LEGACY_NAME}: service: {s}"));
@@ -61,12 +62,16 @@ pub async fn run(log: fn(&str)) {
     if service && paths::env_var_os("HOME").is_none() {
         setup::move_legacy_run_entry(&exe);
     }
-    // The copy becomes a link to us, so `tincan` keeps working, once no agent still runs it. (Windows removes it
-    // instead, once nothing runs it: the next start.)
+    // The copy becomes a link to us, so `tincan` keeps working, once no agent and no service still runs it (else the
+    // next start tries again). Windows removes it instead, once nothing runs it: the next start.
+    #[cfg(unix)]
+    let service_moved = !legacy || swap;
+    #[cfg(windows)]
+    let service_moved = true;
     let left = setup::legacy_wiring(&exe);
     if !left.is_empty() {
         log(&format!("moved over from {LEGACY_NAME}: kept it for {} until they move over", left.join(", ")));
-    } else if std::fs::remove_file(&old).is_ok() {
+    } else if service_moved && std::fs::remove_file(&old).is_ok() {
         #[cfg(unix)]
         let _ = std::os::unix::fs::symlink(AGENT_NAME, &old);
     }

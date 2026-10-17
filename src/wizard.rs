@@ -260,6 +260,9 @@ pub async fn show_code(me: bool) -> Result<()> {
     let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours: 24 }).await?;
     let [unix, windows] = install_lines(&i.code);
     let who = if me { "your other machine" } else { "your teammate" };
+    if crate::managed() && !me {
+        log::info("Teammates in your Reason workspace just run `reason network`.")?;
+    }
     note(
         format!("Invite code: {}", i.code),
         format!(
