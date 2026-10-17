@@ -11,7 +11,7 @@ pub use mac::run;
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use crate::{client::Link, config::Config, proto::*, util, wizard};
+    use crate::{CLI, client::Link, config::Config, proto::*, util, wizard};
     use anyhow::{Result, anyhow};
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSCellImagePosition, NSEventMask, NSImage};
@@ -151,7 +151,7 @@ mod mac {
             Some(t) => items.push(Box::new(info(&format!("{t} · you're {}", v.me)))),
             None => {
                 items.push(Box::new(info("Not in a team yet")));
-                items.push(Box::new(info("Run `reason network` in a terminal to set up")));
+                items.push(Box::new(info(&format!("Run `{CLI}` in a terminal to set up"))));
             }
         }
         items.push(Box::new(sep()));

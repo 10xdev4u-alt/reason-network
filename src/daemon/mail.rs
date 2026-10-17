@@ -64,7 +64,8 @@ impl Inner {
     }
 }
 
-const UPGRADE: &str = "update reason (then `reason network setup`): messages go between agent sessions now";
+const UPGRADE: &str =
+    "update Reason Network (with the Reason CLI, `reason update`): messages go between agent sessions now";
 
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";
@@ -270,7 +271,7 @@ impl Daemon {
         let hook_note = if matches!(l.reg.agent.as_str(), "opencode" | "pi") {
             "queued: delivered within seconds once the session is idle"
         } else if l.reg.agent == "cli" {
-            "queued: it gets it the next time it runs `reason network listen`"
+            "queued: it gets it the next time it listens"
         } else {
             "queued: it sees it at its next tool call or when its turn ends"
         };

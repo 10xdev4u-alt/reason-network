@@ -8,6 +8,7 @@ mod notify;
 mod reason;
 mod sessions;
 mod teamops;
+mod update;
 
 use crate::{
     config::Config,
@@ -64,6 +65,10 @@ pub async fn run(service: bool) -> Result<()> {
     }
     if daemon.cfg.reason {
         tokio::spawn(daemon.clone().reason_loop());
+    }
+    tokio::spawn(crate::migrate::run(log));
+    if update::allowed(daemon.cfg.auto_update) {
+        tokio::spawn(daemon.clone().update_loop());
     }
     loop {
         let stream = listener.accept().await?;

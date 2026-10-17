@@ -1,6 +1,6 @@
 //! Text shown to agents (tool results, injected messages) and in the CLI.
 
-use crate::{proto::*, util};
+use crate::{ENGINE, proto::*, util};
 use std::fmt::Write;
 
 /// Terminal colours for people reading the CLI; agents, pipes and `NO_COLOR` get plain text.
@@ -242,7 +242,7 @@ pub fn for_agent(msgs: &[Message], agent: Option<&str>, cli: bool) -> String {
     };
     // No Reason Network tools (Reason's agent; a Claude session from before Reason Network), but commands run on this computer.
     let reply = if cli || agent == Some("reason") {
-        format!("Reply if useful: reason network send {} --from {} \"<reply>\"", last.from, last.to)
+        format!("Reply if useful: {ENGINE} send {} --from {} \"<reply>\"", last.from, last.to)
     } else {
         format!("Reply if useful with send_message to \"{}\".", last.from)
     };
@@ -305,7 +305,7 @@ pub fn unread_notice(u: &Unread) -> Option<String> {
     (u.count > 0).then(|| {
         let plural = if u.count == 1 { "" } else { "s" };
         format!(
-            "[reason network] {} unread message{plural} from {}. Call check_inbox to read.",
+            "[Reason Network] {} unread message{plural} from {}. Call check_inbox to read.",
             u.count,
             u.from.join(", ")
         )

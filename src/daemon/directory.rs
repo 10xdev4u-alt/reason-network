@@ -3,7 +3,7 @@
 
 use super::Daemon;
 use crate::{
-    agent,
+    CLI, agent,
     claude::{self, ClaudeSession},
     doing,
     git::GitInfo,
@@ -404,7 +404,7 @@ impl Daemon {
             self.pick(cands.iter().copied().filter(|c| c.name == spec).collect(), spec, &target)?
         };
         if targets.is_empty() {
-            bail!("nobody matches '{to}' right now; run list_team (or `reason network who`) to see who is around");
+            bail!("nobody matches '{to}' right now; run list_team (or `{CLI} who`) to see who is around");
         }
         Ok(targets)
     }
@@ -415,7 +415,7 @@ impl Daemon {
         let pool: Vec<&&Cand> = if live.is_empty() { found.iter().collect() } else { live };
         match pool.as_slice() {
             [] => bail!(
-                "no session called '{spec}'. Run list_team (or `reason network who`) to see who is around (sessions without Reason Network can't \
+                "no session called '{spec}'. Run list_team (or `{CLI} who`) to see who is around (sessions without Reason Network can't \
                  receive)."
             ),
             [one] => Ok(vec![target(one)]),
