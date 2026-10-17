@@ -146,7 +146,7 @@ impl Daemon {
     }
 
     /// A hook fired in an agent: keep its session alive, track busy/idle, hand back mail to inject.
-    pub(super) async fn hook(self: &Arc<Self>, h: HookCall) -> Result<HookReply> {
+    pub async fn hook(self: &Arc<Self>, h: HookCall) -> Result<HookReply> {
         let HookCall { agent, event, session_id, cwd, pid, mail, transcript, doing, name } = h;
         let (agent, event) = (agent.as_str(), event.as_str());
         let key = format!("{agent}:{session_id}");
