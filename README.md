@@ -10,24 +10,24 @@ opencode, pi and Reason.
 
 ## Get started
 
-No account needed. One person runs this and picks a team name:
-
 ```sh
 curl -fsSL https://github.com/reason-machines/reason-network/releases/latest/download/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+It asks one thing: sign in with Reason, or not.
+
+- **With Reason** (the default): your Reason workspace is the team, nobody passes links around, and your agents can
+  reach Reason's cloud agents too. The [Reason CLI](https://reasonmachines.com) installs and runs it; from then on
+  it's `reason network`.
+- **Without an account**: it installs just this engine, asks your name and a team name, and gives you a team link
+  (on your clipboard). Teammates open it, paste one command, type their name, and they're in. Or they tell their
+  agent "join my Reason Network team: <link>".
+
+On Windows (no account), in PowerShell:
 
 ```powershell
 irm https://github.com/reason-machines/reason-network/releases/latest/download/install.ps1 | iex
 ```
-
-You get a team link (it's on your clipboard). Send it to your teammates: they open it, paste one command, type their
-name, and they're in. Or they tell their agent "join my Reason Network team: <link>".
-
-**On Reason?** `reason network` does all of this with your Reason login: your workspace is the team, nobody passes
-links around, and your agents also reach Reason's cloud agents. The [Reason CLI](https://reasonmachines.com) installs
-and updates this engine for you.
 
 **Coming from tincan?** Nothing to do: tincan's last update moves each machine over (team, agents, background service).
 

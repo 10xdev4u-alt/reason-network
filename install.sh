@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs Reason Network on its own (no account needed) for macOS or Linux.
 #
-#   curl -fsSL <this url> | sh                      install, then set up (start or join a team)
+#   curl -fsSL <this url> | sh                      install, then set up (with Reason, or start or join a team)
 #   curl -fsSL <this url> | sh -s -- <team link>    install, then join that team
 #   curl -fsSL <this url> | sh -s -- <team link> --as <name>     the same, without questions (for agents)
 #   curl -fsSL <this url> | sh -s -- init <team> --as <name>     install and start a team, without questions
@@ -28,6 +28,28 @@ case "$(uname -m)" in
   *) die "unsupported CPU: $(uname -m)" ;;
 esac
 target="$arch-$os"
+
+# Starting fresh in a terminal: Reason first. With it, your Reason workspace is the team (no links to pass around),
+# your agents reach Reason's cloud agents, and the Reason CLI installs and updates this engine. Without it, a team
+# link and no account. Never asked when joining with a link, for agents, or for updates.
+if [ $# -eq 0 ] && [ -z "${REASON_NETWORK_NO_PROMPT:-}" ] && [ ! -e "$bin_dir/reason-network" ] && (exec </dev/tty) 2>/dev/null; then
+  say "With Reason, your Reason workspace is the team (no links to pass around) and your agents can reach Reason's"
+  say "cloud agents. Without it: a team link, no account."
+  printf 'Sign in with Reason? [Y/n] '
+  read -r answer </dev/tty || answer=n
+  case "$answer" in
+    [nN]*) ;;
+    *)
+      reason="$(command -v reason || true)"
+      if [ -z "$reason" ]; then
+        curl -fsSL https://reasonmachines.com/install.sh | bash -s -- --minimal --no-login ||
+          die "installing Reason failed; run this again and answer n to go without an account"
+        reason="${REASON_INSTALL_DIR:-$HOME/.local/bin}/reason"
+      fi
+      exec "$reason" network </dev/tty
+      ;;
+  esac
+fi
 
 if [ -n "${REASON_NETWORK_DOWNLOAD_BASE:-}" ]; then
   base="$REASON_NETWORK_DOWNLOAD_BASE"
