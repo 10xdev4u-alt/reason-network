@@ -410,6 +410,9 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let copied = wizard::interactive() && wizard::copy(&l.url);
             println!("Team link for {}{}:\n\n{}\n", l.team, if copied { " (on your clipboard)" } else { "" }, l.url);
             println!("Anyone with it can join: it opens a page with one command. `{CLI} link --new` replaces it.");
+            if managed() {
+                println!("Teammates in your Reason workspace just run `reason network`; the link is for anyone else.");
+            }
         }
         Cmd::Invite { me: false, code: false, .. } => Box::pin(cli(Cmd::Link { new: false })).await?,
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {

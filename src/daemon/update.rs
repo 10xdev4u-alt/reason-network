@@ -70,8 +70,11 @@ async fn update() -> Result<Option<String>> {
     if !out.status.success() {
         bail!("install failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
-    if waiting && std::fs::remove_file(&copy).is_ok() {
-        let _ = std::fs::copy(&exe, &copy);
+    // A new file renamed over it: never a moment without tincan, nor a half-written one. (A tincan.exe that's running
+    // can't be replaced: it stays as it was, still handing over to us.)
+    let new = copy.with_extension("new");
+    if waiting && std::fs::copy(&exe, &new).is_ok() && std::fs::rename(&new, &copy).is_err() {
+        let _ = std::fs::remove_file(&new);
     }
     // Restart only on a binary that really is newer (a release tagged without bumping its version must not loop).
     let installed = tokio::process::Command::new(&exe).arg("--version").kill_on_drop(true).output();
