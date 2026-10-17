@@ -33,25 +33,40 @@ impl Daemon {
     }
 
     /// Keeps `reason network __relay` running. It reads nothing from its stdin, and ends when that closes: with this
-    /// daemon, however it ends. Its output goes where the daemon's does (the log).
+    /// daemon, however it ends. Its stderr goes where the daemon's does (the log).
     pub(super) async fn relay_loop(self: Arc<Self>) {
-        let Some(bin) = agent::find_bin("reason") else { return };
         let mut wait = RELAY_WAIT;
+        let mut missing = false;
         loop {
             let started = std::time::Instant::now();
-            let child = tokio::process::Command::new(&bin)
-                .args(["network", "__relay"])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .kill_on_drop(true)
-                .spawn();
-            match child {
-                // Held here, not left to `wait`, which would close it first.
-                Ok(mut child) => match (child.stdin.take(), child.wait().await).1 {
-                    Ok(status) => log(&format!("reason network __relay stopped ({status})")),
-                    Err(e) => log(&format!("reason network __relay: {e}")),
-                },
-                Err(e) => log(&format!("starting reason network __relay: {e}")),
+            match agent::find_bin("reason") {
+                None if !missing => {
+                    log(
+                        "reason network __relay: the reason CLI isn't on this daemon's PATH; Reason's cloud agents can't reach this computer's agents",
+                    );
+                    missing = true;
+                }
+                None => {}
+                Some(bin) => {
+                    missing = false;
+                    let child = tokio::process::Command::new(&bin)
+                        .args(["network", "__relay"])
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::null())
+                        .kill_on_drop(true)
+                        .spawn();
+                    match child {
+                        Ok(mut child) => {
+                            // Held here, not left to `wait`, which would close it first.
+                            let _stdin = child.stdin.take();
+                            match child.wait().await {
+                                Ok(status) => log(&format!("reason network __relay stopped ({status})")),
+                                Err(e) => log(&format!("reason network __relay: {e}")),
+                            }
+                        }
+                        Err(e) => log(&format!("starting reason network __relay: {e}")),
+                    }
+                }
             }
             if started.elapsed() > RELAY_MAX_WAIT {
                 wait = RELAY_WAIT;
