@@ -692,6 +692,8 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
     let path = service_path();
     let uid = unsafe { libc::getuid() };
     let engine_home = crate::paths::env_var("HOME").ok();
+    // The Reason CLI that set this up, so the daemon runs that one's relay rather than whatever `reason` is on its PATH.
+    let reason_bin = crate::paths::env_var("REASON_BIN").ok().filter(|_| crate::managed());
     let legacy = stop && remove_legacy_service(exe, dry);
     if cfg!(target_os = "macos") {
         let target = format!("gui/{uid}/{}", service_name());
@@ -705,7 +707,10 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
         }
         let home_env = engine_home
             .map(|h| format!("\n    <key>REASON_NETWORK_HOME</key><string>{}</string>", xml(&h)))
-            .unwrap_or_default();
+            .unwrap_or_default()
+            + &reason_bin
+                .map(|b| format!("\n    <key>REASON_NETWORK_REASON_BIN</key><string>{}</string>", xml(&b)))
+                .unwrap_or_default();
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -774,7 +779,8 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
         if !user_systemd {
             return Err(anyhow!("systemctl --user isn't available here"));
         }
-        let home_env = engine_home.map(|h| format!("Environment=\"REASON_NETWORK_HOME={h}\"\n")).unwrap_or_default();
+        let home_env = engine_home.map(|h| format!("Environment=\"REASON_NETWORK_HOME={h}\"\n")).unwrap_or_default()
+            + &reason_bin.map(|b| format!("Environment=\"REASON_NETWORK_REASON_BIN={b}\"\n")).unwrap_or_default();
         let unit = format!(
             "[Unit]\nDescription=Reason Network daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
