@@ -196,7 +196,7 @@ pub fn legacy_exe(exe: &Path) -> PathBuf {
 fn ours(text: &str, exe: &Path) -> bool {
     [exe.to_path_buf(), legacy_exe(exe)]
         .iter()
-        .any(|p| text.contains(&p.display().to_string()) || text.contains(&me(p)))
+        .any(|p| contains(text, &p.display().to_string()) || contains(text, &me(p)))
 }
 
 /// Takes out the server an earlier build of this binary (or the tincan it replaced) added under the upstream name.
@@ -230,7 +230,7 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let get = |name: &str| -> Result<(bool, bool)> {
         let out = Command::new(&bin).args(["mcp", "get", name]).stdin(std::process::Stdio::null()).output()?;
         let existing = out.status.success();
-        Ok((existing, existing && String::from_utf8_lossy(&out.stdout).contains(&exe.display().to_string())))
+        Ok((existing, existing && contains(&String::from_utf8_lossy(&out.stdout), &exe.display().to_string())))
     };
     let drop = |name: &str| -> Result<()> {
         if !dry {
@@ -297,7 +297,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             .and_then(|t| t.as_table_like())
             .and_then(|t| t.get("command"))
             .and_then(|c| c.as_str())
-            .is_some_and(|c| c == exe.display().to_string() || c == legacy_exe(exe).display().to_string());
+            .is_some_and(|c| same_path(c, exe) || same_path(c, &legacy_exe(exe)));
         if ours {
             servers.remove(LEGACY_NAME);
         }
@@ -887,7 +887,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         return Err(anyhow!("a logon entry can't set REASON_NETWORK_HOME"));
     }
     let command = format!("\"{}\" daemon --service", exe.display());
-    let did = !run_entry().is_some_and(|v| v.contains(&command));
+    let did = !run_entry().is_some_and(|v| contains(&v, &command));
     if !dry {
         if did {
             let out = reg(&["add", RUN_KEY, "/v", &service_name(), "/d", &command, "/f"])?;
@@ -915,8 +915,19 @@ struct Agent {
     apply: AgentFn,
 }
 
+/// Whether `text` holds `needle`. Windows paths are the same whatever their case (`D:\Program Files` is
+/// `D:\program files`), and the case a program is started with depends on how it was found.
+fn contains(text: &str, needle: &str) -> bool {
+    if cfg!(windows) { text.to_lowercase().contains(&needle.to_lowercase()) } else { text.contains(needle) }
+}
+
+fn same_path(text: &str, path: &Path) -> bool {
+    let path = path.display().to_string();
+    if cfg!(windows) { text.eq_ignore_ascii_case(&path) } else { text == path }
+}
+
 fn has(path: PathBuf, needle: &str) -> bool {
-    std::fs::read_to_string(path).is_ok_and(|s| s.contains(needle))
+    std::fs::read_to_string(path).is_ok_and(|s| contains(&s, needle))
 }
 
 /// Our path as a JSON config has it (with Windows' backslashes escaped).
@@ -1221,5 +1232,15 @@ mod tests {
             r"& 'C:\Users\Alex O''Neil\reason-network.exe' mcp"
         );
         assert_eq!(me(Path::new(r"C:\a\reason-network.exe")), r"C:\\a\\reason-network.exe");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn paths_match_whatever_their_case() {
+        let exe = Path::new(r"D:\Program Files\reason-network\reason-network.exe");
+        assert!(ours(r"command = 'D:\program files\reason-network\reason-network.exe'", exe));
+        assert!(ours(r#""command": "d:\\PROGRAM FILES\\reason-network\\reason-network.exe""#, exe));
+        assert!(same_path(r"D:\program files\reason-network\reason-network.exe", exe));
+        assert!(!same_path(r"D:\program files\reason-network\other.exe", exe));
     }
 }
