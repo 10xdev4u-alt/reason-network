@@ -6,7 +6,7 @@
 //! there under that name, so an update moves an agent over and leaves nothing behind; another program of that name
 //! (at another path) keeps its wiring.
 
-use crate::{AGENT_NAME, LEGACY_NAME, agent, client::Link, config::Config, paths, proto::*, render};
+use crate::{AGENT_NAME, CLI, LEGACY_NAME, agent, client::Link, config::Config, paths, proto::*, render};
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value, json};
 use std::{
@@ -187,16 +187,28 @@ fn merge_hook_groups(hooks: &mut Map<String, Value>, agent: &str, groups: Vec<(&
     }
 }
 
-/// Takes out the server an earlier build of this binary added under the upstream engine's name.
+/// The tincan binary a standalone tincan install had beside this one, before its last update put this one there.
+pub fn legacy_exe(exe: &Path) -> PathBuf {
+    exe.with_file_name(format!("{LEGACY_NAME}{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Whether `text` (a config, or a command line) names this binary or the tincan binary it replaced.
+fn ours(text: &str, exe: &Path) -> bool {
+    [exe.to_path_buf(), legacy_exe(exe)]
+        .iter()
+        .any(|p| text.contains(&p.display().to_string()) || text.contains(&me(p)))
+}
+
+/// Takes out the server an earlier build of this binary (or the tincan it replaced) added under the upstream name.
 fn drop_legacy(servers: &mut Map<String, Value>, exe: &Path) {
-    if servers.get(LEGACY_NAME).is_some_and(|v| v.to_string().contains(&me(exe))) {
+    if servers.get(LEGACY_NAME).is_some_and(|v| ours(&v.to_string(), exe)) {
         servers.remove(LEGACY_NAME);
     }
 }
 
 /// Removes a file this binary wrote under the upstream engine's name (a plugin, an extension, a hook file).
 fn drop_legacy_file(path: &Path, exe: &Path, dry: bool, r: &mut Report) -> Result<()> {
-    if has(path.to_path_buf(), &me(exe)) {
+    if std::fs::read_to_string(path).is_ok_and(|t| ours(&t, exe)) {
         if !dry {
             std::fs::remove_file(path)?;
         }
@@ -229,7 +241,8 @@ fn claude(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
         }
         Ok(())
     };
-    if let (true, true) = get(LEGACY_NAME)? {
+    let legacy = Command::new(&bin).args(["mcp", "get", LEGACY_NAME]).stdin(std::process::Stdio::null()).output()?;
+    if legacy.status.success() && ours(&String::from_utf8_lossy(&legacy.stdout), exe) {
         drop(LEGACY_NAME)?;
         r.lines.push(format!("removed the {LEGACY_NAME} MCP server"));
     }
@@ -284,7 +297,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
             .and_then(|t| t.as_table_like())
             .and_then(|t| t.get("command"))
             .and_then(|c| c.as_str())
-            .is_some_and(|c| c == exe.display().to_string());
+            .is_some_and(|c| c == exe.display().to_string() || c == legacy_exe(exe).display().to_string());
         if ours {
             servers.remove(LEGACY_NAME);
         }
@@ -594,33 +607,57 @@ fn service_path_for(name: &str) -> PathBuf {
     }
 }
 
-/// Stops and removes the login service this binary ran under with the upstream engine's name. True if there was one.
+/// Stops and removes the login service this binary (or the tincan it replaced) ran under with the upstream engine's
+/// name. True if there was one.
 #[cfg(unix)]
 fn remove_legacy_service(exe: &Path, dry: bool) -> bool {
+    if dry {
+        return std::fs::read_to_string(service_path_for(&legacy_service_name())).is_ok_and(|t| ours(&t, exe));
+    }
+    let had = unregister_legacy_service(exe);
+    if had {
+        stop_legacy_service();
+    }
+    had
+}
+
+/// Takes that service off the login items without stopping it: it may be what runs this very process. True if there
+/// was one.
+#[cfg(unix)]
+pub fn unregister_legacy_service(exe: &Path) -> bool {
     let name = legacy_service_name();
     let path = service_path_for(&name);
-    if !has(path.clone(), &exe.display().to_string()) {
+    if !std::fs::read_to_string(&path).is_ok_and(|t| ours(&t, exe)) {
         return false;
     }
-    if dry {
-        return true;
+    let systemctl =
+        |args: &[&str]| Command::new("systemctl").arg("--user").args(args).stdin(std::process::Stdio::null()).output();
+    if !cfg!(target_os = "macos") {
+        let _ = systemctl(&["disable", &format!("{name}.service")]);
     }
-    if cfg!(target_os = "macos") {
-        let uid = unsafe { libc::getuid() };
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{uid}/{name}")])
-            .stdin(std::process::Stdio::null())
-            .output();
-        let _ = std::fs::remove_file(&path);
-    } else {
-        let _ = Command::new("systemctl")
-            .args(["--user", "disable", "--now", &format!("{name}.service")])
-            .stdin(std::process::Stdio::null())
-            .output();
-        let _ = std::fs::remove_file(&path);
-        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output();
+    let _ = std::fs::remove_file(&path);
+    if !cfg!(target_os = "macos") {
+        let _ = systemctl(&["daemon-reload"]);
     }
     true
+}
+
+/// Stops that service, unregistered or not.
+#[cfg(unix)]
+pub fn stop_legacy_service() {
+    let name = legacy_service_name();
+    let _ = if cfg!(target_os = "macos") {
+        let uid = unsafe { libc::getuid() };
+        Command::new("launchctl")
+            .args(["bootout", &format!("gui/{uid}/{name}")])
+            .stdin(std::process::Stdio::null())
+            .output()
+    } else {
+        Command::new("systemctl")
+            .args(["--user", "stop", &format!("{name}.service")])
+            .stdin(std::process::Stdio::null())
+            .output()
+    };
 }
 
 /// A PATH for the daemon that includes where agents usually live (it runs `codex queue`).
@@ -634,6 +671,18 @@ fn service_path_env() -> String {
 
 #[cfg(unix)]
 async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
+    install_service(exe, remove, dry, true).await
+}
+
+/// Installs ours from the daemon the legacy service runs, without stopping that daemon (itself) first: it ends when
+/// the legacy service is stopped, and ours takes over.
+#[cfg(unix)]
+pub async fn install_service_from_daemon(exe: &Path) -> Result<String> {
+    install_service(exe, false, false, false).await
+}
+
+#[cfg(unix)]
+async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Result<String> {
     let path = service_path();
     let uid = unsafe { libc::getuid() };
     let engine_home = crate::paths::env_var("HOME").ok();
@@ -682,7 +731,9 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
             .is_ok_and(|o| o.status.success());
         if !dry && (did || !loaded) {
             let _ = Command::new("launchctl").args(["bootout", &target]).stdin(std::process::Stdio::null()).output();
-            crate::stop_daemon().await;
+            if stop {
+                crate::stop_daemon().await;
+            }
             let out = Command::new("launchctl")
                 .args(["bootstrap", &format!("gui/{uid}")])
                 .arg(&path)
@@ -727,7 +778,9 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
         let did = write_file(&path, &unit, dry)? || legacy;
         if !dry {
             paths::ensure_home()?;
-            crate::stop_daemon().await;
+            if stop {
+                crate::stop_daemon().await;
+            }
             Command::new("systemctl").args(["--user", "daemon-reload"]).stdin(std::process::Stdio::null()).output()?;
             let out = Command::new("systemctl")
                 .args(["--user", "enable", "--now", &format!("{}.service", service_name())])
@@ -778,6 +831,22 @@ fn run_entry() -> Option<String> {
         .output()
         .ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Moves the Run entry a standalone tincan install made over to this binary. True if there was one.
+#[cfg(windows)]
+pub fn move_legacy_run_entry(exe: &Path) -> bool {
+    let reg = |args: &[&str]| Command::new("reg").args(args).stdin(std::process::Stdio::null()).output();
+    let legacy = "dev.tincan.daemon";
+    let had = reg(&["query", RUN_KEY, "/v", legacy])
+        .is_ok_and(|o| o.status.success() && ours(&String::from_utf8_lossy(&o.stdout), exe));
+    if had {
+        let command = format!("\"{}\" daemon --service", exe.display());
+        if reg(&["add", RUN_KEY, "/v", &service_name(), "/d", &command, "/f"]).is_ok_and(|o| o.status.success()) {
+            let _ = reg(&["delete", RUN_KEY, "/v", legacy, "/f"]);
+        }
+    }
+    had
 }
 
 #[cfg(windows)]
@@ -912,6 +981,25 @@ const AGENTS: [Agent; 8] = [
     },
 ];
 
+/// The agents wired to the tincan binary beside `exe`, which move over to it.
+pub fn legacy_wiring(exe: &Path) -> Vec<&'static str> {
+    let old = legacy_exe(exe);
+    let wired = |a: &Agent| match a.id {
+        "claude" => agent::find_bin("claude").is_some_and(|b| {
+            Command::new(b)
+                .args(["mcp", "get", LEGACY_NAME])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .is_ok_and(|o| o.status.success() && ours(&String::from_utf8_lossy(&o.stdout), exe))
+        }),
+        "opencode" => opencode_home().join(format!("plugins/{LEGACY_NAME}.ts")).exists(),
+        "pi" => pi_home().join(format!("extensions/{LEGACY_NAME}.ts")).exists(),
+        "reason" => Config::load().reason,
+        _ => (a.wired)(&old),
+    };
+    AGENTS.iter().filter(|a| (a.installed)() && wired(a)).map(|a| a.id).collect()
+}
+
 /// An agent found on this machine.
 pub struct Found {
     pub id: &'static str,
@@ -1031,18 +1119,18 @@ pub async fn doctor() -> Result<()> {
             }
             if others > 0 && online == 0 {
                 println!(
-                    "  ! no teammate connected: check your internet, or that their machines are on (`reason network doctor` there)"
+                    "  ! no teammate connected: check your internet, or that their machines are on (`{CLI} doctor` there)"
                 );
                 // Nothing tells a machine that was off when the team changed relays where the team went.
                 println!(
-                    "  ! if the team changed relays while this machine was off, set the same one here: `reason network relay <url>`"
+                    "  ! if the team changed relays while this machine was off, set the same one here: `{CLI} relay <url>`"
                 );
-                println!("    (or `default` for n0's); `reason network team` on a teammate's machine shows which");
+                println!("    (or `default` for n0's); `{CLI} team` on a teammate's machine shows which");
             }
         }
         Err(e) if e.to_string().contains("not in a team") => {
             println!("✓ daemon running");
-            println!("- not in a team yet: run `reason network`");
+            println!("- not in a team yet: run `{CLI}`");
         }
         Err(e) => println!("✗ daemon: {e:#}"),
     }
@@ -1050,13 +1138,13 @@ pub async fn doctor() -> Result<()> {
     println!(
         "{} login service: {}",
         if svc { "✓" } else { "-" },
-        if svc { "installed" } else { "not installed (`reason network setup`)" }
+        if svc { "installed".into() } else { format!("not installed (`{CLI} setup`)") }
     );
     for f in detect(&exe) {
         if f.wired {
             println!("✓ {}: wired up", f.name);
         } else {
-            println!("- {}: installed, not on Reason Network (`reason network setup`)", f.name);
+            println!("- {}: installed, not on Reason Network (`{CLI} setup`)", f.name);
         }
     }
     Ok(())

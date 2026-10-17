@@ -9,6 +9,7 @@ mod hook;
 mod invite;
 mod ipc;
 mod mcp;
+mod migrate;
 mod net;
 mod paths;
 mod proto;
@@ -35,9 +36,50 @@ pub const AGENT_NAME: &str = "reason-network";
 /// `paths` moves the state it kept under it.
 pub const LEGACY_NAME: &str = "tincan";
 
-/// The one line that installs Reason and joins with `invite`.
-pub fn install_line(invite: &str) -> String {
-    format!("curl -fsSL https://reasonmachines.com/install.sh | bash && reason network join {invite}")
+/// Where releases are published: a standalone install and its updates come from here.
+pub const REPO: &str = "reason-machines/reason-network";
+
+/// Whether the Reason CLI installed this binary (in `~/.reason/bin`): then it sets up and updates with the CLI, and
+/// people type `reason network`.
+pub fn managed() -> bool {
+    static MANAGED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *MANAGED.get_or_init(|| {
+        util::current_exe().is_ok_and(|p| p.starts_with(paths::user_home().join(".reason").join("bin")))
+    })
+}
+
+/// The command people type, for messages (`{CLI}`): `reason network` with the Reason CLI, `reason-network` on its own.
+pub struct Command;
+pub const CLI: Command = Command;
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(if managed() { "reason network" } else { AGENT_NAME })
+    }
+}
+
+/// The one line that installs Reason Network on its own (no account needed) and runs `reason-network <args>`: for
+/// macOS and Linux, and for Windows.
+pub fn install_lines(args: &str) -> [String; 2] {
+    let base = format!("https://github.com/{REPO}/releases/latest/download");
+    [
+        format!("curl -fsSL {base}/install.sh | sh -s -- {args}"),
+        format!("powershell -c \"& ([scriptblock]::Create((irm {base}/install.ps1))) {args}\""),
+    ]
+}
+
+/// The install script, run without questions, installing into `dir`.
+pub fn installer(dir: &std::path::Path) -> std::process::Command {
+    let base = format!("https://github.com/{REPO}/releases/latest/download");
+    let mut cmd;
+    if cfg!(windows) {
+        cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &format!("irm {base}/install.ps1 | iex")]);
+    } else {
+        cmd = std::process::Command::new("sh");
+        cmd.arg("-c").arg(format!("curl -fsSL {base}/install.sh | sh"));
+    }
+    cmd.env("REASON_NETWORK_BIN_DIR", dir).env("REASON_NETWORK_NO_PROMPT", "1");
+    cmd
 }
 
 /// The team link: Reason Network's join page, carrying the `ticket`.
@@ -49,8 +91,8 @@ pub fn join_url(ticket: &str) -> String {
 #[command(
     name = "reason-network",
     version,
-    about = "The engine behind `reason network`: your agents, talking to your teammates' agents",
-    after_help = "Run `reason network` on its own to get set up, then to see who's working on what."
+    about = "Reason Network: your agents, talking to your teammates' agents",
+    after_help = "Run it on its own to get set up, then to see who's working on what."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -174,7 +216,7 @@ enum Cmd {
     },
     /// Check that everything is working
     Doctor,
-    /// Updates come with the Reason CLI (`reason update`)
+    /// Update to the latest release (with the Reason CLI, `reason update` does it)
     Upgrade,
     /// Called by agents' hooks
     #[command(hide = true)]
@@ -215,6 +257,7 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    migrate::as_ours();
     let cmd = Cli::parse().cmd;
     paths::migrate();
     match cmd {
@@ -236,7 +279,7 @@ async fn main() -> Result<()> {
             }
             if !in_team {
                 println!(
-                    "Not in a team yet. Run `reason network` in a terminal to get set up (or `reason network init <team>` / `reason network join <code>`)."
+                    "Not in a team yet. Run `{CLI}` in a terminal to get set up (or `{CLI} init <team>` / `{CLI} join <code>`)."
                 );
                 return Ok(());
             }
@@ -352,9 +395,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let l: LinkInfo = link.call(Request::Link { new }).await?;
             let copied = wizard::interactive() && wizard::copy(&l.url);
             println!("Team link for {}{}:\n\n{}\n", l.team, if copied { " (on your clipboard)" } else { "" }, l.url);
-            println!(
-                "Anyone with it can join: it opens a page with one command. `reason network link --new` replaces it."
-            );
+            println!("Anyone with it can join: it opens a page with one command. `{CLI} link --new` replaces it.");
         }
         Cmd::Invite { me: false, code: false, .. } => Box::pin(cli(Cmd::Link { new: false })).await?,
         Cmd::Setup { dry_run: false, remove: false, no_service: false } if wizard::interactive() => {
@@ -362,7 +403,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
         }
         Cmd::Init { team, person, no_setup, relay } => {
             let Some(team) = team else {
-                bail!("name the team: `reason network init <team>` (or run it in a terminal to be asked)")
+                bail!("name the team: `{CLI} init <team>` (or run it in a terminal to be asked)")
             };
             let t: TeamInfo =
                 link.call(Request::CreateTeam { name: team, person: default_person(person), relay }).await?;
@@ -372,10 +413,10 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!();
                 setup::run(false, false, false).await?;
             }
-            println!("\nNext: `reason network link` prints the team link to send your teammates.");
+            println!("\nNext: `{CLI} link` prints the team link to send your teammates.");
         }
         Cmd::Join { invite, person, no_setup } => {
-            let Some(invite) = invite else { bail!("give the invite code: `reason network join <code>`") };
+            let Some(invite) = invite else { bail!("give the invite code: `{CLI} join <code>`") };
             let t: TeamInfo = link.call(Request::Join { ticket: invite, person: default_person(person) }).await?;
             wait_exit(daemon_pid()).await;
             println!("Joined team {} as {} on {}.", t.name, t.person, t.machine);
@@ -401,13 +442,15 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let i: InviteInfo = link.call(Request::Invite { me, hours: hours.clamp(1, 24 * 30) }).await?;
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
-            println!("They run this, which installs Reason and joins the team:\n");
-            println!("  {}\n", install_line(&i.code));
+            let [unix, windows] = install_lines(&i.code);
+            println!("They run this, which installs Reason Network and joins the team:\n");
+            println!("  {unix}\n");
+            println!("On Windows, in PowerShell:\n\n  {windows}\n");
             println!(
-                "(or `reason network join {}` if they have reason). Works once, within {}h, while this machine is online.",
+                "(or `{CLI} join {}` if it's installed). Works once, within {}h, while this machine is online.",
                 i.code, i.hours
             );
-            println!("If this machine will be offline, use the long form instead: reason network join {}", i.ticket);
+            println!("If this machine will be offline, use the long form instead: {CLI} join {}", i.ticket);
             if me {
                 println!(
                     "\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my Reason Network team as {}: {}",
@@ -456,7 +499,7 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("Nothing held.");
             } else {
                 print!("{}", render::for_human(&msgs));
-                println!("`reason network approve <id>` delivers, `reason network reject <id>` drops (or --all).");
+                println!("`{CLI} approve <id>` delivers, `{CLI} reject <id>` drops (or --all).");
             }
         }
         Cmd::Approve { ids, all } | Cmd::Reject { ids, all } if ids.is_empty() && !all => {
@@ -473,7 +516,15 @@ async fn cli(cmd: Cmd) -> Result<()> {
         Cmd::Setup { dry_run, remove, no_service } => setup::run(dry_run, remove, no_service).await?,
         Cmd::Doctor => setup::doctor().await?,
         Cmd::Upgrade => {
-            bail!("the network engine updates with the reason CLI: update reason, then run `reason network setup`");
+            if managed() {
+                bail!("the network engine updates with the reason CLI: update reason, then run `{CLI} setup`");
+            }
+            let dir = util::current_exe()?.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+            if !installer(&dir).status()?.success() {
+                bail!("upgrade failed");
+            }
+            stop_daemon().await;
+            println!("The daemon restarted on the new version. Restart agent sessions to update their tools.");
         }
         Cmd::Stop => {
             if !stop_daemon().await {

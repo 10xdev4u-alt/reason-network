@@ -2,9 +2,10 @@
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
+    CLI,
     client::Link,
     config::{Config, Policy},
-    install_line, invite,
+    install_lines, invite,
     proto::*,
     render, setup, util,
 };
@@ -20,7 +21,7 @@ pub fn interactive() -> bool {
 pub async fn guided(f: impl std::future::Future<Output = Result<()>>) -> Result<()> {
     match f.await {
         Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Interrupted) => {
-            let _ = outro_cancel("Stopped. Run `reason network` to pick up where you left off.");
+            let _ = outro_cancel(format!("Stopped. Run `{CLI}` to pick up where you left off."));
             Ok(())
         }
         r => r,
@@ -59,7 +60,7 @@ pub async fn onboard(
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
-        outro("`reason network` shows who's around; `reason network invite` gives you the team link.")?;
+        outro(format!("`{CLI}` shows who's around; `{CLI} invite` gives you the team link."))?;
         return Ok(());
     }
     let mut person = match person {
@@ -187,9 +188,9 @@ pub async fn agents_and_preferences() -> Result<()> {
     let exe = setup::exe()?;
     let found = setup::detect(&exe);
     let chosen: Vec<&str> = if found.is_empty() {
-        log::warning(
-            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `reason network setup`.",
-        )?;
+        log::warning(format!(
+            "No coding agents found here (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, opencode, pi, Reason). Install one, then run `{CLI} setup`."
+        ))?;
         Vec::new()
     } else {
         let initial: Vec<&str> = found.iter().filter(|f| f.wired).map(|f| f.id).collect();
@@ -207,7 +208,7 @@ pub async fn agents_and_preferences() -> Result<()> {
     let mut cfg = Config::load_strict().map_err(|e| anyhow!("fix {} first: {e}", crate::paths::config().display()))?;
     cfg.inbound.default = select("When a teammate's agent messages one of yours")
         .item(Policy::Accept, "Deliver it", "recommended")
-        .item(Policy::Hold, "Hold it until I approve", "you approve with `reason network held`")
+        .item(Policy::Hold, "Hold it until I approve", format!("you approve with `{CLI} held`"))
         .initial_value(cfg.inbound.default)
         .interact()?;
     cfg.share_paths = confirm("Show teammates your full working directories? (otherwise just the folder name)")
@@ -247,7 +248,9 @@ pub async fn show_link(new: bool) -> Result<String> {
     };
     note(
         title,
-        "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `reason network link --new`.",
+        format!(
+            "Send it to your friends: one paste and their name, and they're in.\nIt works for everyone until `{CLI} link --new`."
+        ),
     )?;
     Ok(l.url)
 }
@@ -255,14 +258,13 @@ pub async fn show_link(new: bool) -> Result<String> {
 /// A one-time code (for reading out loud, or for another machine of yours).
 pub async fn show_code(me: bool) -> Result<()> {
     let i: InviteInfo = Link::new(None).call(Request::Invite { me, hours: 24 }).await?;
+    let [unix, windows] = install_lines(&i.code);
     let who = if me { "your other machine" } else { "your teammate" };
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: {}\n(or `reason network join {}` if reason is there already)\nWorks once, within {}h, while this machine is online.",
-            install_line(&i.code),
-            i.code,
-            i.hours
+            "On {who}: {unix}\n(on Windows: {windows})\n(or `{CLI} join {}` if it's there already)\nWorks once, within {}h, while this machine is online.",
+            i.code, i.hours
         ),
     )?;
     Ok(())
@@ -300,11 +302,11 @@ pub async fn invite() -> Result<()> {
         .interact()?;
     if what == 0 {
         let url = show_link(false).await?;
-        outro("They'll show up in `reason network` once they've joined.")?;
+        outro(format!("They'll show up in `{CLI}` once they've joined."))?;
         println!("\n{url}\n");
     } else {
         show_code(true).await?;
-        outro("It'll show up in `reason network` once it has joined.")?;
+        outro(format!("It'll show up in `{CLI}` once it has joined."))?;
     }
     Ok(())
 }

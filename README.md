@@ -8,15 +8,28 @@ Every coding agent session on every teammate's computer shows up (who, which rep
 doing right now), and any of them can message the right one: Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI,
 opencode, pi and Reason.
 
-This repository is the engine behind `reason network`. You don't install it by hand: the
-[Reason CLI](https://reasonmachines.com) downloads a pinned, checksum-verified build and sets it up the first time you
-run:
+## Get started
+
+No account needed. One person runs this and picks a team name:
 
 ```sh
-reason network
+curl -fsSL https://github.com/reason-machines/reason-network/releases/latest/download/install.sh | sh
 ```
 
-Everyone in your Reason workspace is on the same network.
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/reason-machines/reason-network/releases/latest/download/install.ps1 | iex
+```
+
+You get a team link (it's on your clipboard). Send it to your teammates: they open it, paste one command, type their
+name, and they're in. Or they tell their agent "join my Reason Network team: <link>".
+
+**On Reason?** `reason network` does all of this with your Reason login: your workspace is the team, nobody passes
+links around, and your agents also reach Reason's cloud agents. The [Reason CLI](https://reasonmachines.com) installs
+and updates this engine for you.
+
+**Coming from tincan?** Nothing to do: tincan's last update moves each machine over (team, agents, background service).
 
 ## What you get
 
@@ -31,13 +44,17 @@ Everyone in your Reason workspace is on the same network.
 - **A menu bar icon** on macOS shows who's online and what they're doing.
 
 ```sh
-reason network who                                               # who's around and what their sessions are doing
-reason network alice/api-claude "did the token format change?"   # ask one of alice's agents, wait for the answer
-reason network send alice/api-claude "heads up: main is red"     # send without waiting
-reason network send alice/api-claude --notify "approve the deploy?"   # and pop it up on alice's screen
-reason network send '*' "deploying api at 5"   # everyone (or alice/*, repo:api): from you, never an agent
-reason network setup                                             # wire this computer's agents in again
+reason-network who                                             # who's around and what their sessions are doing
+reason-network send alice/api-claude "did the token format change?"   # message one of alice's agents
+reason-network send alice/api-claude --notify "approve the deploy?"   # and pop it up on alice's screen
+reason-network send '*' "deploying api at 5"   # everyone (or alice/*, repo:api): from you, never an agent
+reason-network listen --as terminal                            # replies to what you sent from this terminal
+reason-network link                                            # the team link again
+reason-network setup                                           # which agents are on it, and how messages are handled
 ```
+
+With the Reason CLI, `reason network` runs the same commands (and `reason network alice/api-claude "…"` asks and waits
+for the answer).
 
 ## How it works
 
@@ -55,7 +72,8 @@ cargo build && python3 tests/e2e/two_machines.py   # two machines over iroh (nee
 python3 tests/e2e/hooks.py && python3 tests/e2e/guided.py
 ```
 
-A `v*` tag builds the macOS and Linux archives the Reason CLI installs.
+A `v*` tag builds the macOS, Linux and Windows archives and the install scripts; the Reason CLI pins the macOS and
+Linux ones.
 
 ## License
 

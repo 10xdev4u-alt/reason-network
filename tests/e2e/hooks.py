@@ -131,7 +131,7 @@ out = run("send", "alex/bot", "bot: summarise the open PRs")
 check("a terminal send reaches a waiting `reason network listen` session", "waiting for messages" in out, out)
 heard = bot.communicate(timeout=30)[0]
 check("listen prints it, from alex/terminal, with the CLI reply line",
-      "summarise the open PRs" in heard and 'from="alex/terminal"' in heard and "reason network send alex/terminal --from alex/bot" in heard, heard)
+      "summarise the open PRs" in heard and 'from="alex/terminal"' in heard and "reason-network send alex/terminal --from alex/bot" in heard, heard)
 out = run("send", "alex/terminal", "--from", "alex/bot", "two PRs open, both green")
 check("after listen exits, the bot can still send with --from", "alex/terminal" in out and "refused" not in out, out)
 out = run("listen", "--as", "terminal", "--wait", "3")
@@ -175,7 +175,7 @@ out = run("send", "fix-flaky-billing-reason", "reason: the billing test is flaky
 time.sleep(1)
 sent = open(reason_log).read() if os.path.exists(reason_log) else ""
 check("messages go in with `reason session send`", "queued into the Reason session" in out and sent.startswith("session send r-1 --message") and "flaky on main too" in sent, out + sent)
-check("…telling it how to reply with the CLI", "reason network send alex/terminal --from alex/fix-flaky-billing-reason" in sent, sent)
+check("…telling it how to reply with the CLI", "reason-network send alex/terminal --from alex/fix-flaky-billing-reason" in sent, sent)
 run("send", "alex/terminal", "--from", "alex/fix-flaky-billing-reason", "found it: a timezone bug")
 out = run("listen", "--as", "terminal", "--wait", "3")
 check("its reply comes from the Reason session", 'from="alex/fix-flaky-billing-reason"' in out and "timezone bug" in out, out)
@@ -214,7 +214,7 @@ out = run("send", "old-proj-claude", "old session: can you hear me?")
 time.sleep(1.5)
 frame = "".join(got)
 check("…it's delivered straight into the session", "delivered into the session" in out and "can you hear me?" in frame, out + frame)
-check("…with how to reply using the CLI", "reason network send alex/terminal --from alex/old-proj-claude" in frame, frame)
+check("…with how to reply using the CLI", "reason-network send alex/terminal --from alex/old-proj-claude" in frame, frame)
 r = subprocess.run([BIN, "send", "alex/terminal", "loud and clear"], env=dict(env, CLAUDE_CODE_SESSION_ID="old-1", CLAUDECODE="1"),
                    capture_output=True, text=True, timeout=30)
 out = run("listen", "--as", "terminal", "--wait", "3")
