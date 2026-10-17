@@ -2,7 +2,7 @@
 //! runs them in a terminal. Without a terminal (an agent running them), the commands use defaults and flags.
 
 use crate::{
-    CLI,
+    AGENT_NAME, CLI,
     client::Link,
     config::{Config, Policy},
     install_lines, invite,
@@ -56,7 +56,7 @@ pub async fn onboard(
     invite: Option<String>,
     person: Option<String>,
 ) -> Result<()> {
-    intro(" reason network ")?;
+    intro(format!(" {CLI} "))?;
     let link = Link::new(None);
     if let Ok(t) = link.call::<TeamInfo>(Request::Team).await {
         log::info(format!("You're in team {} as {} on {}.", t.name, t.person, t.machine))?;
@@ -263,7 +263,7 @@ pub async fn show_code(me: bool) -> Result<()> {
     note(
         format!("Invite code: {}", i.code),
         format!(
-            "On {who}: {unix}\n(on Windows: {windows})\n(or `{CLI} join {}` if it's there already)\nWorks once, within {}h, while this machine is online.",
+            "On {who}: {unix}\n(on Windows: {windows})\n(or `{AGENT_NAME} join {}` if it's there already)\nWorks once, within {}h, while this machine is online.",
             i.code, i.hours
         ),
     )?;
@@ -295,7 +295,7 @@ pub fn copy(text: &str) -> bool {
 
 /// `reason network invite` in a terminal: the team link, or a one-time code for another machine of yours.
 pub async fn invite() -> Result<()> {
-    intro(" reason network invite ")?;
+    intro(format!(" {CLI} invite "))?;
     let what = select("Who's joining?")
         .item(0, "Friends", "the team link, works for everyone")
         .item(1, "Another machine of mine", "a one-time code")
@@ -313,7 +313,7 @@ pub async fn invite() -> Result<()> {
 
 /// `reason network setup` in a terminal.
 pub async fn setup_agents() -> Result<()> {
-    intro(" reason network setup ")?;
+    intro(format!(" {CLI} setup "))?;
     agents_and_preferences().await?;
     outro("Done.")?;
     Ok(())

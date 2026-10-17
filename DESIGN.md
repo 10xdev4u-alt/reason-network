@@ -62,11 +62,12 @@ unread mail**, so "tell the api agent X" survives restarts (idea from agentbus).
 │ codex  ── reason-network mcp ──┤  unix socket       ┌──────────────┐   │      iroh QUIC (ed25519-authenticated)
 │ cursor ── reason-network mcp ──┼──────────────────▶ │ Reason Network daemon │◀──┼──▶   direct on LAN (mDNS)
 │ hooks: reason-network hook … ──┘  ~/.reason/network/sock     │  SQLite      │   │      hole-punched over internet
-│ you:   Reason Network who/send ──────────────────▶  └──────────────┘   │      relay fallback over HTTPS :443
+│ you:   reason-network who/send ──────────────────▶  └──────────────┘   │      relay fallback over HTTPS :443
 └───────────────────────────────────────────────────────────────┘
 ```
 
-One static Rust binary, `Reason Network`, with subcommands:
+One static Rust binary, `reason-network` (fronted by `reason network` where the Reason CLI is installed), with
+subcommands:
 
 - `reason network daemon`: per machine. Owns the iroh endpoint, roster, directory, mailboxes (SQLite). Started on
   demand by any other subcommand, or installed as a launchd/systemd user service (on Windows, started at logon
@@ -231,13 +232,15 @@ not approve. Nothing changes how an agent works when it isn't messaging.
 ## Install UX (M3)
 
 ```sh
-curl -fsSL https://…/install.sh | sh      # dist-built static binary; also Homebrew
-Reason Network init vibes --as alex                  # first person: creates the team
-Reason Network invite                               # prints: Reason Network join cm1…
-Reason Network join cm1… --as alice                 # friends: joins, installs service, wires up agents
+curl -fsSL https://…/install.sh | sh        # asks: sign in with Reason (the Reason CLI), or no account
+reason-network init vibes --as alex         # no account: the first person creates the team
+reason-network invite                       # prints: reason-network join cm1…
+reason-network join cm1… --as alice         # friends: joins, installs the service, wires up agents
 ```
 
-`join`/`init` run `reason network setup`, which detects installed agents and wires each one (backing up every file it
+With Reason, `reason network` does all of it: the workspace is the team.
+
+`join`/`init` run `setup`, which detects installed agents and wires each one (backing up every file it
 edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/config.toml` + `hooks.json`,
 `~/.cursor/mcp.json` + `hooks.json`, `~/.gemini/settings.json`, opencode plugin + MCP, Copilot
 `mcp-config.json` + hooks. Or paste one line into any agent: "install Reason Network and join cm1…".
@@ -249,15 +252,16 @@ edits): Claude Code plugin or `claude mcp add --scope user` + hooks, `~/.codex/c
 - **M1, the team** (done): iroh endpoint, signed roster, `init`/`invite`/`join`/`remove`/`leave`, presence
   sync, routing with acks and outbox, hold/refuse policies, rate limit, mDNS, custom relay.
 - **M2, adapters** (done): Codex (`codex queue` + hooks), Cursor, Gemini, Copilot (hooks), opencode (plugin);
-  `reason network setup [--remove]`, launchd/systemd service, `reason network doctor`. Amp: MCP only, by hand.
-- **M3, ship** (done, pending a first tagged release): GitHub Actions builds for macOS and Linux, `install.sh`
-  (install and join in one line), GitHub Pages site. Later: Homebrew, a Claude Code plugin marketplace.
+  `setup [--remove]`, launchd/systemd service, `doctor`. Amp: MCP only, by hand.
+- **M3, ship** (done): GitHub Actions builds for macOS, Linux and Windows; `install.sh` / `install.ps1` (install and
+  join in one line, or hand over to the Reason CLI), with the release. Standalone installs update themselves; the
+  Reason CLI pins its own. Later: Homebrew.
 - **M4, team features**: file-overlap warnings ("bob/api-codex is also editing src/auth.rs", from
   `PostToolUse` edit paths), anchor mailbox and history, hold/approve notifications, web dashboard.
 
 ## Defaults (easy to change)
 
-- Names: `Reason Network` for the binary, `Reason Network` for the repo.
+- Names: `reason-network` for the binary and the repo, Reason Network in prose.
 - License: MIT OR Apache-2.0.
 - Inbound policy between teammates: `accept` (per-person `hold`/`refuse` available).
 - Teammates see repo@branch and the last component of the working directory; full paths are opt-in.

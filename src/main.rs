@@ -44,7 +44,8 @@ pub const REPO: &str = "reason-machines/reason-network";
 pub fn managed() -> bool {
     static MANAGED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *MANAGED.get_or_init(|| {
-        util::current_exe().is_ok_and(|p| p.starts_with(paths::user_home().join(".reason").join("bin")))
+        let real = |p: std::path::PathBuf| p.canonicalize().unwrap_or(p);
+        util::current_exe().is_ok_and(|p| real(p).starts_with(real(paths::user_home().join(".reason").join("bin"))))
     })
 }
 
@@ -54,6 +55,19 @@ pub const CLI: Command = Command;
 impl std::fmt::Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str(if managed() { "reason network" } else { AGENT_NAME })
+    }
+}
+
+/// The engine as a command agents can run here: its full path where the Reason CLI manages it (whose `reason network`
+/// doesn't take every engine command and flag), `reason-network` on its own.
+pub struct Engine;
+pub const ENGINE: Engine = Engine;
+impl std::fmt::Display for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match setup::exe() {
+            Ok(p) if managed() => write!(f, "{}", p.display()),
+            _ => f.write_str(AGENT_NAME),
+        }
     }
 }
 
@@ -76,7 +90,7 @@ pub fn installer(dir: &std::path::Path) -> std::process::Command {
         cmd.args(["-NoProfile", "-NonInteractive", "-Command", &format!("irm {base}/install.ps1 | iex")]);
     } else {
         cmd = std::process::Command::new("sh");
-        cmd.arg("-c").arg(format!("curl -fsSL {base}/install.sh | sh"));
+        cmd.arg("-c").arg(format!("s=\"$(curl -fsSL {base}/install.sh)\" && printf '%s\\n' \"$s\" | sh"));
     }
     cmd.env("REASON_NETWORK_BIN_DIR", dir).env("REASON_NETWORK_NO_PROMPT", "1");
     cmd
@@ -113,7 +127,7 @@ enum Cmd {
     },
     /// Send a message to an agent session (`person/session`), all of a person's (`person/*`), `repo:<name>` or `*`.
     /// It comes from the agent session whose shell runs it, `--from <session>`, or from a plain terminal,
-    /// `<you>/terminal` (read replies with `reason network listen --as terminal`)
+    /// `<you>/terminal` (read replies with `listen --as terminal`)
     Send {
         to: String,
         /// The message; read from stdin when omitted or `-`
@@ -126,7 +140,7 @@ enum Cmd {
         /// Also pop it up on the person's screen (then `<to>` may be your own name)
         #[arg(long, conflicts_with = "fyi")]
         notify: bool,
-        /// Send as this agent session here (e.g. one made with `reason network listen --as <name>`)
+        /// Send as this agent session here (e.g. one made with `listen --as <name>`)
         #[arg(long)]
         from: Option<String>,
     },
@@ -145,7 +159,7 @@ enum Cmd {
         /// Don't configure agents or install the background service
         #[arg(long)]
         no_setup: bool,
-        /// Your own iroh relay, from the start (see `reason network relay`)
+        /// Your own iroh relay, from the start (see `relay`)
         #[arg(long)]
         relay: Option<String>,
     },
@@ -443,14 +457,17 @@ async fn cli(cmd: Cmd) -> Result<()> {
             let who = if me { "another machine of yours" } else { "a teammate" };
             println!("Invite code for {who}: {}\n", i.code);
             let [unix, windows] = install_lines(&i.code);
-            println!("They run this, which installs Reason Network and joins the team:\n");
+            if managed() {
+                println!("Teammates in your Reason workspace just run `reason network`. Anyone else:\n");
+            }
+            println!("They run this, which installs Reason Network (no account needed) and joins the team:\n");
             println!("  {unix}\n");
             println!("On Windows, in PowerShell:\n\n  {windows}\n");
             println!(
-                "(or `{CLI} join {}` if it's installed). Works once, within {}h, while this machine is online.",
+                "(or `{AGENT_NAME} join {}` if it's installed). Works once, within {}h, while this machine is online.",
                 i.code, i.hours
             );
-            println!("If this machine will be offline, use the long form instead: {CLI} join {}", i.ticket);
+            println!("If this machine will be offline, use the long form instead: {AGENT_NAME} join {}", i.ticket);
             if me {
                 println!(
                     "\nFor a cloud agent of yours (Grok Bot, Dots, Muse, …), send it: join my Reason Network team as {}: {}",

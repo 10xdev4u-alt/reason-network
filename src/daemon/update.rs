@@ -29,8 +29,7 @@ impl Daemon {
 
 /// Whether this binary may replace itself.
 pub(super) fn allowed(enabled: bool) -> bool {
-    let from_source = crate::util::current_exe().is_ok_and(|p| p.components().any(|c| c.as_os_str() == "target"));
-    enabled && !from_source && !crate::managed() && crate::paths::env_var_os("NO_UPDATE").is_none()
+    enabled && !crate::util::from_source() && !crate::managed() && crate::paths::env_var_os("NO_UPDATE").is_none()
 }
 
 /// Installs the latest release if it is newer than this one; returns its version.
@@ -80,7 +79,7 @@ async fn update() -> Result<Option<String>> {
 
 /// The newest release's version, from where GitHub's "latest release" link redirects.
 async fn latest_version() -> Result<String> {
-    let repo = crate::paths::env_var("REPO").unwrap_or_else(|_| crate::REPO.into());
+    let repo = crate::REPO;
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let out = tokio::process::Command::new("curl")
         .args([

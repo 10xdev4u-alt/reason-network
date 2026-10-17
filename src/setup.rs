@@ -1,6 +1,6 @@
-//! `reason network setup`: wires reason network into every agent on this machine (MCP server, plus hooks where the agent
-//! has them) and installs the daemon as a login service. `reason network setup --remove` undoes it. Every file it edits
-//! is backed up once, as `<file>.bak-reason`. Also `reason network doctor`.
+//! `setup`: wires Reason Network into every agent on this machine (MCP server, plus hooks where the agent has them) and
+//! installs the daemon as a login service. `setup --remove` undoes it. Every file it edits
+//! is backed up once, as `<file>.bak-reason`. Also `doctor`.
 //!
 //! Earlier builds wired agents in under `LEGACY_NAME`. Each step here also takes out what this binary's path put
 //! there under that name, so an update moves an agent over and leaves nothing behind; another program of that name
@@ -128,7 +128,7 @@ fn write_file(path: &Path, content: &str, dry: bool) -> Result<bool> {
 }
 
 fn write_json(path: &Path, v: &Value, dry: bool) -> Result<bool> {
-    // Removing reason network from a config that never existed leaves an empty shell: don't create a file for that.
+    // Removing Reason Network from a config that never existed leaves an empty shell: don't create a file for that.
     if !path.exists() && hollow(v) {
         return Ok(false);
     }
@@ -346,7 +346,7 @@ fn codex(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&hooks_path, &v, dry)?;
     r.lines.push(changed(&hooks_path, did));
     if did && !remove {
-        r.notes.push("Codex asks once to trust reason network's hooks: choose \"Trust all and continue\".".into());
+        r.notes.push("Codex asks once to trust Reason Network's hooks: choose \"Trust all and continue\".".into());
     }
     Ok(Some(r))
 }
@@ -423,7 +423,7 @@ fn gemini(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let did = write_json(&path, &v, dry)?;
     r.lines.push(changed(&path, did));
     if did && !remove {
-        r.notes.push("Gemini CLI only runs reason network in trusted folders (`/permissions trust`).".into());
+        r.notes.push("Gemini CLI only runs Reason Network in trusted folders (`/permissions trust`).".into());
     }
     Ok(Some(r))
 }
@@ -485,7 +485,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     let path = dir.join("opencode.json");
     if dir.join("opencode.jsonc").exists() && !path.exists() {
         r.notes.push(format!(
-            "opencode: you use opencode.jsonc, which reason network doesn't edit. Add under \"mcp\": \"{AGENT_NAME}\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"REASON_NETWORK_AGENT\": \"opencode\"}}}}",
+            "opencode: you use opencode.jsonc, which Reason Network doesn't edit. Add under \"mcp\": \"{AGENT_NAME}\": {{\"type\": \"local\", \"command\": [\"{}\", \"mcp\"], \"environment\": {{\"REASON_NETWORK_AGENT\": \"opencode\"}}}}",
             exe.display()
         ));
     } else {
@@ -521,7 +521,7 @@ fn opencode(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
 
 // ---- pi ----
 
-/// One extension does it all: it adds reason network's MCP server to each session (deferred, so the tools stay out of
+/// One extension does it all: it adds Reason Network's MCP server to each session (deferred, so the tools stay out of
 /// the model's context until it looks for them) and delivers messages.
 fn pi(exe: &Path, remove: bool, dry: bool) -> Result<Option<Report>> {
     if !pi_home().exists() && agent::find_bin("pi").is_none() {
@@ -612,7 +612,7 @@ fn service_path_for(name: &str) -> PathBuf {
 #[cfg(unix)]
 fn remove_legacy_service(exe: &Path, dry: bool) -> bool {
     if dry {
-        return std::fs::read_to_string(service_path_for(&legacy_service_name())).is_ok_and(|t| ours(&t, exe));
+        return legacy_service(exe);
     }
     let had = unregister_legacy_service(exe);
     if had {
@@ -621,13 +621,19 @@ fn remove_legacy_service(exe: &Path, dry: bool) -> bool {
     had
 }
 
+/// Whether that service is registered here, for this binary or the tincan it replaced.
+#[cfg(unix)]
+pub fn legacy_service(exe: &Path) -> bool {
+    std::fs::read_to_string(service_path_for(&legacy_service_name())).is_ok_and(|t| ours(&t, exe))
+}
+
 /// Takes that service off the login items without stopping it: it may be what runs this very process. True if there
 /// was one.
 #[cfg(unix)]
 pub fn unregister_legacy_service(exe: &Path) -> bool {
     let name = legacy_service_name();
     let path = service_path_for(&name);
-    if !std::fs::read_to_string(&path).is_ok_and(|t| ours(&t, exe)) {
+    if !legacy_service(exe) {
         return false;
     }
     let systemctl =
@@ -674,7 +680,7 @@ async fn service(exe: &Path, remove: bool, dry: bool) -> Result<String> {
     install_service(exe, remove, dry, true).await
 }
 
-/// Installs ours from the daemon the legacy service runs, without stopping that daemon (itself) first: it ends when
+/// Installs ours from the daemon the legacy service runs, leaving that service and daemon (itself) alone: it ends when
 /// the legacy service is stopped, and ours takes over.
 #[cfg(unix)]
 pub async fn install_service_from_daemon(exe: &Path) -> Result<String> {
@@ -686,7 +692,7 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
     let path = service_path();
     let uid = unsafe { libc::getuid() };
     let engine_home = crate::paths::env_var("HOME").ok();
-    let legacy = remove_legacy_service(exe, dry);
+    let legacy = stop && remove_legacy_service(exe, dry);
     if cfg!(target_os = "macos") {
         let target = format!("gui/{uid}/{}", service_name());
         if remove {
@@ -770,7 +776,7 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
         }
         let home_env = engine_home.map(|h| format!("Environment=\"REASON_NETWORK_HOME={h}\"\n")).unwrap_or_default();
         let unit = format!(
-            "[Unit]\nDescription=Reason network daemon (reason network)\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Reason Network daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             shell_cmd(exe, "").trim_end(),
             service_path_env(),
             paths::log().display()
@@ -1026,7 +1032,7 @@ pub struct Applied {
     pub service: Option<bool>,
 }
 
-/// Wires reason network into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
+/// Wires Reason Network into the `install` agents and out of the `remove` ones; installs (`Some(true)`) or removes
 /// (`Some(false)`) the login service.
 pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Option<bool>, dry: bool) -> Applied {
     let mut out = Applied::default();
@@ -1060,7 +1066,7 @@ pub async fn apply(exe: &Path, install: &[&str], remove: &[&str], service: Optio
             }
             Err(e) => {
                 out.notes
-                    .push(format!("Not running in the background: {e:#}; reason network starts it when you use it."));
+                    .push(format!("Not running in the background: {e:#}; Reason Network starts it when you use it."));
             }
         }
     }
@@ -1074,9 +1080,9 @@ pub async fn run(dry: bool, remove: bool, no_service: bool) -> Result<()> {
     let verb = if dry {
         "Would change"
     } else if remove {
-        "Removing reason network"
+        "Removing Reason Network"
     } else {
-        "Setting up reason network"
+        "Setting up Reason Network"
     };
     println!("{verb} ({}):", crate::util::tilde(&exe.display().to_string()));
     if found.is_empty() && !remove {

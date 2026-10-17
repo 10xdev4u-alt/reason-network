@@ -3,7 +3,7 @@
 //! updater checking the version. `paths` has already moved the state; the daemon's first start here rewires the
 //! agents and swaps the login service. Agent sessions started before keep working until they end.
 
-use crate::{AGENT_NAME, LEGACY_NAME, setup, util};
+use crate::{AGENT_NAME, LEGACY_NAME, paths, setup, util};
 
 /// Started under the old name, runs as reason-network instead, so everything after this is our own binary.
 pub fn as_ours() {
@@ -25,34 +25,54 @@ pub fn as_ours() {
 /// Moves this machine's agents and login service over from the tincan beside us, if that hasn't happened yet.
 /// Lines go to `log`.
 pub async fn run(log: fn(&str)) {
-    let from_source = util::current_exe().is_ok_and(|p| p.components().any(|c| c.as_os_str() == "target"));
     let Ok(exe) = setup::exe() else { return };
     let old = setup::legacy_exe(&exe);
-    if from_source || crate::managed() || !old.exists() {
+    // Only tincan's last update leaves this: a copy of this very binary under the old name. Anything else called tincan
+    // (a tincan of its own, a script) isn't ours to move. Once moved, it's a link to us, or gone.
+    let copy = std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_file())
+        && std::fs::read(&old).is_ok_and(|b| std::fs::read(&exe).is_ok_and(|o| o == b));
+    // Where the Reason CLI's engine is installed too, it owns the agents and the service.
+    let reason_cli = paths::user_home().join(".reason").join("bin").join(exe.file_name().unwrap_or_default()).exists();
+    if util::from_source() || crate::managed() || reason_cli || !copy {
         return;
     }
-    #[cfg(unix)]
-    let service = crate::paths::env_var_os("NO_SERVICE").is_none() && setup::unregister_legacy_service(&exe);
-    #[cfg(windows)]
-    setup::move_legacy_run_entry(&exe);
     let out = setup::apply(&exe, &setup::legacy_wiring(&exe), &[], None, false).await;
     for line in out.lines.iter().chain(&out.notes) {
         log(&format!("moved over from {LEGACY_NAME}: {line}"));
     }
+    // The login service: ours goes in first, and the old one only once it has (stopped last: it may be what runs this
+    // very process; ours takes over when it's gone).
+    let service = paths::env_var_os("NO_SERVICE").is_none();
     #[cfg(unix)]
-    if service {
-        match setup::install_service_from_daemon(&exe).await {
-            Ok(s) => log(&format!("moved over from {LEGACY_NAME}: service: {s}")),
-            Err(e) => log(&format!("moved over from {LEGACY_NAME}: service not installed: {e:#}")),
-        }
+    let swap = service
+        && setup::legacy_service(&exe)
+        && match setup::install_service_from_daemon(&exe).await {
+            Ok(s) => {
+                log(&format!("moved over from {LEGACY_NAME}: service: {s}"));
+                true
+            }
+            Err(e) => {
+                log(&format!("moved over from {LEGACY_NAME}: kept its service, ours didn't install: {e:#}"));
+                false
+            }
+        };
+    // (A Run entry can't carry an explicit home.)
+    #[cfg(windows)]
+    if service && paths::env_var_os("HOME").is_none() {
+        setup::move_legacy_run_entry(&exe);
     }
-    // The copy tincan's update left under the old name. (Windows keeps it while it still runs; the next start goes.)
-    if std::fs::read(&old).is_ok_and(|b| std::fs::read(&exe).is_ok_and(|o| o == b)) {
-        let _ = std::fs::remove_file(&old);
+    // The copy becomes a link to us, so `tincan` keeps working, once no agent still runs it. (Windows removes it
+    // instead, once nothing runs it: the next start.)
+    let left = setup::legacy_wiring(&exe);
+    if !left.is_empty() {
+        log(&format!("moved over from {LEGACY_NAME}: kept it for {} until they move over", left.join(", ")));
+    } else if std::fs::remove_file(&old).is_ok() {
+        #[cfg(unix)]
+        let _ = std::os::unix::fs::symlink(AGENT_NAME, &old);
     }
-    // Last: the old service may be what runs this very process. Ours takes over once it has gone.
     #[cfg(unix)]
-    if service {
+    if swap {
+        setup::unregister_legacy_service(&exe);
         setup::stop_legacy_service();
     }
 }

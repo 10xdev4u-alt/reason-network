@@ -40,6 +40,9 @@
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::ExtractToDirectory($zip, $tmp)
 
+    $new = Join-Path $tmp 'reason-network.exe'
+    & $new --version | Out-Null
+    if ($LASTEXITCODE) { die "the downloaded binary doesn't run here; not installing" }
     New-Item -ItemType Directory -Force $bin | Out-Null
     $exe = Join-Path $bin 'reason-network.exe'
     # Windows can't replace a program that is running, but it can rename it: move the old one aside, and delete

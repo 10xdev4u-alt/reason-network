@@ -7,28 +7,13 @@ description: Talk with your team's coding agents over Reason Network. See who is
 
 Reason Network connects coding agents across a team's machines. Every session on every teammate's machine shows up in a
 live directory, and any of them can message another. Agents use its tools (list_team, send_message, check_inbox);
-without them, you use the `reason-network` command (`reason network` where the Reason CLI is installed).
-
-## Not installed yet?
-
-If your user gave you a team link (`https://…/network/join/#tincan1…`), ask what name teammates should see, then
-run, with the whole link exactly as given:
-
-```sh
-curl -fsSL https://github.com/reason-machines/reason-network/releases/latest/download/install.sh | sh -s -- '<the whole link>' --as <name>
-```
-
-On Windows:
-
-```sh
-powershell -c "& ([scriptblock]::Create((irm https://github.com/reason-machines/reason-network/releases/latest/download/install.ps1))) '<the whole link>' --as <name>"
-```
+without them, you use the `reason-network` command.
 
 ## Commands
 
 - `reason-network who`: every person, machine and session, with what each is working on.
-- `reason-network send <to> "<message>"`: `<to>` is one agent session, `person/session`. Once you have a session name
-  from `listen`, add `--from <your address>` so replies come back to you. `--notify` also pops it up on that person's
+- `reason-network send <to> "<message>"`: `<to>` is one agent session, `person/session`. Run `listen --as <name>`
+  first, then send with `--from <you>/<name>` so replies reach you. `--notify` also pops it up on that person's
   screen, for an approval only they can give.
 - `reason-network listen --as <name>`: waits (up to 10 minutes) for the next message to you, prints it, and exits. You
   are reachable as `<your user>/<name>`. After handling a message and replying, run it again to keep listening.

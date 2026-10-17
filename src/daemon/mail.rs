@@ -64,7 +64,8 @@ impl Inner {
     }
 }
 
-const UPGRADE: &str = "update Reason Network: messages go between agent sessions now";
+const UPGRADE: &str =
+    "update Reason Network (with the Reason CLI, `reason update`): messages go between agent sessions now";
 
 const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messages in the last few minutes, which \
                          looks like a loop. Check with your user before continuing.";

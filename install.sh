@@ -1,12 +1,12 @@
 #!/bin/sh
-# Installs Reason Network on its own (no account needed) for macOS or Linux.
+# Installs Reason Network for macOS or Linux: with the Reason CLI (sign in), or on its own (no account).
 #
 #   curl -fsSL <this url> | sh                      install, then set up (with Reason, or start or join a team)
 #   curl -fsSL <this url> | sh -s -- <team link>    install, then join that team
 #   curl -fsSL <this url> | sh -s -- <team link> --as <name>     the same, without questions (for agents)
 #   curl -fsSL <this url> | sh -s -- init <team> --as <name>     install and start a team, without questions
 #
-# Environment: REASON_NETWORK_BIN_DIR (default ~/.local/bin), REASON_NETWORK_VERSION (default latest), REASON_NETWORK_REPO,
+# Environment: REASON_NETWORK_BIN_DIR (default ~/.local/bin), REASON_NETWORK_VERSION (a tag like v0.10.4; default latest), REASON_NETWORK_REPO,
 # REASON_NETWORK_DOWNLOAD_BASE (a mirror serving the release files), REASON_NETWORK_NO_PROMPT (never ask anything: updates).
 set -eu
 
@@ -33,18 +33,18 @@ target="$arch-$os"
 # your agents reach Reason's cloud agents, and the Reason CLI installs and updates this engine. Without it, a team
 # link and no account. Never asked when joining with a link, for agents, or for updates.
 if [ $# -eq 0 ] && [ -z "${REASON_NETWORK_NO_PROMPT:-}" ] && [ ! -e "$bin_dir/reason-network" ] && (exec </dev/tty) 2>/dev/null; then
-  say "With Reason, your Reason workspace is the team (no links to pass around) and your agents can reach Reason's"
-  say "cloud agents. Without it: a team link, no account."
-  printf 'Sign in with Reason? [Y/n] '
+  say "Use your Reason account? Your workspace becomes the team, no links to pass around."
+  printf 'Answer n for no account and a team link. [Y/n] '
   read -r answer </dev/tty || answer=n
   case "$answer" in
     [nN]*) ;;
     *)
       reason="$(command -v reason || true)"
       if [ -z "$reason" ]; then
-        curl -fsSL https://reasonmachines.com/install.sh | bash -s -- --minimal --no-login ||
+        installer="$(curl -fsSL https://reasonmachines.com/install.sh)" && printf '%s\n' "$installer" | bash -s -- --minimal --no-login ||
           die "installing Reason failed; run this again and answer n to go without an account"
-        reason="${REASON_INSTALL_DIR:-$HOME/.local/bin}/reason"
+        reason="${REASON_INSTALL_DIR:-${ARA_INSTALL_DIR:-$HOME/.local/bin}}/reason"
+        [ -x "$reason" ] || die "Reason installed, but not at $reason; run: reason network"
       fi
       exec "$reason" network </dev/tty
       ;;
@@ -73,8 +73,11 @@ else
 fi
 [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch; not installing"
 tar -xzf "$tmp/reason-network.tar.gz" -C "$tmp"
+"$tmp/reason-network" --version >/dev/null 2>&1 || die "the downloaded binary doesn't run here; not installing"
 mkdir -p "$bin_dir"
-install -m 755 "$tmp/reason-network" "$bin_dir/reason-network"
+# A new file moved into place: whatever runs the old one (a hook, an agent's tools) never sees a half-written binary.
+install -m 755 "$tmp/reason-network" "$bin_dir/.reason-network.new"
+mv -f "$bin_dir/.reason-network.new" "$bin_dir/reason-network"
 say "Installed $bin_dir/reason-network ($("$bin_dir/reason-network" --version))"
 
 case ":$PATH:" in
@@ -82,6 +85,9 @@ case ":$PATH:" in
   *) say "Note: $bin_dir is not on your PATH. Add this to your shell profile:"
      say "  export PATH=\"$bin_dir:\$PATH\"" ;;
 esac
+
+rm -rf "$tmp"
+trap - EXIT INT TERM
 
 # Hand over to reason-network: it asks a few questions (name, invite code, which agents) in your terminal. Under
 # `curl | sh` our stdin is the script, so read answers from the terminal itself when there is one.

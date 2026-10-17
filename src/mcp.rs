@@ -27,7 +27,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-/// How agents should use Reason Network, kept once: in the skill, which Reason Network serves to cloud agents.
+/// How agents should use Reason Network, kept once: in the skill, for agents with the tools and without.
 const SKILL: &str = include_str!("skill.md");
 
 fn instructions() -> String {
