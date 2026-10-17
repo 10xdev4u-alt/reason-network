@@ -66,6 +66,9 @@ pub async fn run(service: bool) -> Result<()> {
     if daemon.cfg.reason {
         tokio::spawn(daemon.clone().reason_loop());
     }
+    if crate::managed() {
+        tokio::spawn(daemon.clone().relay_loop());
+    }
     tokio::spawn(crate::migrate::run(log));
     if update::allowed(daemon.cfg.auto_update) {
         tokio::spawn(daemon.clone().update_loop());

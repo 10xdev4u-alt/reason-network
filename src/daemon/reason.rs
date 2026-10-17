@@ -1,6 +1,9 @@
 //! Reason sessions. Reason's agent runs in its cloud, so there is no hook or MCP server here: when `reason` is on
 //! (`reason network setup`), the daemon lists your live Reason sessions (`reason session list --json`) every few seconds,
 //! and delivers to them with `reason session send`. They reply through the Reason Network CLI, which runs here.
+//!
+//! Where the Reason CLI manages this engine, the daemon also keeps the CLI's `reason network __relay` running: it
+//! carries the workspace's cloud agents' calls (Reason's hosted tools) onto the network, for as long as the daemon runs.
 
 use super::{Daemon, log};
 use crate::{agent, git::GitInfo, proto::*, util};
@@ -9,6 +12,9 @@ use serde_json::Value;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 const EVERY: Duration = Duration::from_secs(15);
+/// The relay is started again this long after it stops, doubling up to `RELAY_MAX_WAIT` while it keeps stopping.
+const RELAY_WAIT: Duration = Duration::from_secs(30);
+const RELAY_MAX_WAIT: Duration = Duration::from_secs(600);
 
 impl Daemon {
     pub(super) async fn reason_loop(self: Arc<Self>) {
@@ -23,6 +29,50 @@ impl Daemon {
                 Err(_) => {}
             }
             tokio::time::sleep(EVERY).await;
+        }
+    }
+
+    /// Keeps `reason network __relay` running. It reads nothing from its stdin, and ends when that closes: with this
+    /// daemon, however it ends. Its stderr goes where the daemon's does (the log).
+    pub(super) async fn relay_loop(self: Arc<Self>) {
+        let mut wait = RELAY_WAIT;
+        let mut missing = false;
+        loop {
+            let started = std::time::Instant::now();
+            match agent::find_bin("reason") {
+                None if !missing => {
+                    log(
+                        "reason network __relay: the reason CLI isn't on this daemon's PATH; Reason's cloud agents can't reach this computer's agents",
+                    );
+                    missing = true;
+                }
+                None => {}
+                Some(bin) => {
+                    missing = false;
+                    let child = tokio::process::Command::new(&bin)
+                        .args(["network", "__relay"])
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::null())
+                        .kill_on_drop(true)
+                        .spawn();
+                    match child {
+                        Ok(mut child) => {
+                            // Held here, not left to `wait`, which would close it first.
+                            let _stdin = child.stdin.take();
+                            match child.wait().await {
+                                Ok(status) => log(&format!("reason network __relay stopped ({status})")),
+                                Err(e) => log(&format!("reason network __relay: {e}")),
+                            }
+                        }
+                        Err(e) => log(&format!("starting reason network __relay: {e}")),
+                    }
+                }
+            }
+            if started.elapsed() > RELAY_MAX_WAIT {
+                wait = RELAY_WAIT;
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(RELAY_MAX_WAIT);
         }
     }
 
