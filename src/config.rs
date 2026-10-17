@@ -20,6 +20,17 @@ pub struct Config {
     pub reason: bool,
     /// Install new releases when they come out (the daemon checks every few hours).
     pub auto_update: bool,
+    /// Serve a local web dashboard (team directory, inbox, held messages, send).
+    #[serde(default = "default_true")]
+    pub web: bool,
+    /// Port for the web dashboard.
+    #[serde(default = "default_web_port")]
+    pub web_port: u16,
+    /// Bind address for the web dashboard (default 127.0.0.1 = localhost only).
+    #[serde(default = "default_web_bind")]
+    pub web_bind: String,
+    /// Optional token for remote/LAN access to the web dashboard.
+    pub web_token: Option<String>,
     pub inbound: Inbound,
 }
 
@@ -41,6 +52,10 @@ pub enum Policy {
     Refuse,
 }
 
+fn default_true() -> bool { true }
+fn default_web_port() -> u16 { 7890 }
+fn default_web_bind() -> String { "127.0.0.1".into() }
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -51,6 +66,10 @@ impl Default for Config {
             tray: true,
             reason: false,
             auto_update: true,
+            web: true,
+            web_port: 7890,
+            web_bind: "127.0.0.1".into(),
+            web_token: None,
             inbound: Inbound::default(),
         }
     }

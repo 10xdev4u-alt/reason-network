@@ -205,7 +205,7 @@ impl Daemon {
         Presence { sessions, known: known.into_iter().take(100).map(|r| r.name).collect() }
     }
 
-    pub(super) async fn who(
+    pub async fn who(
         self: &Arc<Self>,
         me: Option<String>,
         filter: Option<String>,

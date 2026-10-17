@@ -73,6 +73,13 @@ pub async fn run(service: bool) -> Result<()> {
     if update::allowed(daemon.cfg.auto_update) {
         tokio::spawn(daemon.clone().update_loop());
     }
+    if daemon.cfg.web {
+        let d = daemon.clone();
+        let bind = daemon.cfg.web_bind.clone();
+        let port = daemon.cfg.web_port;
+        let token = daemon.cfg.web_token.clone();
+        tokio::spawn(async move { web::run(d, &bind, port, token).await; });
+    }
     loop {
         let stream = listener.accept().await?;
         tokio::spawn(daemon.clone().serve(stream));
@@ -196,8 +203,13 @@ impl Daemon {
         format!("{}/{name}", self.person)
     }
 
-    fn net(&self) -> Option<Arc<Net>> {
+    pub fn net(&self) -> Option<Arc<Net>> {
         self.net.read().unwrap().clone()
+    }
+
+    /// Woken on every new message, for SSE/polling triggers.
+    pub fn arrived(&self) -> &Notify {
+        &self.arrived
     }
 
     /// A session here came or went: teammates hear about it right away.

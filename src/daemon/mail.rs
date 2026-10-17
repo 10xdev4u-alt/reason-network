@@ -71,7 +71,7 @@ const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messa
                          looks like a loop. Check with your user before continuing.";
 
 impl Daemon {
-    pub(super) async fn send(
+    pub async fn send(
         self: &Arc<Self>,
         from: String,
         to: &str,
@@ -502,7 +502,7 @@ impl Daemon {
 
     /// A session's unread messages. Waits up to `wait_secs` for one. Marks
     /// them read unless `peek`, in which case the client confirms with `Delivered`.
-    pub(super) async fn inbox(&self, key: String, wait_secs: u64, peek: bool) -> Result<Inbox> {
+    pub async fn inbox(&self, key: String, wait_secs: u64, peek: bool) -> Result<Inbox> {
         let (address, agent, stop) = {
             let g = self.inner.lock().unwrap();
             let l = g.live.get(&key).ok_or_else(unregistered)?;
@@ -538,7 +538,7 @@ impl Daemon {
     }
 
     /// Approves or drops held messages. Approved ones go to their session now.
-    pub(super) fn settle(self: &Arc<Self>, ids: &[String], release: bool) -> Result<usize> {
+    pub fn settle(self: &Arc<Self>, ids: &[String], release: bool) -> Result<usize> {
         let mut g = self.inner.lock().unwrap();
         let msgs = g.store.settle_held(ids, release)?;
         if release {
@@ -623,4 +623,24 @@ where
         }
     }
     out
+}
+
+// -- web dashboard helpers --
+impl Daemon {
+    pub fn inner_held(&self) -> Vec<Message> {
+        self.inner.lock().unwrap().store.held().unwrap_or_default()
+    }
+
+    pub async fn inbox_json(&self, key: &str) -> Result<serde_json::Value> {
+        let i = self.inbox(key.to_string(), 0, true).await?;
+        Ok(serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
+    }
+
+    pub async fn send_web(&self, from: String, to: &str, body: &str, notify: bool) -> Result<SendResult> {
+        self.send(from, to, body, None, true, notify).await
+    }
+
+    pub fn settle_web(&self, ids: &[String], release: bool) -> usize {
+        self.settle(ids, release).unwrap_or(0)
+    }
 }

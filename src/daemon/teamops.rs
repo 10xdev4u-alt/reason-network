@@ -359,7 +359,7 @@ impl Daemon {
         Ok(LinkInfo { team: state.name().into(), url: crate::join_url(&ticket), ticket })
     }
 
-    pub(super) fn team_info(&self) -> Result<TeamInfo> {
+    pub fn team_info(&self) -> Result<TeamInfo> {
         let team = self
             .team_state()
             .ok_or_else(|| anyhow!("not in a team yet: `{CLI} init <team>` or `{CLI} join <invite>`"))?;
@@ -374,7 +374,7 @@ impl Daemon {
     }
 
     /// Every team machine with how it is reached; just this one when not in a team.
-    pub(super) fn machines(&self) -> Vec<MachineInfo> {
+    pub fn machines(&self) -> Vec<MachineInfo> {
         let me = self.key.public();
         let here = MachineInfo {
             person: self.person.clone(),

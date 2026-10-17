@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Reason Network</title>
+<link rel="stylesheet" href="/bundle.css">
+<style id="theme-style"></style>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">Reason Network</div>
+  <div class="topbar-meta">
+    <span id="team-name" class="dim">—</span>
+    <span id="me" class="dim">—</span>
+    <span id="relay" class="dim">—</span>
+  </div>
+  <div class="topbar-actions">
+    <span id="unread-badge" class="badge">0 unread</span>
+    <button id="theme-toggle" class="btn">theme</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="machines-strip" id="machines"></section>
+
+  <section class="panel sessions-panel">
+    <div class="panel-head">
+      <h2>Sessions</h2>
+      <input id="filter" type="text" placeholder="filter…" class="filter" />
+    </div>
+    <div id="sessions" class="sessions"></div>
+  </section>
+
+  <section class="panel inbox-panel">
+    <div class="panel-head">
+      <h2>Inbox</h2>
+      <span id="inbox-target" class="dim">select a session</span>
+    </div>
+    <div id="inbox" class="inbox"></div>
+    <div class="reply-box">
+      <textarea id="reply-body" placeholder="reply…" rows="3"></textarea>
+      <button id="reply-send" class="btn">send reply</button>
+    </div>
+  </section>
+
+  <section class="panel held-panel">
+    <div class="panel-head"><h2>Held messages</h2></div>
+    <div id="held" class="held"></div>
+  </section>
+
+  <section class="panel send-panel">
+    <div class="panel-head"><h2>Send message</h2></div>
+    <div class="send-form">
+      <input id="send-to" type="text" placeholder="person/session" class="input" />
+      <textarea id="send-body" placeholder="message (point first)…" rows="3" class="input"></textarea>
+      <label class="check"><input type="checkbox" id="send-notify" /> notify (pop up on their screen)</label>
+      <button id="send-btn" class="btn primary">send</button>
+      <div id="send-result" class="send-result"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span id="last-refresh" class="dim">—</span>
+  <span id="version" class="dim">Reason Network</span>
+</footer>
+
+<script src="/page.js"></script>
+</body>
+</html>

@@ -19,6 +19,7 @@ mod store;
 mod team;
 mod tray;
 mod util;
+mod web;
 mod wizard;
 
 use anyhow::{Result, bail};
