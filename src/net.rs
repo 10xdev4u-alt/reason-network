@@ -34,6 +34,8 @@ pub const JOIN_ALPN: &[u8] = b"tincan/join/1";
 const PROTO: u32 = 1;
 const MAX_FRAME: usize = 4 << 20;
 const ACK_TIMEOUT: Duration = Duration::from_secs(5);
+/// Two machines that dial each other at once open their connections within this long of each other.
+const DIALED_TOGETHER: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -89,6 +91,7 @@ struct Link {
     tx: mpsc::UnboundedSender<Wire>,
     conn: Connection,
     dialer: EndpointId,
+    since: Instant,
 }
 
 pub struct Net {
@@ -567,13 +570,13 @@ impl Net {
             let mut links = self.links.lock().unwrap();
             if let Some(old) = links.get(&peer) {
                 let old_alive = old.conn.close_reason().is_none();
-                if old_alive && dialer != self.me.min(peer) && old.dialer == self.me.min(peer) {
+                if old_alive && is_duplicate(old.dialer, old.since.elapsed(), dialer, self.me.min(peer)) {
                     conn.close(0u32.into(), b"duplicate connection");
                     return Ok(());
                 }
                 old.conn.close(0u32.into(), b"replaced");
             }
-            links.insert(peer, Link { id, tx: tx.clone(), conn: conn.clone(), dialer });
+            links.insert(peer, Link { id, tx: tx.clone(), conn: conn.clone(), dialer, since: Instant::now() });
         }
         log(&format!("connected to {} ({})", peer.fmt_short(), if outgoing { "out" } else { "in" }));
 
@@ -664,6 +667,14 @@ impl Net {
     }
 }
 
+/// Whether a new connection to a teammate is the second of two opened at once, and so to be dropped. Both sides keep the
+/// one dialed by the smaller id (`keep`). A connection that has been up longer is not part of that: a teammate dialing
+/// again while we still hold one has lost its end (it restarted, or the network dropped), and ours is dead, though it
+/// is only noticed when it idles out, so the new one replaces it.
+fn is_duplicate(old_dialer: EndpointId, old_age: Duration, new_dialer: EndpointId, keep: EndpointId) -> bool {
+    old_age < DIALED_TOGETHER && new_dialer != keep && old_dialer == keep
+}
+
 /// A teammate's presence, cut down to what is safe to show agents and terminals: names as slugs, everything else
 /// one printable line of bounded length.
 fn tidy_presence(mut p: Presence) -> Presence {
@@ -687,4 +698,25 @@ fn tidy_presence(mut p: Presence) -> Presence {
         .filter(|n: &String| !n.is_empty())
         .collect();
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stale_connection_is_replaced_but_a_simultaneous_dial_is_dropped() {
+        let (a, b) = (SecretKey::generate().public(), SecretKey::generate().public());
+        let (small, large) = (a.min(b), a.max(b));
+        let new = Duration::from_secs(1);
+        let old = DIALED_TOGETHER + Duration::from_secs(1);
+        // Both dialed at once: the connection the larger id dialed is dropped, the smaller id's is kept.
+        assert!(is_duplicate(small, new, large, small));
+        assert!(!is_duplicate(large, new, small, small));
+        // The larger id dials again after the smaller id's connection has been up a while: that one is dead.
+        assert!(!is_duplicate(small, old, large, small));
+        // The same side dialing again is a reconnect, not a race.
+        assert!(!is_duplicate(small, new, small, small));
+        assert!(!is_duplicate(large, new, large, small));
+    }
 }
