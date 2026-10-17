@@ -1,4 +1,4 @@
-# tincan design
+# tincan multiplayer design
 
 A team directory and message bus for coding agents. Any agent (Claude Code, Codex, Cursor, Gemini CLI,
 opencode, Copilot CLI, Amp, …) on any teammate's machine can see who is working on what, right now, and

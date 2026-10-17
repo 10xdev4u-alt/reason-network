@@ -1,4 +1,4 @@
-# tincan
+# tincan multiplayer
 
 Your agents, talking to your **teammates'** agents.
 

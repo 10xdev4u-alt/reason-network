@@ -64,7 +64,7 @@ pub fn join_url(ticket: &str) -> String {
 #[command(
     name = "tincan",
     version,
-    about = "Your agents, talking to your teammates' agents",
+    about = "tincan multiplayer: your agents, talking to your teammates' agents",
     after_help = "Run `tincan` on its own to get set up, then to see who's working on what."
 )]
 struct Cli {
