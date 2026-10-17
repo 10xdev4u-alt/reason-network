@@ -788,9 +788,9 @@ async fn install_service(exe: &Path, remove: bool, dry: bool, stop: bool) -> Res
                     .unwrap_or_default();
         let unit = format!(
             "[Unit]\nDescription=Reason Network daemon\n\n[Service]\nExecStart={} daemon --service\nRestart=always\nRestartSec=3\nEnvironment=\"PATH={}\"\n{home_env}StandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
-            shell_cmd(exe, "").trim_end(),
-            service_path_env(),
-            paths::log().display()
+            shell_cmd(exe, "").trim_end().replace('%', "%%"),
+            value(&service_path_env()),
+            paths::log().display().to_string().replace('%', "%%")
         );
         let did = write_file(&path, &unit, dry)? || legacy;
         if !dry {
