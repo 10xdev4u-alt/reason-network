@@ -8,7 +8,7 @@ use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
 use iroh::{EndpointAddr, EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     net::{IpAddr, SocketAddr},
 };
 
@@ -178,17 +178,23 @@ impl TeamState {
 
     /// Machines that were ever admitted: the founder, then anyone admitted by an admitted machine.
     fn admitted(&self) -> HashSet<EndpointId> {
-        let mut set = HashSet::new();
+        self.admission_depths().into_keys().collect()
+    }
+
+    /// Each admitted machine, with how many admissions it is from the founder.
+    fn admission_depths(&self) -> HashMap<EndpointId, usize> {
+        let mut depths = HashMap::new();
         loop {
-            let before = set.len();
+            let before = depths.len();
             for a in self.admissions.values() {
                 let e = a.body.endpoint;
-                if !set.contains(&e) && (if a.by == e { e == self.founder } else { set.contains(&a.by) }) {
-                    set.insert(e);
+                let depth = if a.by == e { (e == self.founder).then_some(0) } else { depths.get(&a.by).map(|d| d + 1) };
+                if let Some(d) = depth.filter(|_| !depths.contains_key(&e)) {
+                    depths.insert(e, d);
                 }
             }
-            if set.len() == before {
-                return set;
+            if depths.len() == before {
+                return depths;
             }
         }
     }
@@ -312,8 +318,13 @@ impl TeamState {
             }
             changed = true;
         }
-        let admitted = self.admitted();
-        for (k, e) in &other.members {
+        let depths = self.admission_depths();
+        let admitted: HashSet<EndpointId> = depths.keys().copied().collect();
+        // Machines before the ones they let in, so a person's first machine holds their name before another of theirs
+        // is checked against it (`may_take`), whatever order the keys sort in.
+        let mut entries: Vec<_> = other.members.iter().collect();
+        entries.sort_by_key(|(_, e)| depths.get(&e.body.endpoint).copied().unwrap_or(usize::MAX));
+        for (k, e) in entries {
             let cur = self.members.get(k);
             if *k != e.body.endpoint.to_string()
                 || !plausible(e.body.ts)
@@ -658,6 +669,20 @@ mod tests {
         x.put_member(&f, d.public(), "dee", "pi", true);
         let z = TeamState::verified(&x).unwrap();
         assert!(z.is_active(&c.public()) && !z.is_active(&b.public()));
+    }
+
+    #[test]
+    fn a_persons_machines_join_whatever_their_keys_sort() {
+        // f lets in b and b lets in c, all alex's: a newcomer keeps all three, in any key order.
+        let keys = [key(), key(), key()];
+        for (i, j, k) in [(0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0)] {
+            let (f, b, c) = (&keys[i], &keys[j], &keys[k]);
+            let mut s = TeamState::found("vibes", "alex", "mbp", f);
+            s.put_member(f, b.public(), "alex", "mini", true);
+            s.put_member(b, c.public(), "alex", "nuc", true);
+            let v = TeamState::verified(&s).unwrap();
+            assert!([f, b, c].iter().all(|m| v.is_active(&m.public())), "keys in order {i}{j}{k}");
+        }
     }
 
     #[test]
