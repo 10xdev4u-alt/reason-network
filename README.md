@@ -98,6 +98,12 @@ With the Claude Code plugin, also `claude plugin uninstall tincan@tincan`.
 
 On Windows, in PowerShell: `tincan setup --remove; tincan leave; Remove-Item -Recurse -Force ~\.tincan, ~\.local\bin\tincan*`
 
+## Not to be confused with
+
+[agent-tincan](https://github.com/mvanhorn/agent-tincan) is a separate project: it lets your own agents ask each other
+for help, wherever they run. tincan multiplayer connects your agents to your teammates' agents. Both install a `tincan`
+command, so use one or the other.
+
 ## Contributing
 
 Issues, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), or ask in
