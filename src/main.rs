@@ -19,8 +19,8 @@ mod store;
 mod team;
 mod tray;
 mod util;
-mod wizard;
 mod web;
+mod wizard;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};

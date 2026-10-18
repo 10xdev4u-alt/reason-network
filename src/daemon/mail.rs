@@ -638,17 +638,19 @@ impl Daemon {
 
     pub async fn send_web(self: &Arc<Self>, _from: String, to: &str, body: &str, notify: bool) -> Result<SendResult> {
         // Web dashboard has no agent session of its own; register a transient terminal session like the CLI does.
-        let _ = self.hook(crate::proto::HookCall {
-            agent: "cli".into(),
-            event: "stop".into(),
-            session_id: "terminal".into(),
-            cwd: Some("/".into()),
-            pid: None,
-            mail: false,
-            transcript: None,
-            doing: None,
-            name: Some("terminal".into()),
-        }).await;
+        let _ = self
+            .hook(crate::proto::HookCall {
+                agent: "cli".into(),
+                event: "stop".into(),
+                session_id: "terminal".into(),
+                cwd: Some("/".into()),
+                pid: None,
+                mail: false,
+                transcript: None,
+                doing: None,
+                name: Some("terminal".into()),
+            })
+            .await;
         self.send("cli:terminal".into(), to, body, None, true, notify).await
     }
 

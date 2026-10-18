@@ -52,9 +52,15 @@ pub enum Policy {
     Refuse,
 }
 
-fn default_true() -> bool { true }
-fn default_web_port() -> u16 { 7890 }
-fn default_web_bind() -> String { "127.0.0.1".into() }
+fn default_true() -> bool {
+    true
+}
+fn default_web_port() -> u16 {
+    7890
+}
+fn default_web_bind() -> String {
+    "127.0.0.1".into()
+}
 
 impl Default for Config {
     fn default() -> Self {

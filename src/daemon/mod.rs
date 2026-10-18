@@ -80,7 +80,9 @@ pub async fn run(service: bool) -> Result<()> {
         let bind = daemon.cfg.web_bind.clone();
         let port = daemon.cfg.web_port;
         let token = daemon.cfg.web_token.clone();
-        tokio::spawn(async move { crate::web::run(d, &bind, port, token).await; });
+        tokio::spawn(async move {
+            crate::web::run(d, &bind, port, token).await;
+        });
     }
     loop {
         let stream = listener.accept().await?;
