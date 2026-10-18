@@ -5,7 +5,7 @@ form, a body with the wrong content type, a token in a URL, oversized headers.
 
 Uses a throwaway home and a spare port, so the real dashboard and its token are never touched.
 """
-import os, socket, subprocess, tempfile, time
+import os, json, socket, subprocess, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "reason-network")
@@ -122,6 +122,19 @@ s, _, js = http("GET", "/page.js", {"Cookie": f"rn={TOKEN}"})
 check("the page never writes a message through innerHTML", "innerHTML" not in js and "msg-body" in js, js[-400:])
 s, _, html = http("GET", "/", {"Cookie": f"rn={TOKEN}"})
 check("the page keeps no inline style or script a policy would have to allow", ' style="' not in html and "<script>" not in html, html[-400:])
+
+# The page holds an address (`person/session`), never the key a client registers under. This route used to be
+# handed a key it could never have, so it answered 500 for every input and the inbox never worked. The session is
+# registered by a hook and has no polling client, so its mail is still unread when the page looks.
+proj = os.path.join(D, "proj")
+os.makedirs(proj, exist_ok=True)
+subprocess.run([BIN, "hook", "cursor", "session-start"], env=env, input=json.dumps({"conversation_id": "w-1", "workspace_roots": [proj]}),
+               capture_output=True, text=True, timeout=60)
+subprocess.run([BIN, "send", "alex/proj-cursor", "check the flaky test"], env=env, capture_output=True, timeout=30)
+s, _, t = http("GET", "/api/inbox?address=alex%2Fproj-cursor", {"Cookie": f"rn={TOKEN}"})
+check("the inbox reads by address", s == 200 and "check the flaky test" in t, f"{s} {t}")
+s, _, t = http("GET", "/api/inbox?address=alex%2Fnobody", {"Cookie": f"rn={TOKEN}"})
+check("an inbox for a session that is not there fails visibly, not with a 500", s == 404 and "no live session" in t, f"{s} {t}")
 
 daemon.terminate()
 subprocess.run([BIN, "stop"], env=env, capture_output=True, timeout=30)

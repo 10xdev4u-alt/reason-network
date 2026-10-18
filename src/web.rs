@@ -151,10 +151,10 @@ async fn handle(
             write_json(&mut wr, 200, &msgs).await?;
         }
         ("GET", "/api/inbox") => {
-            let key = query_param(&req.path, "key").unwrap_or_default();
-            match daemon.inbox_json(&key).await {
+            let address = query_param(&req.path, "address").unwrap_or_default();
+            match daemon.inbox_json(&address).await {
                 Ok(v) => write_json(&mut wr, 200, &v).await?,
-                Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+                Err(e) => write_response(&mut wr, 404, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
             }
         }
         ("POST", "/api/send") => {
