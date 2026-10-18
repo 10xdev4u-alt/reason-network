@@ -2,6 +2,16 @@ const state = { sessions: [], selected: null, who: null, held: [], timer: null, 
 
 const $ = (id) => document.getElementById(id);
 
+// The only way this page puts something in the document is a node built by hand, so a message body can never
+// be read as markup, whatever it contains.
+function show(box, text) {
+  if (text === undefined) { box.replaceChildren(); return; }
+  const d = document.createElement('div');
+  d.className = 'empty';
+  d.textContent = text;
+  box.replaceChildren(d);
+}
+
 function toast(msg, ms = 2500) {
   const t = $('toast');
   t.textContent = msg;
@@ -40,7 +50,7 @@ async function refreshWho() {
     badge.style.display = unread > 0 ? '' : 'none';
 
     const ms = $('machines');
-    ms.innerHTML = '';
+    show(ms);
     (d.machines || []).forEach(m => {
       const chip = document.createElement('div');
       chip.className = 'machine-chip';
@@ -59,8 +69,8 @@ async function refreshWho() {
       return [s.address, s.agent, s.cwd, s.machine, s.repo, s.branch, s.doing].filter(Boolean).join(' ').toLowerCase().includes(filter);
     });
     const box = $('sessions');
-    box.innerHTML = '';
-    if (list.length === 0) { box.innerHTML = '<div class="empty">no sessions</div>'; return; }
+    show(box);
+    if (list.length === 0) { show(box, 'no sessions'); return; }
     list.forEach(s => {
       const row = document.createElement('div');
       row.className = 'session-row' + (state.selected === s.address ? ' selected' : '');
@@ -97,12 +107,12 @@ async function selectSession(addr) {
 }
 
 async function refreshInbox() {
-  if (!state.selected) { $('inbox').innerHTML = '<div class="empty">select a session</div>'; return; }
+  if (!state.selected) { show($('inbox'), 'select a session'); return; }
   try {
     const i = await fetchJSON('/api/inbox?key=' + encodeURIComponent(state.selected));
     const box = $('inbox');
-    box.innerHTML = '';
-    if (!i.messages || i.messages.length === 0) { box.innerHTML = '<div class="empty">no messages</div>'; return; }
+    show(box);
+    if (!i.messages || i.messages.length === 0) { show(box, 'no messages'); return; }
     i.messages.forEach(m => {
       const el = document.createElement('div');
       el.className = 'msg';
@@ -124,12 +134,16 @@ async function refreshHeld() {
     const msgs = await fetchJSON('/api/held');
     state.held = msgs;
     const box = $('held');
-    box.innerHTML = '';
-    if (!msgs || msgs.length === 0) { box.innerHTML = '<div class="empty">nothing held</div>'; return; }
+    show(box);
+    if (!msgs || msgs.length === 0) { show(box, 'nothing held'); return; }
     msgs.forEach(m => {
       const el = document.createElement('div');
       el.className = 'held-item';
-      el.innerHTML = '<div class="msg-head"><span>' + m.from + '</span><span>' + m.id + '</span></div><div class="msg-body">' + (m.body || '') + '</div>';
+      const h = document.createElement('div'); h.className = 'msg-head';
+      const f = document.createElement('span'); f.textContent = m.from; h.appendChild(f);
+      const i = document.createElement('span'); i.textContent = m.id; h.appendChild(i);
+      el.appendChild(h);
+      const b = document.createElement('div'); b.className = 'msg-body'; b.textContent = m.body || ''; el.appendChild(b);
       const actions = document.createElement('div'); actions.className = 'held-actions';
       const approve = document.createElement('button'); approve.className = 'btn primary'; approve.textContent = 'approve';
       approve.onclick = async () => { await fetchJSON('/api/settle', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ids:[m.id], release:true})}); toast('approved'); refreshHeld(); };

@@ -113,3 +113,6 @@ textarea { resize: vertical; font-family: var(--mono); line-height: 1.5; }
   box-shadow: var(--shadow); z-index: 100; animation: slideup .2s ease; max-width: 400px;
 }
 @keyframes slideup { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.hidden{display:none}
+.mt{margin-top:8px}
