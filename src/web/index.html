@@ -5,79 +5,107 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Reason Network</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%233dd68c'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%233fb950'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/bundle.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="logo">Reason Network</div>
-  <div class="topbar-meta">
-    <span><strong id="team-name">—</strong></span>
-    <span id="me">—</span>
-    <span id="relay">—</span>
-  </div>
+  <span class="wordmark">Reason Network</span>
+  <span class="topbar-team" id="team-name">—</span>
+  <span class="topbar-me" id="me">—</span>
+  <nav class="nav">
+    <a href="#board">board</a>
+    <a href="#task-detail">task</a>
+    <a href="#sessions">sessions</a>
+    <a href="#inbox">mail</a>
+    <a href="#held">held</a>
+    <a href="#receipts">audit</a>
+  </nav>
   <div class="topbar-actions">
-    <span id="unread-badge" class="badge hidden">0 unread</span>
+    <span id="live" class="live" title="the daemon wakes this page"></span>
+    <span id="unread-badge" class="badge hidden">0</span>
     <button id="theme-toggle" class="btn ghost">theme</button>
   </div>
 </header>
 
-<div class="machines-strip" id="machines"></div>
-
 <main class="layout">
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Sessions</h2>
-      <input id="filter" type="text" placeholder="filter…" class="filter" />
-    </div>
-    <div id="sessions" class="sessions"><div class="empty">loading…</div></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Board <span id="board-count" class="dim"></span></h2>
-      <span class="dim">the daemon owns this, not this page</span>
-    </div>
-    <div class="send-form board-add">
-      <input id="task-title" type="text" placeholder="task…" />
-      <input id="task-boundary" type="text" placeholder="done means…" />
-      <button id="task-add" class="btn primary">add</button>
-    </div>
-    <div id="board" class="board"><div class="empty">nothing on the board</div></div>
-    <div class="panel-head mt"><h2>Selected task</h2></div>
-    <div id="task-detail" class="task-detail"><div class="empty">select a task</div></div>
-    <div class="reply-box">
-      <textarea id="task-text" placeholder="note, reason to block, or evidence to close…" rows="2"></textarea>
-      <div id="task-actions" class="task-actions"></div>
-    </div>
-  </section>
-
-  <div class="col">
+  <aside class="col col-left">
     <section class="panel">
-      <div class="panel-head">
-        <h2>Needs you <span id="inbox-target" class="dim"></span></h2>
+      <h2 class="label">Machines</h2>
+      <div id="machines" class="machines"></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="label">Sessions <span id="session-count" class="hint"></span></h2>
+      <div class="find">
+        <input id="filter" type="text" placeholder="filter…" class="filter" />
+        <kbd>/</kbd>
       </div>
+      <div id="sessions" class="sessions"><div class="empty">loading…</div></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="label">Board load</h2>
+      <div id="board-stats" class="stats"></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="label">Mail</h2>
+      <div id="mail-stats" class="stats"></div>
+    </section>
+  </aside>
+
+  <section class="col col-mid">
+    <section class="panel">
+      <h2 class="label">Board <span id="board-count" class="hint"></span>
+        <span class="hint">the daemon owns this, not this page</span></h2>
+      <div class="send-form board-add">
+        <input id="task-title" type="text" placeholder="task…" />
+        <input id="task-boundary" type="text" placeholder="done means…" />
+        <button id="task-add" class="btn primary">add</button>
+      </div>
+      <div id="board" class="board"><div class="empty">nothing on the board</div></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="label">Selected task</h2>
+      <div id="task-detail" class="task-detail"><div class="empty">select a task</div></div>
+      <div class="reply-box">
+        <textarea id="task-text" placeholder="note, reason to block, or evidence to close…" rows="2"></textarea>
+        <div id="task-actions" class="task-actions"></div>
+      </div>
+    </section>
+  </section>
+
+  <aside class="col col-right">
+    <section class="panel">
+      <h2 class="label">Needs you <span id="inbox-target" class="hint"></span></h2>
       <div id="inbox" class="inbox"><div class="empty">select a session</div></div>
       <div class="reply-box">
-        <textarea id="reply-body" placeholder="reply…" rows="3"></textarea>
+        <textarea id="reply-body" placeholder="reply…" rows="2"></textarea>
         <button id="reply-send" class="btn primary">send reply</button>
       </div>
     </section>
 
     <section class="panel">
-      <div class="panel-head"><h2>Held messages</h2></div>
+      <h2 class="label">Held <span class="hint">needs an approval</span></h2>
       <div id="held" class="held"><div class="empty">nothing held</div></div>
 
-      <div class="panel-head mt"><h2>Send message</h2></div>
+      <h2 class="label mt">Send</h2>
       <div class="send-form">
         <input id="send-to" type="text" placeholder="person/session or group" />
-        <textarea id="send-body" placeholder="message (point first)…" rows="3"></textarea>
+        <textarea id="send-body" placeholder="message (point first)…" rows="2"></textarea>
         <label class="check"><input type="checkbox" id="send-notify" /> notify (pop up on their screen)</label>
         <button id="send-btn" class="btn primary">send</button>
         <div id="send-result" class="send-result"></div>
       </div>
     </section>
-  </div>
+
+    <section class="panel">
+      <h2 class="label">Audit <span id="audit-count" class="hint"></span></h2>
+      <div id="receipts" class="receipts"><div class="empty">no deliveries yet</div></div>
+    </section>
+  </aside>
 </main>
 
 <footer class="footer">
