@@ -242,16 +242,27 @@ impl ReasonNetworkMcp {
 
     /// Registers the session on first use and returns its key.
     async fn session(&self, agent: &'static str, meta_id: Option<String>) -> Result<String> {
-        if meta_id.is_none()
-            && let Ok(Some(key)) =
-                self.link.call::<Option<String>>(Request::Attach { agent: agent.into(), cwd: agent::cwd() }).await
-        {
-            return Ok(key);
+        if meta_id.is_none() {
+            for _ in 0..10 {
+                if let Ok(Some(key)) = self.link.call::<Option<String>>(Request::Attach {
+                    agent: agent.into(),
+                    cwd: agent::cwd(),
+                }).await {
+                    return Ok(key);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
         }
         let id = meta_id.or_else(|| agent::env_session_id(agent));
         let key = match &id {
             Some(id) => format!("{agent}:{id}"),
-            None => format!("proc:{}", std::process::id()),
+            None => {
+                // No hook session found after retrying. Don't register a phantom —
+                // return a dummy key so MCP tools still work, but the session
+                // won't appear in the roster. The hook (if it fires later) will
+                // register the real session.
+                return Ok(format!("mcp:{}", std::process::id()));
+            }
         };
         if self.link.is_registered(&key) {
             return Ok(key);
