@@ -251,7 +251,7 @@ enum Cmd {
         #[arg(long)]
         service: bool,
     },
-    /// Restart the daemon
+    /// Stop the daemon
     Stop,
     /// Wait for the next message to a named session, print it, and exit (for agents without Reason Network's tools, e.g.
     /// cloud agents: run it again after replying)
