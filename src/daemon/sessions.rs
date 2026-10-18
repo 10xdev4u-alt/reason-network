@@ -4,7 +4,7 @@
 use super::{Daemon, Inner, Live, log};
 use crate::{agent, git::GitInfo, proto::*, render, store::Remembered, util};
 use anyhow::{Result, anyhow, bail};
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 /// A hook-only session that hasn't fired a hook for this long is considered gone.
 const HOOK_TTL_MS: i64 = 6 * 3_600_000;
@@ -209,8 +209,12 @@ impl Daemon {
         } else {
             Vec::new()
         };
-        // Not marked read here: the hook confirms with `Delivered` once it has printed them.
+        // Not marked read here: the hook confirms with `Delivered` once it has printed them. Until then they are in
+        // flight, so a hook asking at the same moment (opencode 2.x can run two plugin instances) doesn't get them too.
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+        for id in &ids {
+            g.in_flight.insert(id.clone(), Instant::now());
+        }
         let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, Some(&agent_kind), false));
         Ok(HookReply { address: Some(address), text, ids })
     }

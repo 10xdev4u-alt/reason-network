@@ -162,7 +162,7 @@ The hard part. Each session advertises a **delivery tier** so senders know when 
 |---|---|---|
 | Claude Code | push | MCP child posts to the session's own inbox socket (`CLAUDE_CODE_MESSAGING_SOCKET`, `{"type":"user",…}` frame): delivered between tool calls, starts a turn if idle. Fallbacks: `asyncRewake` hook (documented idle wake), channels (`notifications/claude/channel`, needs a dev flag until allowlisted). |
 | Codex | push | `codex queue --thread <id>` / app-server `turn/start` (default daemon mode). Mid-turn: `PostToolUse` `additionalContext`. Stop: `decision:block`. Hooks need one-time approval in `/hooks`. |
-| opencode | push | Plugin: `client.session.promptAsync` (V1), `POST /api/session/:id/prompt` via `service.json` (V2). |
+| opencode | push | Plugin (one file for 1.x and 2.x): `client.session.promptAsync` (1.x), `ctx.session.prompt` (2.x, where busy/idle come from `session.execution.*` events). |
 | pi | push | Extension (`~/.pi/agent/extensions/reason-network.ts`): registers the MCP server per session (`deferred`, with `REASON_NETWORK_SESSION`), `sendUserMessage` (`deliverAs: "steer"` mid-run, a new turn when idle), busy/idle from `agent_start`/`agent_settled`, the session name as `doing`. |
 | Reason | push | Its agent runs in Reason's cloud: the daemon lists live sessions (`reason session list --json`, when `reason = true`) and sends with `reason session send`. Replies go through the CLI: `reason-network send <to> --from <its address>`. |
 | Amp | push | Plugin: `thread.appendUserMessage(…, {steer:true})`. |
@@ -195,7 +195,7 @@ Agents never report what they are doing; Reason Network reads it from what they 
 session's title (Claude Code's `ai-title` transcript entries, Codex's thread names in
 `~/.codex/session_index.jsonl`, opencode's session title) and the task in progress on its own todo list
 (Claude Code's `~/.claude/tasks/<session>/`, TodoWrite, Codex's `update_plan`, Gemini's `write_todos`,
-Cursor's `todo_write`, opencode's todos). Transcripts come from hooks (`transcript_path`) or, for Claude Code,
+Cursor's `todo_write`, opencode 1.x's todos). Transcripts come from hooks (`transcript_path`) or, for Claude Code,
 from its session id; only what was appended since the last look is read. A Claude Code session renamed with
 `/rename` keeps that name on Reason Network.
 
