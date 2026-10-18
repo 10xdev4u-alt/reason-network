@@ -4,10 +4,16 @@
 use super::{Daemon, Inner, Live, log};
 use crate::{agent, git::GitInfo, proto::*, render, store::Remembered, util};
 use anyhow::{Result, anyhow, bail};
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 /// A hook-only session that hasn't fired a hook for this long is considered gone.
 const HOOK_TTL_MS: i64 = 6 * 3_600_000;
+/// Retention (Q6, 09 §4): `prune` forgets read mail past `MAIL_TTL_MS` and session rows past
+/// `SESSION_TTL_MS`, at most once an hour. Unread or held mail, and a session row still holding unread mail,
+/// are never touched.
+const MAIL_TTL_MS: i64 = 30 * 86_400_000;
+const SESSION_TTL_MS: i64 = 180 * 86_400_000;
+const RETENTION_EVERY_MS: i64 = 3_600_000;
 
 impl Daemon {
     /// How fast hooks let us reach an agent's session (`push_failed`: its push channel didn't work).
@@ -209,8 +215,12 @@ impl Daemon {
         } else {
             Vec::new()
         };
-        // Not marked read here: the hook confirms with `Delivered` once it has printed them.
+        // Not marked read here: the hook confirms with `Delivered` once it has printed them. Until then they are in
+        // flight, so a hook asking at the same moment (opencode 2.x can run two plugin instances) doesn't get them too.
         let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+        for id in &ids {
+            g.in_flight.insert(id.clone(), Instant::now());
+        }
         let text = (!msgs.is_empty()).then(|| render::for_agent(&msgs, Some(&agent_kind), false));
         Ok(HookReply { address: Some(address), text, ids })
     }
@@ -271,6 +281,17 @@ impl Daemon {
         for key in dead {
             if let Some(l) = g.live.remove(&key) {
                 let _ = g.store.touch_session(&l.name, now);
+            }
+        }
+        // Retention, at most once an hour (09 §4): one kv row gates it; growth only happens while agents are
+        // active, and activity is what lands here. Errors are ignored like the touch_session calls above.
+        let last: i64 = g.store.get("prune:last").ok().flatten().and_then(|s| s.parse().ok()).unwrap_or(0);
+        if now - last > RETENTION_EVERY_MS {
+            let _ = g.store.set("prune:last", &now.to_string());
+            let m = g.store.prune_messages(now, MAIL_TTL_MS).unwrap_or(0);
+            let s = g.store.prune_sessions(now, SESSION_TTL_MS, &self.person).unwrap_or(0);
+            if m > 0 || s > 0 {
+                log(&format!("retention: forgot {m} read messages, {s} stale sessions"));
             }
         }
     }

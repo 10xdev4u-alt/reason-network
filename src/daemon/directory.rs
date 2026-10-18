@@ -205,12 +205,7 @@ impl Daemon {
         Presence { sessions, known: known.into_iter().take(100).map(|r| r.name).collect() }
     }
 
-    pub async fn who(
-        self: &Arc<Self>,
-        me: Option<String>,
-        filter: Option<String>,
-        all: bool,
-    ) -> Result<Directory> {
+    pub async fn who(self: &Arc<Self>, me: Option<String>, filter: Option<String>, all: bool) -> Result<Directory> {
         let mut rows = self.local_rows(me.as_deref(), true).await?;
         if all {
             let g = self.inner.lock().unwrap();

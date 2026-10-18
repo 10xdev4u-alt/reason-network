@@ -97,12 +97,10 @@ async fn handle(stream: tokio::net::TcpStream, daemon: Arc<Daemon>, token: Optio
                 Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
             }
         }
-        ("GET", "/api/team") => {
-            match daemon.team_info() {
-                Ok(t) => write_json(&mut wr, 200, &t).await?,
-                Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
-            }
-        }
+        ("GET", "/api/team") => match daemon.team_info() {
+            Ok(t) => write_json(&mut wr, 200, &t).await?,
+            Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+        },
         ("GET", "/api/machines") => {
             let m = daemon.machines();
             write_json(&mut wr, 200, &m).await?;
@@ -132,8 +130,11 @@ async fn handle(stream: tokio::net::TcpStream, daemon: Arc<Daemon>, token: Optio
         }
         ("POST", "/api/settle") => {
             let v: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
-            let ids: Vec<String> = v.get("ids").and_then(|x| x.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            let ids: Vec<String> = v
+                .get("ids")
+                .and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
             let release = v.get("release").and_then(|x| x.as_bool()).unwrap_or(true);
             let n = daemon.settle_web(&ids, release);
             write_json(&mut wr, 200, &json!({"n": n})).await?;
@@ -169,7 +170,7 @@ fn query_param(path: &str, key: &str) -> Option<String> {
     for pair in q.split('&') {
         let mut kv = pair.splitn(2, '=');
         if kv.next() == Some(key) {
-            return kv.next().map(|v| url_decode(v));
+            return kv.next().map(url_decode);
         }
     }
     None
@@ -179,18 +180,37 @@ fn url_decode(s: &str) -> String {
     s.replace('+', " ")
 }
 
-async fn write_response(wr: &mut tokio::net::tcp::OwnedWriteHalf, status: u16, ct: &str, body: &str) -> std::io::Result<()> {
-    let status_text = match status { 200=>"OK",401=>"Unauthorized",404=>"Not Found",500=>"Internal Server Error",_=>"OK" };
+async fn write_response(
+    wr: &mut tokio::net::tcp::OwnedWriteHalf,
+    status: u16,
+    ct: &str,
+    body: &str,
+) -> std::io::Result<()> {
+    let status_text = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "OK",
+    };
     let resp = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        status, status_text, ct, body.len(), body
+        status,
+        status_text,
+        ct,
+        body.len(),
+        body
     );
     wr.write_all(resp.as_bytes()).await?;
     wr.flush().await?;
     Ok(())
 }
 
-async fn write_json<T: serde::Serialize>(wr: &mut tokio::net::tcp::OwnedWriteHalf, status: u16, v: &T) -> std::io::Result<()> {
+async fn write_json<T: serde::Serialize>(
+    wr: &mut tokio::net::tcp::OwnedWriteHalf,
+    status: u16,
+    v: &T,
+) -> std::io::Result<()> {
     let body = serde_json::to_string(v).unwrap_or_default();
     write_response(wr, status, "application/json", &body).await
 }

@@ -53,6 +53,8 @@ pub async fn run(service: bool) -> Result<()> {
     };
     let mut listener = ipc::Listener::bind()?;
     let daemon = Arc::new(Daemon::open()?);
+    // Retention runs once here, then whenever activity reaches prune() (09 §4).
+    daemon.prune(&mut daemon.inner.lock().unwrap());
     log(&format!("listening on {} as {}@{}", paths::socket().display(), daemon.person, daemon.machine));
     if daemon.team_state().is_some()
         && let Err(e) = daemon.start_net().await
@@ -78,7 +80,9 @@ pub async fn run(service: bool) -> Result<()> {
         let bind = daemon.cfg.web_bind.clone();
         let port = daemon.cfg.web_port;
         let token = daemon.cfg.web_token.clone();
-        tokio::spawn(async move { crate::web::run(d, &bind, port, token).await; });
+        tokio::spawn(async move {
+            crate::web::run(d, &bind, port, token).await;
+        });
     }
     loop {
         let stream = listener.accept().await?;
