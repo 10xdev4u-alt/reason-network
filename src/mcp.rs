@@ -243,7 +243,6 @@ impl ReasonNetworkMcp {
     /// Registers the session on first use and returns its key.
     async fn session(&self, agent: &'static str, meta_id: Option<String>) -> Result<String> {
         if meta_id.is_none()
-            && agent::multiplexed(agent)
             && let Ok(Some(key)) =
                 self.link.call::<Option<String>>(Request::Attach { agent: agent.into(), cwd: agent::cwd() }).await
         {
