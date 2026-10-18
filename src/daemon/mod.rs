@@ -2,6 +2,7 @@
 //! mailboxes. Split by concern: `sessions` (who is running here), `directory` (who is where, and resolving
 //! addresses), `mail` (sending, receiving, delivering), `teamops` (membership and the network).
 
+mod board;
 mod directory;
 mod mail;
 mod notify;
@@ -249,8 +250,11 @@ impl Daemon {
             let f = match serde_json::from_str::<Frame<Request>>(&line) {
                 Ok(f) => f,
                 Err(e) => {
+                    // Answer with the id we can still read: a client that never hears back waits forever, and a
+                    // malformed request is a bug to see, not a hang to stare at.
                     let _ = tx.send(
-                        serde_json::to_string(&Reply::err(0, anyhow!("bad request: {e}"))).expect("reply serializes"),
+                        serde_json::to_string(&Reply::err(frame_id(&line), anyhow!("bad request: {e}")))
+                            .expect("reply serializes"),
                     );
                     continue;
                 }
@@ -313,6 +317,16 @@ impl Daemon {
             Request::SetRelay { url } => json!(self.set_relay(url).await?),
             Request::Held => json!(self.inner.lock().unwrap().store.held()?),
             Request::Settle { ids, release } => json!(self.settle(&ids, release)?),
+            Request::TaskAdd { title, boundary, repo, branch } => {
+                json!(self.task_add(&title, &boundary, repo, branch, None)?)
+            }
+            Request::TaskList { filter, all } => json!(self.clone().tasks_json(all, filter).await?),
+            Request::TaskShow { task_id } => json!(self.task_show(&task_id)?),
+            Request::TaskClaim { task_id, by } => json!(self.task_claim(&task_id, by)?),
+            Request::TaskNote { task_id, text, by } => json!(self.task_note(&task_id, &text, by)?),
+            Request::TaskBlock { task_id, reason, by } => json!(self.task_block(&task_id, &reason, by)?),
+            Request::TaskClose { task_id, evidence, by } => json!(self.task_close(&task_id, &evidence, by)?),
+            Request::TaskRelease { task_id, by } => json!(self.task_release(&task_id, by)?),
             Request::Shutdown => {
                 self.restart_soon();
                 Value::Null
@@ -350,5 +364,34 @@ impl Daemon {
         let info = tokio::task::spawn_blocking(move || git::lookup(&dir)).await.unwrap_or_default();
         self.git_cache.lock().unwrap().insert(cwd.to_string(), (Instant::now(), info.clone()));
         info
+    }
+}
+
+/// The id of a frame we could not parse. The id is written before the body, so we read it textually: a flattened
+/// body can make the line unparseable as a whole (its own `id` collides with the frame's), and a client that never
+/// hears back waits forever. An error it can see beats a hang it cannot.
+fn frame_id(line: &str) -> u64 {
+    line.split("\"id\":")
+        .nth(1)
+        .unwrap_or("")
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_id;
+
+    #[test]
+    fn a_frame_we_cannot_parse_still_gives_up_its_id() {
+        // The collision that made every task-by-id call hang: `Frame` owns `id`, and a flattened body that also
+        // has one is a duplicate field. The reply must still be addressed to the caller.
+        assert_eq!(frame_id(r#"{"id":7,"op":"task_show","id":"01"} "#.trim()), 7);
+        assert_eq!(frame_id(r#"{"id":7,"op":"nonsense"}"#), 7);
+        assert_eq!(frame_id("not json at all"), 0);
     }
 }

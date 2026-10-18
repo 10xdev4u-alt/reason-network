@@ -205,6 +205,29 @@ enum Cmd {
     Relay { url: String },
     /// List messages waiting for your approval (when `inbound` is `hold`)
     Held,
+    /// The board: list, show, add, claim, note, block, close or release a task. The queue lives in the daemon, so
+    /// an agent can take its next task with no browser involved — the page renders it, it does not own it.
+    Task {
+        /// list | show | add | claim | note | block | close | release
+        action: String,
+        /// The task id, then the text: `task note <id> <what happened>`
+        #[arg(default_value = "")]
+        args: Vec<String>,
+        /// The task's title (`add`)
+        #[arg(long, default_value = "")]
+        title: String,
+        /// What "done" means, for `add`. Without it a task cannot be closed.
+        #[arg(long, default_value = "")]
+        boundary: String,
+        /// Act as this session, instead of this person's terminal
+        #[arg(long = "as")]
+        person: Option<String>,
+        /// Include closed tasks (`list`)
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Deliver held messages
     Approve {
         ids: Vec<String>,
@@ -301,6 +324,76 @@ async fn main() -> Result<()> {
             cli(Cmd::Who { filter: None, all: false, json: false }).await
         }
     }
+}
+
+/// One board action from the shell, as the CLI received it.
+struct TaskArgs {
+    action: String,
+    args: Vec<String>,
+    title: String,
+    boundary: String,
+    person: Option<String>,
+    all: bool,
+    json: bool,
+}
+
+/// The board from a shell. The queue lives in the daemon, so a worker takes its next task over the same IPC path
+/// everything else uses: no browser, no page, no tab to keep open.
+async fn task_cmd(link: &std::sync::Arc<Link>, a: TaskArgs) -> Result<()> {
+    let id = a.args.first().cloned().unwrap_or_default();
+    let text = a.args.get(1..).unwrap_or_default().join(" ");
+    let (action, id) = (a.action.as_str(), id.as_str());
+    let by = match a.person {
+        Some(name) => cli_session(link, &util::slug(&name), "stop").await?.address,
+        None => None,
+    };
+    let v: serde_json::Value = match action {
+        "list" => link.call(Request::TaskList { filter: None, all: a.all }).await?,
+        "show" => link.call(Request::TaskShow { task_id: id.into() }).await?,
+        "add" => link.call(Request::TaskAdd { title: a.title, boundary: a.boundary, repo: None, branch: None }).await?,
+        "claim" => link.call(Request::TaskClaim { task_id: id.into(), by }).await?,
+        "note" => link.call(Request::TaskNote { task_id: id.into(), text, by }).await?,
+        "block" => link.call(Request::TaskBlock { task_id: id.into(), reason: text, by }).await?,
+        "close" => link.call(Request::TaskClose { task_id: id.into(), evidence: text, by }).await?,
+        "release" => link.call(Request::TaskRelease { task_id: id.into(), by }).await?,
+        other => bail!("unknown task action `{other}`: list, show, add, claim, note, block, close, release"),
+    };
+    if a.json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    match action {
+        "list" => {
+            let none = Vec::new();
+            let tasks = v["tasks"].as_array().unwrap_or(&none);
+            if tasks.is_empty() {
+                println!("Nothing on the board.");
+            }
+            for t in tasks {
+                println!(
+                    "{} {:<8} {:<44} {}",
+                    short(t["id"].as_str().unwrap_or("")),
+                    t["state"].as_str().unwrap_or(""),
+                    clip(t["title"].as_str().unwrap_or("")),
+                    t["owner"].as_str().unwrap_or(""),
+                );
+            }
+        }
+        "add" => println!("{}", v["id"].as_str().unwrap_or("")),
+        "claim" if !v["ok"].as_bool().unwrap_or(false) => {
+            println!("{} is held by {}", short(id), v["owner"].as_str().unwrap_or("someone else"));
+        }
+        _ => println!("ok, {} events", v["n"].as_u64().unwrap_or(0)),
+    }
+    Ok(())
+}
+
+fn short(id: &str) -> String {
+    id.chars().take(8).collect()
+}
+
+fn clip(s: &str) -> String {
+    if s.chars().count() <= 44 { s.to_string() } else { s.chars().take(43).collect::<String>() + "…" }
 }
 
 /// The agent session this shell belongs to, if it runs inside one.
@@ -523,6 +616,10 @@ async fn cli(cmd: Cmd) -> Result<()> {
                 println!("`{CLI} approve <id>` delivers, `{CLI} reject <id>` drops (or --all).");
             }
         }
+        Cmd::Task { action, args, title, boundary, person, all, json } => {
+            let a = TaskArgs { action, args, title, boundary, person, all, json };
+            task_cmd(&link, a).await?
+        }
         Cmd::Approve { ids, all } | Cmd::Reject { ids, all } if ids.is_empty() && !all => {
             bail!("give message ids, or --all")
         }
@@ -588,4 +685,16 @@ pub async fn stop_daemon() -> bool {
     let _ = Link::existing().call::<serde_json::Value>(Request::Shutdown).await;
     wait_exit(pid).await;
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clip;
+
+    #[test]
+    fn a_long_title_is_clipped_on_a_character_boundary_not_a_byte_one() {
+        let s = clip(&"é".repeat(60));
+        assert_eq!(s.chars().count(), 44);
+        assert!(s.ends_with('…'));
+    }
 }

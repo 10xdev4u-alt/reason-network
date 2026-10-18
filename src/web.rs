@@ -159,6 +159,64 @@ async fn handle(
                 Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
             }
         }
+        ("GET", "/api/tasks") => {
+            let filter = query_param(&req.path, "filter");
+            let all = query_param(&req.path, "all").is_some_and(|v| v == "1" || v == "true");
+            match daemon.clone().tasks_json(all, filter).await {
+                Ok(v) => write_json(&mut wr, 200, &v).await?,
+                Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+            }
+        }
+        ("GET", "/api/tasks/show") => {
+            let id = query_param(&req.path, "id").unwrap_or_default();
+            match daemon.task_show(&id) {
+                Ok(v) => write_json(&mut wr, 200, &v).await?,
+                Err(e) => write_response(&mut wr, 404, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+            }
+        }
+        ("POST", "/api/tasks") => {
+            let v = body_json(body_str);
+            let opt = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+            match daemon.task_add(
+                &field(&v, "title"),
+                &field(&v, "boundary"),
+                opt("repo"),
+                opt("branch"),
+                Some(field(&v, "by")),
+            ) {
+                Ok(r) => write_json(&mut wr, 200, &r).await?,
+                Err(e) => write_response(&mut wr, 400, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+            }
+        }
+        ("POST", "/api/tasks/claim") => {
+            let v = body_json(body_str);
+            match daemon.task_claim(&field(&v, "id"), Some(field(&v, "by"))) {
+                // 409 with the holder: losing a claim is an answer, not an error.
+                Ok(r) => {
+                    let code = if r["ok"].as_bool().unwrap_or(false) { 200 } else { 409 };
+                    write_json(&mut wr, code, &r).await?
+                }
+                Err(e) => write_response(&mut wr, 400, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+            }
+        }
+        ("POST", "/api/tasks/note") => {
+            let v = body_json(body_str);
+            task_reply(&mut wr, daemon.task_note(&field(&v, "id"), &field(&v, "text"), Some(field(&v, "by")))).await?;
+        }
+        ("POST", "/api/tasks/block") => {
+            let v = body_json(body_str);
+            task_reply(&mut wr, daemon.task_block(&field(&v, "id"), &field(&v, "reason"), Some(field(&v, "by"))))
+                .await?;
+        }
+        ("POST", "/api/tasks/close") => {
+            let v = body_json(body_str);
+            task_reply(&mut wr, daemon.task_close(&field(&v, "id"), &field(&v, "evidence"), Some(field(&v, "by"))))
+                .await?;
+        }
+        ("POST", "/api/tasks/release") => {
+            let v = body_json(body_str);
+            task_reply(&mut wr, daemon.task_release(&field(&v, "id"), Some(field(&v, "by")))).await?;
+        }
         ("GET", "/api/inbox") => {
             let address = query_param(&req.path, "address").unwrap_or_default();
             match daemon.inbox_json(&address).await {
@@ -217,6 +275,25 @@ async fn handle(
 
 fn header<'a>(headers: &'a std::collections::HashMap<String, String>, key: &str) -> Option<&'a str> {
     headers.get(key).map(|s| s.as_str())
+}
+
+fn body_json(body: &str) -> serde_json::Value {
+    serde_json::from_str(body).unwrap_or(json!({}))
+}
+
+fn field(v: &serde_json::Value, key: &str) -> String {
+    v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
+}
+
+/// A board action's answer: the id it is about, the error it refused with, and never a silent 200.
+async fn task_reply(
+    wr: &mut tokio::net::tcp::OwnedWriteHalf,
+    r: anyhow::Result<serde_json::Value>,
+) -> std::io::Result<()> {
+    match r {
+        Ok(v) => write_json(wr, 200, &v).await,
+        Err(e) => write_response(wr, 400, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await,
+    }
 }
 
 fn is_loopback(bind: &str) -> bool {
@@ -358,9 +435,11 @@ async fn write_response(
 ) -> std::io::Result<()> {
     let status_text = match status {
         200 => "OK",
+        400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
         415 => "Unsupported Media Type",
         500 => "Internal Server Error",
         _ => "OK",

@@ -116,3 +116,27 @@ textarea { resize: vertical; font-family: var(--mono); line-height: 1.5; }
 
 .hidden{display:none}
 .mt{margin-top:8px}
+
+/* The board: the middle column, because the queue is what the team works from. */
+.col { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.board { display: flex; flex-direction: column; gap: 8px; overflow: auto; max-height: 46vh; }
+.task-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-3); cursor: pointer; transition: border-color .15s; }
+.task-row:hover, .task-row.selected { border-color: var(--primary); }
+.task-top { display: flex; align-items: center; gap: 8px; }
+.task-title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-state { font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--text-2); }
+.task-open { color: var(--text); }
+.task-claimed { color: var(--primary-2); border-color: var(--primary); }
+.task-blocked { color: var(--warn); border-color: var(--warn); }
+.task-done { color: var(--positive); border-color: var(--positive); }
+.task-meta { font-size: .74rem; color: var(--text-2); margin-top: 4px; }
+.task-boundary { font-size: .74rem; color: var(--text-3); margin-top: 2px; }
+.task-reason { font-size: .74rem; color: var(--warn); margin-top: 2px; }
+.task-detail { display: flex; flex-direction: column; gap: 6px; }
+.task-history { max-height: 20vh; overflow: auto; border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.task-event { font-size: .72rem; color: var(--text-3); font-family: var(--mono); }
+.task-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.board-add { display: flex; flex-direction: row; gap: 8px; }
+.board-add input { flex: 1; min-width: 0; }
+.board-add .btn { flex: 0 0 auto; }
