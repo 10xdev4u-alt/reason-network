@@ -235,6 +235,28 @@ impl Daemon {
     pub(super) fn attach(&self, agent: &str, cwd: &str) -> Option<String> {
         let mut g = self.inner.lock().unwrap();
         self.prune(&mut g);
+        // Prefer a busy session (the caller is mid-turn); fall back to an idle one so a session that
+        // registered through its hook is reused instead of spawning a phantom `proc:` twin.
+        let busy_here: Vec<(&String, &Live)> = g
+            .live
+            .iter()
+            .filter(|(_, l)| {
+                l.reg.agent == agent && l.last_hook.is_some() && l.reg.cwd == cwd
+                    && l.status.as_ref().is_some_and(|(s, _)| s == "busy")
+            })
+            .collect();
+        if busy_here.len() == 1 {
+            return Some(busy_here[0].0.clone());
+        }
+        let here: Vec<(&String, &Live)> = g
+            .live
+            .iter()
+            .filter(|(_, l)| l.reg.agent == agent && l.reg.cwd == cwd)
+            .collect();
+        if here.len() == 1 {
+            return Some(here[0].0.clone());
+        }
+        // Original fallback: one busy session anywhere with this agent.
         let busy: Vec<(&String, &Live)> = g
             .live
             .iter()
@@ -242,9 +264,7 @@ impl Daemon {
                 l.reg.agent == agent && l.last_hook.is_some() && l.status.as_ref().is_some_and(|(s, _)| s == "busy")
             })
             .collect();
-        let here: Vec<&(&String, &Live)> = busy.iter().filter(|(_, l)| l.reg.cwd == cwd).collect();
-        match (here.as_slice(), busy.as_slice()) {
-            ([(k, _)], _) => Some((*k).clone()),
+        match (busy_here.as_slice(), busy.as_slice()) {
             ([], [(k, _)]) => Some((*k).clone()),
             _ => None,
         }
