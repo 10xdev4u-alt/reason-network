@@ -34,6 +34,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     id = ctx.sessionManager.getSessionId()
     cwd = ctx.cwd
+    const name = ctx.sessionManager.getSessionName()
+    if (name) await hook(["doing", "--doing", name])
+    await hook(["status", "--state", "idle"])
     pi.registerMcpServer("reason-network", {
       command: ENGINE,
       args: ["mcp"],
@@ -41,9 +44,6 @@ export default function (pi: ExtensionAPI) {
       exposure: "deferred",
       description: "Message teammates' coding agents and see what each of their sessions is working on",
     })
-    await hook(["status", "--state", "idle"])
-    const name = ctx.sessionManager.getSessionName()
-    if (name) await hook(["doing", "--doing", name])
     timer ??= setInterval(() => {
       if (!busy) void deliver("poll")
     }, 5_000)
