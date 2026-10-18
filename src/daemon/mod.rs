@@ -118,7 +118,7 @@ struct Inner {
     conns: HashMap<u64, mpsc::UnboundedSender<String>>,
     next_conn: u64,
     team: Option<TeamState>,
-    /// Messages handed to a push channel and not yet confirmed; hidden from inbox and hooks meanwhile.
+    /// Messages handed to a push channel or a hook and not yet confirmed; hidden from inbox and hooks meanwhile.
     in_flight: HashMap<String, Instant>,
     /// Sessions waiting in `check_inbox` right now (they get new mail there instead of a push).
     polling: HashMap<String, usize>,
