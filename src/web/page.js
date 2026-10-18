@@ -1,4 +1,4 @@
-const state = { sessions: [], selected: null, who: null, held: [], timer: null, es: null };
+const state = { sessions: [], selected: null, who: null, held: [], receipts: [], timer: null, es: null };
 
 const $ = (id) => document.getElementById(id);
 
@@ -46,8 +46,9 @@ async function refreshWho() {
     $('me').textContent = d.person + ' on ' + d.machine;
     const unread = (d.sessions || []).reduce((a, s) => a + (s.unread || 0), 0);
     const badge = $('unread-badge');
-    badge.textContent = unread + ' unread';
-    badge.style.display = unread > 0 ? '' : 'none';
+    badge.textContent = unread;
+    badge.title = unread + ' unread';
+    badge.classList.toggle('hidden', unread === 0);
 
     const ms = $('machines');
     show(ms);
@@ -57,9 +58,15 @@ async function refreshWho() {
       const dot = document.createElement('span');
       dot.className = 'dot ' + (m.is_me ? 'on' : (m.online ? (m.link === 'relay' ? 'relay' : 'on') : 'off'));
       chip.appendChild(dot);
-      const label = document.createElement('span');
-      label.textContent = m.person + ' · ' + m.machine + (m.is_me ? ' (you)' : (m.online ? ' · ' + (m.link || 'connected') + (m.rtt_ms ? ' ' + m.rtt_ms + 'ms' : '') : ' · offline'));
-      chip.appendChild(label);
+      const name = document.createElement('span');
+      name.className = 'machine-name';
+      name.textContent = m.person + ' · ' + m.machine;
+      chip.appendChild(name);
+      const sub = document.createElement('span');
+      sub.className = 'machine-sub';
+      sub.textContent = m.is_me ? 'you · this machine'
+        : (m.online ? (m.link || 'connected') + (m.rtt_ms ? ' · ' + m.rtt_ms + 'ms' : '') : 'offline');
+      chip.appendChild(sub);
       ms.appendChild(chip);
     });
 
@@ -70,6 +77,7 @@ async function refreshWho() {
     });
     const box = $('sessions');
     show(box);
+    $('session-count').textContent = list.length + ' of ' + (d.sessions || []).length;
     if (list.length === 0) { show(box, 'no sessions'); return; }
     list.forEach(s => {
       const row = document.createElement('div');
@@ -77,6 +85,9 @@ async function refreshWho() {
       row.onclick = () => selectSession(s.address);
       const top = document.createElement('div');
       top.className = 'session-top';
+      const sdot = document.createElement('span');
+      sdot.className = 'dot ' + (s.status === 'offline' ? 'bad' : (s.status === 'busy' ? 'relay' : 'on'));
+      top.appendChild(sdot);
       const name = document.createElement('span'); name.className = 'session-name'; name.textContent = s.name; top.appendChild(name);
       const agent = document.createElement('span'); agent.className = 'session-agent'; agent.textContent = s.agent; top.appendChild(agent);
       const st = document.createElement('span'); st.className = 'session-status ' + statusClass(s.status); st.textContent = s.status; top.appendChild(st);
@@ -153,7 +164,65 @@ async function refreshHeld() {
       el.appendChild(actions);
       box.appendChild(el);
     });
+    renderMailStats();
   } catch (e) { console.error('held failed', e); }
+}
+
+// What the left column counts comes from the same rows the board renders, so a number cannot drift from a list.
+function statRow(box, label, value, dot) {
+  const r = document.createElement('div'); r.className = 'stat';
+  const d = document.createElement('span'); d.className = 'dot ' + (dot || 'off'); r.appendChild(d);
+  const l = document.createElement('span'); l.textContent = label; r.appendChild(l);
+  const v = document.createElement('b'); v.textContent = value; r.appendChild(v);
+  box.appendChild(r);
+}
+
+function renderBoardStats() {
+  const box = $('board-stats');
+  show(box);
+  const tasks = state.tasks || [];
+  if (!tasks.length) { show(box, 'nothing open'); return; }
+  ['open', 'claimed', 'blocked'].forEach(s => {
+    statRow(box, s, String(tasks.filter(t => t.state === s).length), s);
+  });
+  // shortcut: one tick per task, capped at 60; past that the bar reads as "full", which the count still tells.
+  const bar = document.createElement('div'); bar.className = 'bar';
+  tasks.slice(0, 60).forEach(t => { const seg = document.createElement('i'); seg.className = t.state; bar.appendChild(seg); });
+  box.appendChild(bar);
+}
+
+// The ring, rendered: what happened to the mail this machine sent. The daemon keeps it; this is one view of it.
+async function refreshReceipts() {
+  try {
+    state.receipts = await fetchJSON('/api/receipts');
+  } catch (e) { show($('receipts'), 'audit: ' + e.message); return; }
+  const box = $('receipts');
+  show(box);
+  const rs = (state.receipts || []).slice(0, 30);
+  $('audit-count').textContent = rs.length ? rs.length + ' recent' : '';
+  renderMailStats();
+  if (!rs.length) { show(box, 'no deliveries yet'); return; }
+  rs.forEach(r => {
+    const el = document.createElement('div'); el.className = 'receipt';
+    const d = document.createElement('span');
+    d.className = 'dot ' + (r.state === 'delivered' ? 'on' : (r.state === 'refused' ? 'bad' : 'relay'));
+    el.appendChild(d);
+    const s = document.createElement('span'); s.className = 'receipt-state'; s.textContent = r.state; el.appendChild(s);
+    const to = document.createElement('span'); to.className = 'receipt-to'; to.textContent = r.to; el.appendChild(to);
+    const t = document.createElement('span'); t.className = 't'; t.textContent = new Date(r.at_ms).toLocaleTimeString(); el.appendChild(t);
+    box.appendChild(el);
+  });
+}
+
+function renderMailStats() {
+  const box = $('mail-stats');
+  show(box);
+  const held = (state.held || []).length;
+  statRow(box, 'held', String(held), held ? 'relay' : 'off');
+  ['delivered', 'refused', 'abandoned'].forEach(k => {
+    const n = (state.receipts || []).filter(r => r.state === k).length;
+    statRow(box, k, String(n), k === 'delivered' ? 'on' : (k === 'refused' ? 'bad' : 'relay'));
+  });
 }
 
 async function doSend() {
@@ -189,7 +258,7 @@ function startPolling() {
   if (state.timer) clearInterval(state.timer);
   state.timer = setInterval(() => {
     if (document.visibilityState === 'hidden') return;
-    refreshWho(); refreshHeld(); refreshBoard(); if (state.selected) refreshInbox();
+    refreshWho(); refreshHeld(); refreshBoard(); refreshReceipts(); if (state.selected) refreshInbox();
   }, 5000);
 }
 
@@ -197,8 +266,10 @@ function startSSE() {
   if (typeof EventSource === 'undefined') return;
   try {
     state.es = new EventSource('/api/events');
+    state.es.onopen = () => { $('live').className = 'live on'; };
+    state.es.onerror = () => { $('live').className = 'live poll'; };
     state.es.onmessage = (e) => {
-      try { const d = JSON.parse(e.data); if (d.type === 'changed') { refreshWho(); refreshHeld(); refreshBoard(); if (state.selected) refreshInbox(); } } catch (_) {}
+      try { const d = JSON.parse(e.data); if (d.type === 'changed') { refreshWho(); refreshHeld(); refreshBoard(); refreshReceipts(); if (state.selected) refreshInbox(); } } catch (_) {}
     };
   } catch (e) { console.error('sse failed', e); }
 }
@@ -208,6 +279,14 @@ document.addEventListener('visibilitychange', () => {
 });
 
 $('filter').addEventListener('input', refreshWho);
+// `/` jumps to the filter, the way a status board should: no mouse to look something up.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = document.activeElement && document.activeElement.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA') return;
+  e.preventDefault();
+  $('filter').focus();
+});
 $('send-btn').addEventListener('click', doSend);
 $('reply-send').addEventListener('click', doReply);
 $('theme-toggle').addEventListener('click', () => {
@@ -241,6 +320,7 @@ async function refreshBoard() {
     state.tasks = d.tasks || [];
     const open = state.tasks.filter(t => t.state !== 'done').length;
     $('board-count').textContent = '· ' + open + ' open';
+    renderBoardStats();
     const box = $('board');
     show(box);
     if (!state.tasks.length) { show(box, 'nothing on the board'); return; }
@@ -249,11 +329,15 @@ async function refreshBoard() {
       row.className = 'task-row' + (state.selectedTask === t.id ? ' selected' : '');
       row.onclick = () => selectTask(t.id);
       const top = document.createElement('div'); top.className = 'task-top';
-      const st = document.createElement('span'); st.className = 'task-state task-' + t.state; st.textContent = t.state; top.appendChild(st);
+      const dot = document.createElement('span'); dot.className = 'dot ' + t.state; top.appendChild(dot);
       const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; top.appendChild(ti);
-      const a = document.createElement('span'); a.className = 'dim'; a.textContent = age(t.age_ms); top.appendChild(a);
+      const a = document.createElement('span'); a.className = 'task-age'; a.textContent = age(t.age_ms); top.appendChild(a);
       row.appendChild(top);
-      const meta = document.createElement('div'); meta.className = 'task-meta'; meta.textContent = ownerLine(t); row.appendChild(meta);
+      const meta = document.createElement('div'); meta.className = 'task-meta';
+      const st = document.createElement('span'); st.className = 'task-state task-' + t.state; st.textContent = t.state;
+      meta.appendChild(st);
+      meta.appendChild(document.createTextNode(' ' + ownerLine(t)));
+      row.appendChild(meta);
       const bd = document.createElement('div'); bd.className = 'task-boundary'; bd.textContent = 'done: ' + t.boundary; row.appendChild(bd);
       box.appendChild(row);
     });
@@ -329,9 +413,11 @@ async function doAddTask() {
 $('task-add').addEventListener('click', doAddTask);
 wireActions();
 
+$('live').className = 'live poll';
 refreshWho();
 refreshHeld();
 renderDetail();
 refreshBoard();
+refreshReceipts();
 startPolling();
 startSSE();
