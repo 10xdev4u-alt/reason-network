@@ -53,6 +53,8 @@ pub async fn run(service: bool) -> Result<()> {
     };
     let mut listener = ipc::Listener::bind()?;
     let daemon = Arc::new(Daemon::open()?);
+    // Retention runs once here, then whenever activity reaches prune() (09 §4).
+    daemon.prune(&mut daemon.inner.lock().unwrap());
     log(&format!("listening on {} as {}@{}", paths::socket().display(), daemon.person, daemon.machine));
     if daemon.team_state().is_some()
         && let Err(e) = daemon.start_net().await

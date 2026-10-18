@@ -169,7 +169,7 @@ fn query_param(path: &str, key: &str) -> Option<String> {
     for pair in q.split('&') {
         let mut kv = pair.splitn(2, '=');
         if kv.next() == Some(key) {
-            return kv.next().map(|v| url_decode(v));
+            return kv.next().map(url_decode);
         }
     }
     None
