@@ -6,7 +6,7 @@ nobody reloading the page, and a person can take a task from the page itself.
 Needs chromium (via playwright). It is not part of `ci.yml`: the other harnesses need nothing but python, and this
 one is for looking at the thing, not for merging a change.
 """
-import os, socket, subprocess, sys, tempfile, time
+import atexit, os, socket, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "reason-network")
@@ -34,6 +34,7 @@ with open(os.path.join(HOME, "config.toml"), "w") as f:
 cli("init", "hooks", "--as", "alex", "--no-setup")
 cli("stop")
 daemon = subprocess.Popen([BIN, "daemon"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+atexit.register(daemon.terminate)  # a failed check must not leave a daemon behind on a temp home
 time.sleep(2)
 
 # A task the daemon owns, put there with no browser involved at all.
