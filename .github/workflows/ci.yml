@@ -5,9 +5,11 @@ on:
     branches: [main]
   pull_request:
 
-# e2e runs the two harnesses that need no network: hooks.py (hook formats, the
-# opencode/pi status+poll+doing paths, hold policy, MCP cancellation/restart) and
-# guided.py (onboarding through a real pty, and that `setup` writes agent configs).
+# e2e runs the harnesses that need no network: hooks.py (hook formats, the
+# opencode/pi status+poll+doing paths, hold policy, MCP cancellation/restart),
+# guided.py (onboarding through a real pty, and that `setup` writes agent configs)
+# and web.py (the dashboard refusing a rebound host, a cross-origin write, a
+# wrong content type, an unbounded header, and a token kept out of the URL).
 # They are the only coverage for those paths, and before this job they never ran.
 # e2e-network runs two_machines.py, which needs internet (iroh relays/discovery): it
 # is its own job and continue-on-error, so a flaky relay cannot block a pull request.
@@ -48,6 +50,8 @@ jobs:
         run: python3 tests/e2e/hooks.py
       - name: e2e — guided setup (onboarding + agent wiring)
         run: python3 tests/e2e/guided.py
+      - name: e2e — dashboard HTTP surface (host, origin, content type, token)
+        run: python3 tests/e2e/web.py
 
   e2e-network:
     runs-on: ubuntu-24.04
