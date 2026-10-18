@@ -20,6 +20,7 @@ mod team;
 mod tray;
 mod util;
 mod wizard;
+mod web;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};

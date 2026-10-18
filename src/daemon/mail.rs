@@ -1,8 +1,8 @@
 //! Sending, receiving and delivering messages.
 //!
 //! Delivery is at least once: a message stays unread until whoever showed it to the agent confirms
-//! with `Delivered`. Messages handed to a push channel or a hook are "in flight" meanwhile, so the inbox and hooks
-//! don't show them a second time.
+//! with `Delivered`. Messages handed to a push channel are "in flight" meanwhile, so the inbox and hooks don't
+//! show them a second time.
 
 use super::{Daemon, Inner, directory::Target, log};
 use crate::{agent, claude, config::Policy, proto::*, render, util};
@@ -20,7 +20,7 @@ const RATE_LIMIT: usize = 60;
 /// Agent-to-agent messages allowed between one pair in `LOOP_WINDOW`; past that it is probably a loop.
 const LOOP_LIMIT: usize = 12;
 const LOOP_WINDOW: Duration = Duration::from_secs(600);
-/// A push or hook not confirmed within this long is shown through the inbox and hooks again.
+/// A push not confirmed within this long is shown through the inbox and hooks again.
 const IN_FLIGHT_TTL: Duration = Duration::from_secs(90);
 
 /// How a session on this machine gets a message into its conversation.
@@ -38,7 +38,7 @@ enum Channel {
 }
 
 impl Inner {
-    /// Unread mail for an address that isn't already on its way through a push or a hook.
+    /// Unread mail for an address that isn't already on its way through a push.
     pub(super) fn pending(&mut self, address: &str) -> Result<Vec<Message>> {
         self.in_flight.retain(|_, at| at.elapsed() < IN_FLIGHT_TTL);
         let msgs = self.store.unread(address)?;
@@ -71,7 +71,7 @@ const LOOP_NOTE: &str = "refused: these two agents have exchanged a lot of messa
                          looks like a loop. Check with your user before continuing.";
 
 impl Daemon {
-    pub(super) async fn send(
+    pub async fn send(
         self: &Arc<Self>,
         from: String,
         to: &str,
@@ -502,7 +502,7 @@ impl Daemon {
 
     /// A session's unread messages. Waits up to `wait_secs` for one. Marks
     /// them read unless `peek`, in which case the client confirms with `Delivered`.
-    pub(super) async fn inbox(&self, key: String, wait_secs: u64, peek: bool) -> Result<Inbox> {
+    pub async fn inbox(&self, key: String, wait_secs: u64, peek: bool) -> Result<Inbox> {
         let (address, agent, stop) = {
             let g = self.inner.lock().unwrap();
             let l = g.live.get(&key).ok_or_else(unregistered)?;
@@ -538,7 +538,7 @@ impl Daemon {
     }
 
     /// Approves or drops held messages. Approved ones go to their session now.
-    pub(super) fn settle(self: &Arc<Self>, ids: &[String], release: bool) -> Result<usize> {
+    pub fn settle(self: &Arc<Self>, ids: &[String], release: bool) -> Result<usize> {
         let mut g = self.inner.lock().unwrap();
         let msgs = g.store.settle_held(ids, release)?;
         if release {
@@ -623,4 +623,36 @@ where
         }
     }
     out
+}
+
+// -- web dashboard helpers --
+impl Daemon {
+    pub fn inner_held(self: &Arc<Self>) -> Vec<Message> {
+        self.inner.lock().unwrap().store.held().unwrap_or_default()
+    }
+
+    pub async fn inbox_json(self: &Arc<Self>, key: &str) -> Result<serde_json::Value> {
+        let i = self.inbox(key.to_string(), 0, true).await?;
+        Ok(serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
+    }
+
+    pub async fn send_web(self: &Arc<Self>, _from: String, to: &str, body: &str, notify: bool) -> Result<SendResult> {
+        // Web dashboard has no agent session of its own; register a transient terminal session like the CLI does.
+        let _ = self.hook(crate::proto::HookCall {
+            agent: "cli".into(),
+            event: "stop".into(),
+            session_id: "terminal".into(),
+            cwd: Some("/".into()),
+            pid: None,
+            mail: false,
+            transcript: None,
+            doing: None,
+            name: Some("terminal".into()),
+        }).await;
+        self.send("cli:terminal".into(), to, body, None, true, notify).await
+    }
+
+    pub fn settle_web(self: &Arc<Self>, ids: &[String], release: bool) -> usize {
+        self.settle(ids, release).unwrap_or(0)
+    }
 }
