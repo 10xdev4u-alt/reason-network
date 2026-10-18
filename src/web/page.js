@@ -89,12 +89,15 @@ async function refreshWho() {
       sdot.className = 'dot ' + (s.status === 'offline' ? 'bad' : (s.status === 'busy' ? 'relay' : 'on'));
       top.appendChild(sdot);
       const name = document.createElement('span'); name.className = 'session-name'; name.textContent = s.name; name.title = s.name; top.appendChild(name);
-      const agent = document.createElement('span'); agent.className = 'session-agent'; agent.textContent = s.agent; top.appendChild(agent);
-      const st = document.createElement('span'); st.className = 'session-status ' + statusClass(s.status); st.textContent = s.status; top.appendChild(st);
-      const tier = document.createElement('span'); tier.className = 'tier ' + tierClass(s.tier); tier.textContent = s.tier; top.appendChild(tier);
-      if (s.unread > 0) { const u = document.createElement('span'); u.className = 'unread'; u.textContent = s.unread + ' unread'; top.appendChild(u); }
-      if (s.is_me) { const m = document.createElement('span'); m.className = 'dim'; m.textContent = '← you'; top.appendChild(m); }
       row.appendChild(top);
+      // The name gets a line to itself: a session is identified by its name, and a truncated one identifies nothing.
+      const pills = document.createElement('div'); pills.className = 'session-pills';
+      const agent = document.createElement('span'); agent.className = 'session-agent'; agent.textContent = s.agent; pills.appendChild(agent);
+      const st = document.createElement('span'); st.className = 'session-status ' + statusClass(s.status); st.textContent = s.status; pills.appendChild(st);
+      const tier = document.createElement('span'); tier.className = 'tier ' + tierClass(s.tier); tier.textContent = s.tier; pills.appendChild(tier);
+      if (s.unread > 0) { const u = document.createElement('span'); u.className = 'unread'; u.textContent = s.unread + ' unread'; pills.appendChild(u); }
+      if (s.is_me) { const m = document.createElement('span'); m.className = 'dim'; m.textContent = '← you'; pills.appendChild(m); }
+      row.appendChild(pills);
       const meta = document.createElement('div'); meta.className = 'session-meta';
       meta.textContent = (s.repo ? s.repo + '@' + (s.branch || '') : s.cwd) + ' · ' + s.machine;
       row.appendChild(meta);
