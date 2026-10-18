@@ -186,7 +186,151 @@ pub enum Request {
         ids: Vec<String>,
         release: bool,
     },
+    /// The board: one unit of work the daemon owns (see `board.rs`). All of these are IPC-only — no on-the-wire
+    /// type is touched, so a task never appears on a teammate's machine that was not told about it.
+    TaskAdd {
+        title: String,
+        /// What "done" means for this task. Empty is refused: a task with no boundary is a wish.
+        boundary: String,
+        #[serde(default)]
+        repo: Option<String>,
+        #[serde(default)]
+        branch: Option<String>,
+    },
+    TaskList {
+        #[serde(default)]
+        filter: Option<String>,
+        #[serde(default)]
+        all: bool,
+    },
+    /// One task with its history.
+    TaskShow {
+        task_id: String,
+    },
+    /// First writer wins; the loser is told who holds it rather than silently overwriting.
+    TaskClaim {
+        task_id: String,
+        #[serde(default)]
+        by: Option<String>,
+    },
+    TaskNote {
+        task_id: String,
+        text: String,
+        #[serde(default)]
+        by: Option<String>,
+    },
+    TaskBlock {
+        task_id: String,
+        reason: String,
+        #[serde(default)]
+        by: Option<String>,
+    },
+    /// Refused with no evidence: closing is a claim about the world, not a status change.
+    TaskClose {
+        task_id: String,
+        evidence: String,
+        #[serde(default)]
+        by: Option<String>,
+    },
+    TaskRelease {
+        task_id: String,
+        #[serde(default)]
+        by: Option<String>,
+    },
     Shutdown,
+}
+
+/// One unit of shared work. It lives in the daemon, not in a page: a queue that can be lost by closing a tab is a
+/// whiteboard, and a claim has to be readable by every client, including ones with no browser at all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    pub id: String,
+    pub title: String,
+    pub boundary: String,
+    pub state: TaskState,
+    /// The address that claimed it — the worker's own write, never liveness derived from a connection.
+    pub owner: Option<String>,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub blocked_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskState {
+    Open,
+    Claimed,
+    Blocked,
+    Done,
+}
+
+impl TaskState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskState::Open => "open",
+            TaskState::Claimed => "claimed",
+            TaskState::Blocked => "blocked",
+            TaskState::Done => "done",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "open" => Some(TaskState::Open),
+            "claimed" => Some(TaskState::Claimed),
+            "blocked" => Some(TaskState::Blocked),
+            "done" => Some(TaskState::Done),
+            _ => None,
+        }
+    }
+}
+
+/// What happened to a task, who did it and when. Append-only: a closed task is not a deleted row with no trace.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskEvent {
+    pub task_id: String,
+    pub at_ms: i64,
+    pub kind: TaskKind,
+    pub by: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskKind {
+    Created,
+    Claimed,
+    Note,
+    Blocked,
+    Released,
+    Closed,
+}
+
+impl TaskKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskKind::Created => "created",
+            TaskKind::Claimed => "claimed",
+            TaskKind::Note => "note",
+            TaskKind::Blocked => "blocked",
+            TaskKind::Released => "released",
+            TaskKind::Closed => "closed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "created" => Some(TaskKind::Created),
+            "claimed" => Some(TaskKind::Claimed),
+            "note" => Some(TaskKind::Note),
+            "blocked" => Some(TaskKind::Blocked),
+            "released" => Some(TaskKind::Released),
+            "closed" => Some(TaskKind::Closed),
+            _ => None,
+        }
+    }
 }
 
 fn day() -> u64 {

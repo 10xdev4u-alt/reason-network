@@ -5,7 +5,7 @@ form, a body with the wrong content type, a token in a URL, oversized headers.
 
 Uses a throwaway home and a spare port, so the real dashboard and its token are never touched.
 """
-import os, json, socket, subprocess, tempfile, time
+import os, json, re, socket, subprocess, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "reason-network")
@@ -61,8 +61,9 @@ def http(method="GET", path="/", headers=None, body=b"", timeout=8):
     s.close()
     text = out.decode(errors="replace")
     status = int(text.split(" ")[1]) if text.startswith("HTTP/") else 0
-    head = dict(l.split(": ", 1) for l in text.split("\r\n\r\n")[0].split("\r\n")[1:] if ": " in l)
-    return status, head, text
+    parts = text.split("\r\n\r\n", 1)
+    head = dict(l.split(": ", 1) for l in parts[0].split("\r\n")[1:] if ": " in l)
+    return status, head, parts[1] if len(parts) > 1 else ""
 
 
 for _ in range(60):
@@ -123,6 +124,17 @@ check("the page never writes a message through innerHTML", "innerHTML" not in js
 s, _, html = http("GET", "/", {"Cookie": f"rn={TOKEN}"})
 check("the page keeps no inline style or script a policy would have to allow", ' style="' not in html and "<script>" not in html, html[-400:])
 
+# The page is a renderer of what the daemon owns, so every id it reaches for has to exist, and every route it
+# calls has to be one the daemon serves. A rename in one file and not the other is a blank panel, not an error.
+wanted = set(re.findall(r"\$\('([^']+)'\)", js))
+markup = set(re.findall(r'id="([^"]+)"', html))
+check("every element the page reaches for is in the markup", wanted <= markup, str(sorted(wanted - markup)))
+routes = set(re.findall(r"['\"](/api/[a-z/]+)", js))
+served = open(os.path.join(ROOT, "src", "web.rs")).read()
+open_routes = set(re.findall(r'"(/api/[a-z/]*)"', served))
+missing = sorted(p for p in routes if not (p in open_routes or any(r.startswith(p) for r in open_routes)))
+check("every route the page calls is one the daemon serves", not missing, str(missing))
+
 # The page holds an address (`person/session`), never the key a client registers under. This route used to be
 # handed a key it could never have, so it answered 500 for every input and the inbox never worked. The session is
 # registered by a hook and has no polling client, so its mail is still unread when the page looks.
@@ -138,6 +150,46 @@ check("an inbox for a session that is not there fails visibly, not with a 500", 
 
 s, _, t = http("GET", "/api/receipts", {"Cookie": f"rn={TOKEN}"})
 check("the receipt ring reads back, newest first", s == 200 and t.rstrip().endswith("[]"), f"{s} {t}")
+
+# The board: the queue belongs to the daemon, so a worker takes its next task with no page open at all, and the
+# page is one renderer of what the daemon already owns.
+def post(path, payload):
+    return http("POST", path, {"Cookie": f"rn={TOKEN}", "Content-Type": "application/json", "Origin": f"http://127.0.0.1:{PORT}"}, json.dumps(payload).encode())
+
+s, _, t = post("/api/tasks", {"title": "flaky test", "boundary": ""})
+check("a task with no boundary is refused", s == 400 and "boundary" in t, f"{s} {t}")
+s, _, t = post("/api/tasks", {"title": "flaky test", "boundary": "e2e green"})
+task = json.loads(t)["id"]
+check("a task is added and answers with its id", s == 200 and len(task) > 10, f"{s} {t}")
+
+# Two workers, no dashboard: exactly one claim wins and the loser is told who holds it.
+w = subprocess.run([BIN, "task", "claim", task, "--as", "pi-2", "--json"], env=env, capture_output=True, text=True, timeout=60)
+l = subprocess.run([BIN, "task", "claim", task, "--as", "pi-3", "--json"], env=env, capture_output=True, text=True, timeout=60)
+won, lost = json.loads(w.stdout or "{}"), json.loads(l.stdout or "{}")
+check("of two workers claiming one task with no page open, exactly one wins",
+      won.get("ok") is True and lost.get("ok") is False and lost.get("owner", "").endswith("pi-2"), w.stdout + w.stderr + l.stdout + l.stderr)
+s, _, t = post("/api/tasks/claim", {"id": task, "by": "alex/pi-4"})
+check("a third claim is a 409 naming the holder, not a silent overwrite", s == 409 and "pi-2" in t, f"{s} {t}")
+s, _, t = post("/api/tasks/close", {"id": task, "evidence": ""})
+check("closing with no evidence is refused", s == 400 and "evidence" in t, f"{s} {t}")
+s, _, t = post("/api/tasks/note", {"id": task, "text": "looking at the fixture"})
+check("a note is recorded", s == 200, f"{s} {t}")
+
+# A request the daemon cannot answer must be an error the caller sees, never silence it waits on forever.
+try:
+    bad = subprocess.run([BIN, "task", "claim", "01NOPE", "--json"], env=env, capture_output=True, text=True, timeout=30)
+    check("a request with no task answers with an error, not silence", bad.returncode != 0 and "no task" in bad.stderr, bad.stderr)
+except subprocess.TimeoutExpired:
+    check("a request with no task answers with an error, not silence", False, "the caller hung")
+s, _, t = post("/api/tasks/close", {"id": task, "evidence": "e2e 17/17"})
+check("closing with evidence closes it", s == 200, f"{s} {t}")
+_, _, t = http("GET", "/api/tasks/show?id=" + task, {"Cookie": f"rn={TOKEN}"})
+kinds = [e["kind"] for e in json.loads(t)["events"]]
+check("the task's history explains its state", kinds == ["created", "claimed", "note", "closed"], f"{kinds} {t}")
+_, _, t = http("GET", "/api/tasks", {"Cookie": f"rn={TOKEN}"})
+check("a closed task is off the board unless asked for", task not in t, f"{t}")
+_, _, t = http("GET", "/api/tasks?all=1", {"Cookie": f"rn={TOKEN}"})
+check("…and is there with all=1", task in t, f"{t}")
 
 daemon.terminate()
 subprocess.run([BIN, "stop"], env=env, capture_output=True, timeout=30)

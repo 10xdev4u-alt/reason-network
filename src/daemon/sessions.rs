@@ -17,6 +17,8 @@ const RETENTION_EVERY_MS: i64 = 3_600_000;
 /// Receipts are bounded by age **and** rows: a busy machine sends more than a person ever reads back.
 const RECEIPT_TTL_MS: i64 = 30 * 86_400_000;
 const MAX_RECEIPTS: i64 = 5_000;
+/// A task's history is bounded per task: the `created` line always stays, plus this many events after it.
+const MAX_TASK_EVENTS: i64 = 50;
 
 impl Daemon {
     /// How fast hooks let us reach an agent's session (`push_failed`: its push channel didn't work).
@@ -294,8 +296,9 @@ impl Daemon {
             let m = g.store.prune_messages(now, MAIL_TTL_MS).unwrap_or(0);
             let s = g.store.prune_sessions(now, SESSION_TTL_MS, &self.person).unwrap_or(0);
             let r = g.store.prune_receipts(now, RECEIPT_TTL_MS, MAX_RECEIPTS).unwrap_or(0);
-            if m > 0 || s > 0 || r > 0 {
-                log(&format!("retention: forgot {m} read messages, {s} stale sessions, {r} receipts"));
+            let t = g.store.prune_task_events(MAX_TASK_EVENTS).unwrap_or(0);
+            if m > 0 || s > 0 || r > 0 || t > 0 {
+                log(&format!("retention: forgot {m} read messages, {s} stale sessions, {r} receipts, {t} task events"));
             }
         }
     }

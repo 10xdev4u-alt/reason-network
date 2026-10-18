@@ -1,7 +1,7 @@
 //! SQLite: messages, and every session name ever used on this machine (so a new session can inherit a
 //! stale name and its unread mail).
 
-use crate::proto::{Message, Tier};
+use crate::proto::{Message, Task, TaskEvent, TaskKind, TaskState, Tier};
 use anyhow::{Result, anyhow, bail};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::path::Path;
@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS sessions_key ON sessions (key);
 
 /// The v1 schema — frozen: schema changes are forward-only steps appended to [`MIGRATIONS`], never edits here
 /// (an edit would create a table that the next migration step then fails to alter).
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// Forward-only migration steps as (version reached, SQL); dense, every version up to [`SCHEMA_VERSION`] has
 /// one. Each step runs in one transaction together with its version stamp: it lands whole or not at all.
@@ -89,6 +89,13 @@ const MIGRATIONS: &[(i64, &str)] = &[
         "CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, to_addr TEXT NOT NULL, state TEXT NOT NULL, at_ms INTEGER NOT NULL);
          CREATE INDEX IF NOT EXISTS receipts_at ON receipts (at_ms);
          CREATE INDEX IF NOT EXISTS receipts_to ON receipts (to_addr, at_ms);",
+    ),
+    (
+        3,
+        "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, boundary TEXT NOT NULL, state TEXT NOT NULL, owner TEXT, repo TEXT, branch TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, blocked_reason TEXT);
+         CREATE INDEX IF NOT EXISTS tasks_state ON tasks (state, created_at);
+         CREATE TABLE IF NOT EXISTS task_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, at_ms INTEGER NOT NULL, kind TEXT NOT NULL, by_addr TEXT NOT NULL, text TEXT NOT NULL);
+         CREATE INDEX IF NOT EXISTS task_events_task ON task_events (task_id, seq);",
     ),
 ];
 
@@ -113,6 +120,32 @@ fn apply_migrations(db: &mut Connection, from: i64, to: i64, steps: &[(i64, &str
 
 const MESSAGE_COLS: &str = "id, sender, sender_agent, sender_repo, recipient, via, reply_to, body, wake, sent_at";
 const SESSION_COLS: &str = "name, key, agent, cwd, repo, branch, doing, tier, last_seen";
+const TASK_COLS: &str = "id, title, boundary, state, owner, repo, branch, created_at, updated_at, blocked_reason";
+
+fn task_row(r: &Row) -> rusqlite::Result<Task> {
+    let state: String = r.get(3)?;
+    Ok(Task {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        boundary: r.get(2)?,
+        state: TaskState::parse(&state).unwrap_or(TaskState::Open),
+        owner: r.get(4)?,
+        repo: r.get(5)?,
+        branch: r.get(6)?,
+        created_at: r.get(7)?,
+        updated_at: r.get(8)?,
+        blocked_reason: r.get(9)?,
+    })
+}
+
+/// Refuses an action on a task that is not here, rather than writing history for nothing.
+fn exist(tx: &rusqlite::Transaction<'_>, id: &str) -> Result<()> {
+    let n: i64 = tx.query_row("SELECT COUNT(*) FROM tasks WHERE id = ?1", [id], |r| r.get(0))?;
+    if n == 0 {
+        bail!("no task {id}");
+    }
+    Ok(())
+}
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -290,6 +323,151 @@ impl Store {
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
         self.db.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?1, ?2)", params![key, value])?;
         Ok(())
+    }
+
+    // -- the board: the queue the daemon owns (proto::Task) --
+
+    pub fn task_add(&self, t: &Task, by: &str) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO tasks (id, title, boundary, state, owner, repo, branch, created_at, updated_at, blocked_reason)
+             VALUES (?1, ?2, ?3, 'open', NULL, ?4, ?5, ?6, ?6, NULL)",
+            params![t.id, t.title, t.boundary, t.repo, t.branch, t.created_at],
+        )?;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, 'created', ?3, ?4)",
+            params![t.id, t.created_at, by, t.boundary],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Open and claimed work, newest first; `all` adds the closed ones.
+    pub fn tasks(&self, all: bool, filter: Option<&str>) -> Result<Vec<Task>> {
+        let mut st = self.db.prepare_cached(
+            "SELECT id, title, boundary, state, owner, repo, branch, created_at, updated_at, blocked_reason FROM tasks
+             WHERE (?1 OR state != 'done')
+               AND (?2 IS NULL OR title LIKE '%' || ?2 || '%' OR boundary LIKE '%' || ?2 || '%' OR owner LIKE '%' || ?2 || '%')
+             ORDER BY created_at DESC, id",
+        )?;
+        let rows = st.query_map(params![all, filter], task_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn task(&self, id: &str) -> Result<Option<Task>> {
+        Ok(self.db.query_row(&format!("SELECT {TASK_COLS} FROM tasks WHERE id = ?1"), [id], task_row).optional()?)
+    }
+
+    pub fn task_events(&self, id: &str) -> Result<Vec<TaskEvent>> {
+        let mut st = self.db.prepare_cached(
+            "SELECT task_id, at_ms, kind, by_addr, text FROM task_events WHERE task_id = ?1 ORDER BY seq",
+        )?;
+        let rows = st.query_map([id], |r| {
+            let kind: String = r.get(2)?;
+            Ok(TaskEvent {
+                task_id: r.get(0)?,
+                at_ms: r.get(1)?,
+                kind: TaskKind::parse(&kind).unwrap_or(TaskKind::Note),
+                by: r.get(3)?,
+                text: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// First writer wins: `Ok(None)` means the caller now holds it, `Ok(Some(owner))` means it was already held and
+    /// the caller is told by whom. The claim is checked and written inside one transaction, so two workers claiming
+    /// in the same instant cannot both win — the outcome `mkdir` gives, kept deliberately.
+    pub fn task_claim(&self, id: &str, by: &str, now: i64) -> Result<Option<String>> {
+        let tx = self.db.unchecked_transaction()?;
+        let row: Option<(String, Option<String>)> = tx
+            .query_row("SELECT state, owner FROM tasks WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let Some((state, owner)) = row else { bail!("no task {id}") };
+        if state == "done" {
+            bail!("{id} is closed; add a new task instead");
+        }
+        if let Some(o) = owner
+            && o != by
+        {
+            return Ok(Some(o));
+        }
+        tx.execute(
+            "UPDATE tasks SET state = 'claimed', owner = ?2, blocked_reason = NULL, updated_at = ?3 WHERE id = ?1",
+            params![id, by, now],
+        )?;
+        let kind = TaskKind::Claimed;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, ?3, ?4, '')",
+            params![id, now, kind.as_str(), by],
+        )?;
+        tx.commit()?;
+        Ok(None)
+    }
+
+    pub fn task_note(&self, id: &str, by: &str, text: &str, now: i64) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        exist(&tx, id)?;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, 'note', ?3, ?4)",
+            params![id, now, by, text],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn task_block(&self, id: &str, by: &str, reason: &str, now: i64) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        exist(&tx, id)?;
+        tx.execute(
+            "UPDATE tasks SET state = 'blocked', blocked_reason = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, reason, now],
+        )?;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, 'blocked', ?3, ?4)",
+            params![id, now, by, reason],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn task_release(&self, id: &str, by: &str, now: i64) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        exist(&tx, id)?;
+        tx.execute("UPDATE tasks SET state = 'open', owner = NULL, updated_at = ?2 WHERE id = ?1", params![id, now])?;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, 'released', ?3, '')",
+            params![id, now, by],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn task_close(&self, id: &str, by: &str, evidence: &str, now: i64) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        exist(&tx, id)?;
+        tx.execute(
+            "UPDATE tasks SET state = 'done', blocked_reason = NULL, updated_at = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
+        tx.execute(
+            "INSERT INTO task_events (task_id, at_ms, kind, by_addr, text) VALUES (?1, ?2, 'closed', ?3, ?4)",
+            params![id, now, by, evidence],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Keeps a task's history from growing without limit: every `created` line stays, plus the newest `keep`
+    /// events of each task.
+    pub fn prune_task_events(&self, keep: i64) -> Result<usize> {
+        Ok(self.db.execute(
+            "DELETE FROM task_events WHERE kind != 'created' AND seq NOT IN (
+                 SELECT e.seq FROM task_events e
+                 WHERE (SELECT COUNT(*) FROM task_events n WHERE n.task_id = e.task_id AND n.seq > e.seq) < ?1
+             )",
+            [keep],
+        )?)
     }
 
     pub fn prefixed(&self, prefix: &str) -> Result<Vec<(String, String)>> {
@@ -507,6 +685,37 @@ mod tests {
         assert!(store.outbox_for("peer", 1 + 8 * 86_400_000).unwrap().is_empty());
         let r = store.receipts(None, None, None).unwrap();
         assert_eq!((r.len(), r[0].id.as_str(), r[0].state.as_str()), (1, "m2", "abandoned"));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn one_claim_wins_and_the_other_is_told_who_holds_it() {
+        let path = fresh("board");
+        let store = Store::open(&path).unwrap();
+        let t = Task {
+            id: "t1".into(),
+            title: "fix the flaky test".into(),
+            boundary: "e2e green".into(),
+            state: TaskState::Open,
+            owner: None,
+            repo: None,
+            branch: None,
+            created_at: 1,
+            updated_at: 1,
+            blocked_reason: None,
+        };
+        store.task_add(&t, "me/terminal").unwrap();
+        assert_eq!(store.task_claim("t1", "me/pi-2", 2).unwrap(), None);
+        assert_eq!(store.task_claim("t1", "me/pi-3", 3).unwrap().as_deref(), Some("me/pi-2"));
+        let got = store.task("t1").unwrap().unwrap();
+        assert_eq!((got.state.as_str(), got.owner.as_deref()), ("claimed", Some("me/pi-2")));
+        // The history explains the state: the claim that won is in it, the one that lost is not.
+        let kinds: Vec<&str> = store.task_events("t1").unwrap().iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["created", "claimed"]);
+        store.task_close("t1", "me/pi-2", "e2e 17/17", 4).unwrap();
+        assert!(store.task_claim("t1", "me/pi-3", 5).is_err(), "a closed task cannot be claimed");
+        assert!(store.tasks(false, None).unwrap().is_empty(), "closed work is off the board unless asked for");
+        assert_eq!(store.tasks(true, None).unwrap().len(), 1);
         cleanup(&path);
     }
 

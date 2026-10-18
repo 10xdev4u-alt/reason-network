@@ -15,9 +15,9 @@ function show(box, text) {
 function toast(msg, ms = 2500) {
   const t = $('toast');
   t.textContent = msg;
-  t.style.display = 'block';
+  t.classList.remove('hidden');
   clearTimeout(t._t);
-  t._t = setTimeout(() => { t.style.display = 'none'; }, ms);
+  t._t = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
 async function fetchJSON(url, opts) {
@@ -189,7 +189,7 @@ function startPolling() {
   if (state.timer) clearInterval(state.timer);
   state.timer = setInterval(() => {
     if (document.visibilityState === 'hidden') return;
-    refreshWho(); refreshHeld(); if (state.selected) refreshInbox();
+    refreshWho(); refreshHeld(); refreshBoard(); if (state.selected) refreshInbox();
   }, 5000);
 }
 
@@ -198,7 +198,7 @@ function startSSE() {
   try {
     state.es = new EventSource('/api/events');
     state.es.onmessage = (e) => {
-      try { const d = JSON.parse(e.data); if (d.type === 'changed') { refreshWho(); refreshHeld(); if (state.selected) refreshInbox(); } } catch (_) {}
+      try { const d = JSON.parse(e.data); if (d.type === 'changed') { refreshWho(); refreshHeld(); refreshBoard(); if (state.selected) refreshInbox(); } } catch (_) {}
     };
   } catch (e) { console.error('sse failed', e); }
 }
@@ -217,7 +217,121 @@ $('theme-toggle').addEventListener('click', () => {
   document.querySelector('meta[name="color-scheme"]').setAttribute('content', next);
 });
 
+// -- the board: the queue the daemon owns, rendered. A claim here is the person taking a task; an agent takes
+// one over IPC (`reason network task claim`) with no browser involved, which is the point of the queue living in
+// the daemon. `absent` on a claim is not `offline`: presence is a snapshot, and its owner may be mid-turn.
+function age(ms) {
+  if (ms === undefined) return '';
+  if (ms < 60000) return 'just now';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h < 24 ? h + 'h' : Math.floor(h / 24) + 'd';
+}
+
+function ownerLine(t) {
+  if (!t.owner) return 'unclaimed';
+  const s = t.owner_status || 'absent';
+  return t.owner + ' · ' + (s === 'absent' ? 'absent (may be mid-turn)' : s) + (t.owner_doing ? ' · ' + t.owner_doing : '');
+}
+
+async function refreshBoard() {
+  try {
+    const d = await fetchJSON('/api/tasks');
+    state.tasks = d.tasks || [];
+    const open = state.tasks.filter(t => t.state !== 'done').length;
+    $('board-count').textContent = '· ' + open + ' open';
+    const box = $('board');
+    show(box);
+    if (!state.tasks.length) { show(box, 'nothing on the board'); return; }
+    state.tasks.forEach(t => {
+      const row = document.createElement('div');
+      row.className = 'task-row' + (state.selectedTask === t.id ? ' selected' : '');
+      row.onclick = () => selectTask(t.id);
+      const top = document.createElement('div'); top.className = 'task-top';
+      const st = document.createElement('span'); st.className = 'task-state task-' + t.state; st.textContent = t.state; top.appendChild(st);
+      const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; top.appendChild(ti);
+      const a = document.createElement('span'); a.className = 'dim'; a.textContent = age(t.age_ms); top.appendChild(a);
+      row.appendChild(top);
+      const meta = document.createElement('div'); meta.className = 'task-meta'; meta.textContent = ownerLine(t); row.appendChild(meta);
+      const bd = document.createElement('div'); bd.className = 'task-boundary'; bd.textContent = 'done: ' + t.boundary; row.appendChild(bd);
+      box.appendChild(row);
+    });
+  } catch (e) { show($('board'), 'board: ' + e.message); }
+}
+
+async function selectTask(id) {
+  state.selectedTask = id;
+  try {
+    state.taskDetail = await fetchJSON('/api/tasks/show?id=' + encodeURIComponent(id));
+  } catch (e) { state.taskDetail = null; toast(e.message); }
+  renderDetail();
+  refreshBoard();
+}
+
+function renderDetail() {
+  const box = $('task-detail');
+  const d = state.taskDetail;
+  show(box);
+  if (!d) { show(box, 'select a task'); return; }
+  const t = d.task;
+  const head = document.createElement('div'); head.className = 'task-top';
+  const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; head.appendChild(ti);
+  const st = document.createElement('span'); st.className = 'task-state task-' + t.state; st.textContent = t.state; head.appendChild(st);
+  box.appendChild(head);
+  const bd = document.createElement('div'); bd.className = 'task-boundary'; bd.textContent = 'done: ' + t.boundary; box.appendChild(bd);
+  const own = document.createElement('div'); own.className = 'task-meta'; own.textContent = ownerLine(t); box.appendChild(own);
+  if (t.blocked_reason) { const b = document.createElement('div'); b.className = 'task-reason'; b.textContent = 'blocked: ' + t.blocked_reason; box.appendChild(b); }
+  const hist = document.createElement('div'); hist.className = 'task-history';
+  (d.events || []).forEach(e => {
+    const line = document.createElement('div'); line.className = 'task-event';
+    line.textContent = new Date(e.at_ms).toLocaleTimeString() + ' · ' + e.kind + ' · ' + e.by + (e.text ? ' · ' + e.text : '');
+    hist.appendChild(line);
+  });
+  box.appendChild(hist);
+}
+
+function wireActions() {
+  const box = $('task-actions');
+  [['take it', 'claim', false], ['release', 'release', false], ['note', 'note', true], ['block', 'block', true], ['close with evidence', 'close', true]].forEach(([label, path, needs]) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (path === 'claim' ? ' primary' : '');
+    btn.textContent = label;
+    btn.onclick = () => taskAction(path, needs);
+    box.appendChild(btn);
+  });
+}
+
+async function taskAction(path, needsText) {
+  const text = $('task-text').value.trim();
+  if (needsText && !text) { toast(path === 'close' ? 'closing needs evidence' : 'say why, in the box below'); return; }
+  const body = { id: state.selectedTask, text, reason: text, evidence: text };
+  try {
+    const r = await fetchJSON('/api/tasks/' + path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    $('task-text').value = '';
+    toast(path === 'claim' ? (r.ok ? 'yours' : 'held by ' + r.owner) : 'ok');
+    await selectTask(state.selectedTask);
+  } catch (e) { toast(e.message, 4000); }
+}
+
+async function doAddTask() {
+  const title = $('task-title').value.trim();
+  const boundary = $('task-boundary').value.trim();
+  if (!title || !boundary) { toast('a task needs a title and what done means'); return; }
+  try {
+    await fetchJSON('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, boundary})});
+    $('task-title').value = ''; $('task-boundary').value = '';
+    toast('added');
+    refreshBoard();
+  } catch (e) { toast(e.message, 4000); }
+}
+
+$('task-add').addEventListener('click', doAddTask);
+wireActions();
+
 refreshWho();
 refreshHeld();
+renderDetail();
+refreshBoard();
 startPolling();
 startSSE();
