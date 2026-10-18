@@ -109,7 +109,7 @@ async function selectSession(addr) {
 async function refreshInbox() {
   if (!state.selected) { show($('inbox'), 'select a session'); return; }
   try {
-    const i = await fetchJSON('/api/inbox?key=' + encodeURIComponent(state.selected));
+    const i = await fetchJSON('/api/inbox?address=' + encodeURIComponent(state.selected));
     const box = $('inbox');
     show(box);
     if (!i.messages || i.messages.length === 0) { show(box, 'no messages'); return; }
@@ -126,7 +126,7 @@ async function refreshInbox() {
       box.appendChild(el);
     });
     box.scrollTop = box.scrollHeight;
-  } catch (e) { console.error('inbox failed', e); }
+  } catch (e) { show($('inbox'), e.message); }
 }
 
 async function refreshHeld() {
@@ -175,7 +175,7 @@ async function doReply() {
   const body = $('reply-body').value.trim();
   if (!state.selected || !body) { toast('select a session and type a reply'); return; }
   try {
-    const i = await fetchJSON('/api/inbox?key=' + encodeURIComponent(state.selected));
+    const i = await fetchJSON('/api/inbox?address=' + encodeURIComponent(state.selected));
     const last = i.messages && i.messages.length ? i.messages[i.messages.length-1] : null;
     const target = last ? last.from : state.selected;
     const r = await fetchJSON('/api/send', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({from: '', to: target, body, notify: false})});

@@ -631,8 +631,18 @@ impl Daemon {
         self.inner.lock().unwrap().store.held().unwrap_or_default()
     }
 
-    pub async fn inbox_json(self: &Arc<Self>, key: &str) -> Result<serde_json::Value> {
-        let i = self.inbox(key.to_string(), 0, true).await?;
+    /// The dashboard holds an address (`person/session`), never the key a client registers under: the key is
+    /// per-connection state the page cannot see, which is why this used to answer 500 for every input. Resolve
+    /// through the live sessions instead.
+    pub async fn inbox_json(self: &Arc<Self>, address: &str) -> Result<serde_json::Value> {
+        let key = {
+            let g = self.inner.lock().unwrap();
+            g.live.iter().find(|(_, l)| self.addr(&l.name) == address).map(|(k, _)| k.clone())
+        };
+        let Some(key) = key else {
+            bail!("no live session at {address}: it may have ended, or it is on another machine");
+        };
+        let i = self.inbox(key, 0, true).await?;
         Ok(serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
     }
 
