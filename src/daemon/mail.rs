@@ -1,8 +1,8 @@
 //! Sending, receiving and delivering messages.
 //!
 //! Delivery is at least once: a message stays unread until whoever showed it to the agent confirms
-//! with `Delivered`. Messages handed to a push channel are "in flight" meanwhile, so the inbox and hooks don't
-//! show them a second time.
+//! with `Delivered`. Messages handed to a push channel or a hook are "in flight" meanwhile, so the inbox and hooks
+//! don't show them a second time.
 
 use super::{Daemon, Inner, directory::Target, log};
 use crate::{agent, claude, config::Policy, proto::*, render, util};
@@ -20,7 +20,7 @@ const RATE_LIMIT: usize = 60;
 /// Agent-to-agent messages allowed between one pair in `LOOP_WINDOW`; past that it is probably a loop.
 const LOOP_LIMIT: usize = 12;
 const LOOP_WINDOW: Duration = Duration::from_secs(600);
-/// A push not confirmed within this long is shown through the inbox and hooks again.
+/// A push or hook not confirmed within this long is shown through the inbox and hooks again.
 const IN_FLIGHT_TTL: Duration = Duration::from_secs(90);
 
 /// How a session on this machine gets a message into its conversation.
@@ -38,7 +38,7 @@ enum Channel {
 }
 
 impl Inner {
-    /// Unread mail for an address that isn't already on its way through a push.
+    /// Unread mail for an address that isn't already on its way through a push or a hook.
     pub(super) fn pending(&mut self, address: &str) -> Result<Vec<Message>> {
         self.in_flight.retain(|_, at| at.elapsed() < IN_FLIGHT_TTL);
         let msgs = self.store.unread(address)?;

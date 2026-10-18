@@ -63,6 +63,15 @@ const network = (prompt: (id: string, text: string) => Promise<unknown>) => {
       } else idle.delete(id)
     },
     stop: () => clearInterval(timer),
+    // Off the network: the session is gone, or opencode unloaded this plugin and nothing delivers to it any more.
+    end: (id?: string) => {
+      for (const [s, dir] of [...dirs]) {
+        if (id && s !== id) continue
+        idle.delete(s)
+        dirs.delete(s)
+        void run(["hook", "opencode", "session-end", "--session", s], dir)
+      }
+    },
   }
 }
 
@@ -120,11 +129,15 @@ export default {
         if (e.type === "session.created" && d.parentID) net.subagent(d.sessionID)
         if (e.type === "session.renamed") net.title(d.sessionID, d.title, dir)
         if (STATE[e.type]) void net.status(d.sessionID, STATE[e.type], dir)
+        if (e.type === "session.deleted") net.end(d.sessionID)
       }
     })().catch(() => {})
+    // opencode unloads a folder's plugins when it has been idle a while; its background server stays up, so the
+    // daemon can't tell its sessions went away.
     return () => {
       abort.abort()
       net.stop()
+      net.end()
     }
   },
 }
