@@ -88,7 +88,7 @@ async function refreshWho() {
       const sdot = document.createElement('span');
       sdot.className = 'dot ' + (s.status === 'offline' ? 'bad' : (s.status === 'busy' ? 'relay' : 'on'));
       top.appendChild(sdot);
-      const name = document.createElement('span'); name.className = 'session-name'; name.textContent = s.name; top.appendChild(name);
+      const name = document.createElement('span'); name.className = 'session-name'; name.textContent = s.name; name.title = s.name; top.appendChild(name);
       const agent = document.createElement('span'); agent.className = 'session-agent'; agent.textContent = s.agent; top.appendChild(agent);
       const st = document.createElement('span'); st.className = 'session-status ' + statusClass(s.status); st.textContent = s.status; top.appendChild(st);
       const tier = document.createElement('span'); tier.className = 'tier ' + tierClass(s.tier); tier.textContent = s.tier; top.appendChild(tier);
@@ -330,7 +330,7 @@ async function refreshBoard() {
       row.onclick = () => selectTask(t.id);
       const top = document.createElement('div'); top.className = 'task-top';
       const dot = document.createElement('span'); dot.className = 'dot ' + t.state; top.appendChild(dot);
-      const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; top.appendChild(ti);
+      const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; ti.title = t.title; top.appendChild(ti);
       const a = document.createElement('span'); a.className = 'task-age'; a.textContent = age(t.age_ms); top.appendChild(a);
       row.appendChild(top);
       const meta = document.createElement('div'); meta.className = 'task-meta';
@@ -360,7 +360,7 @@ function renderDetail() {
   if (!d) { show(box, 'select a task'); return; }
   const t = d.task;
   const head = document.createElement('div'); head.className = 'task-top';
-  const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; head.appendChild(ti);
+  const ti = document.createElement('span'); ti.className = 'task-title'; ti.textContent = t.title; ti.title = t.title; head.appendChild(ti);
   const st = document.createElement('span'); st.className = 'task-state task-' + t.state; st.textContent = t.state; head.appendChild(st);
   box.appendChild(head);
   const bd = document.createElement('div'); bd.className = 'task-boundary'; bd.textContent = 'done: ' + t.boundary; box.appendChild(bd);
