@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# e2e runs the two harnesses that need no network: hooks.py (hook formats, the
+# opencode/pi status+poll+doing paths, hold policy, MCP cancellation/restart) and
+# guided.py (onboarding through a real pty, and that `setup` writes agent configs).
+# They are the only coverage for those paths, and before this job they never ran.
+# e2e-network runs two_machines.py, which needs internet (iroh relays/discovery): it
+# is its own job and continue-on-error, so a flaky relay cannot block a pull request.
+# No `needs:` between them, so the e2e signal still reports when a unit test fails.
+
 jobs:
   test:
     strategy:
@@ -12,6 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
@@ -22,3 +31,35 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  e2e:
+    # POSIX only: guided.py drives a pseudo-terminal (pty.fork), which has no Windows equivalent.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # The harnesses exec target/debug/reason-network directly, so a debug build is required.
+      - run: cargo build --locked
+      - name: e2e — hook flows (Cursor, Gemini, Copilot, opencode, pi)
+        run: python3 tests/e2e/hooks.py
+      - name: e2e — guided setup (onboarding + agent wiring)
+        run: python3 tests/e2e/guided.py
+
+  e2e-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Never block a merge on a relay being down.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo build --locked
+      - name: e2e — two machines over iroh (needs internet)
+        run: python3 tests/e2e/two_machines.py
