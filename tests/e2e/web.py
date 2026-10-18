@@ -5,7 +5,7 @@ form, a body with the wrong content type, a token in a URL, oversized headers.
 
 Uses a throwaway home and a spare port, so the real dashboard and its token are never touched.
 """
-import os, json, re, socket, subprocess, tempfile, time
+import atexit, os, json, re, socket, subprocess, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(ROOT, "target", "debug", "reason-network")
@@ -38,6 +38,7 @@ subprocess.run([BIN, "init", "hooks", "--as", "alex", "--no-setup"], env=env, ca
 subprocess.run([BIN, "stop"], env=env, capture_output=True, timeout=30)
 # Our own daemon, held for the run: one started by another command dies with that command's pipes.
 daemon = subprocess.Popen([BIN, "daemon"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+atexit.register(daemon.terminate)  # a failed check must not leave a daemon behind on a temp home
 
 
 def http(method="GET", path="/", headers=None, body=b"", timeout=8):
