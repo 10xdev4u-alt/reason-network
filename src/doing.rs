@@ -49,7 +49,7 @@ fn clip(s: &str) -> String {
 }
 
 /// What a transcript says so far. `task` is `Some(None)` when its latest todo list has nothing in progress.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Debug)]
 struct Seen {
     title: Option<String>,
     task: Option<Option<String>>,
@@ -110,6 +110,8 @@ fn scan(path: &Path) -> Seen {
     let Ok(meta) = std::fs::metadata(path) else { return Seen::default() };
     let (len, modified) = (meta.len(), meta.modified().ok());
     let mut tails = TAILS.get_or_init(Default::default).lock().unwrap();
+    // Drop caches for transcripts that no longer exist (sessions ended / files rotated), so the map doesn't grow for the daemon's whole life.
+    tails.retain(|p, _| p.exists());
     let t = tails.entry(path.to_path_buf()).or_insert(Tail {
         modified: None,
         offset: 0,
@@ -262,5 +264,12 @@ mod tests {
         std::fs::write(&g, r#"{"messages":[{"toolCalls":[{"name":"write_todos","args":{"todos":[{"description":"Fix login","status":"in_progress"}]}}]}]}"#).unwrap();
         assert_eq!(scan(&g).task, Some(Some("Fix login".into())));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_transcript_returns_default() {
+        let p = std::env::temp_dir().join(format!("reason-network-doing-missing-{}", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(scan(&p), Seen::default());
     }
 }
