@@ -10,6 +10,16 @@ pub struct Store {
     db: Connection,
 }
 
+/// What became of one message this machine sent. The ack used to leave nothing behind but an absence, and an
+/// absence cannot say whether the mail arrived or was given up on: a receipt outlives the outbox row.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Receipt {
+    pub id: String,
+    pub to: String,
+    pub state: String,
+    pub at_ms: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Remembered {
     pub name: String,
@@ -66,13 +76,21 @@ CREATE INDEX IF NOT EXISTS sessions_key ON sessions (key);
 
 /// The v1 schema — frozen: schema changes are forward-only steps appended to [`MIGRATIONS`], never edits here
 /// (an edit would create a table that the next migration step then fails to alter).
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// Forward-only migration steps as (version reached, SQL); dense, every version up to [`SCHEMA_VERSION`] has
 /// one. Each step runs in one transaction together with its version stamp: it lands whole or not at all.
 /// Never edit or reorder a shipped step, only append. `(1, "")` adopts pre-versioning state — those databases
 /// carry exactly this schema, since re-running `CREATE IF NOT EXISTS` used to be the whole migration story.
-const MIGRATIONS: &[(i64, &str)] = &[(1, "")];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, ""),
+    (
+        2,
+        "CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, to_addr TEXT NOT NULL, state TEXT NOT NULL, at_ms INTEGER NOT NULL);
+         CREATE INDEX IF NOT EXISTS receipts_at ON receipts (at_ms);
+         CREATE INDEX IF NOT EXISTS receipts_to ON receipts (to_addr, at_ms);",
+    ),
+];
 
 /// Applies every step from `from + 1` up to `to`; returns the version reached.
 fn apply_migrations(db: &mut Connection, from: i64, to: i64, steps: &[(i64, &str)]) -> Result<i64> {
@@ -194,17 +212,75 @@ impl Store {
         Ok(())
     }
 
-    /// Undelivered messages for a machine; older than a week are given up on.
+    /// Undelivered messages for a machine; older than a week are given up on. Whatever is dropped is recorded in
+    /// the ring first, so the message that never made it leaves a trace instead of an absence.
     pub fn outbox_for(&self, target: &str, now: i64) -> Result<Vec<Message>> {
-        self.db.execute("DELETE FROM outbox WHERE created_at < ?1", [now - 7 * 86_400_000])?;
+        self.give_up(now - 7 * 86_400_000, now)?;
         let mut st = self.db.prepare_cached("SELECT msg FROM outbox WHERE target = ?1 ORDER BY created_at, id")?;
         let rows = st.query_map([target], |r| r.get::<_, String>(0))?;
         Ok(rows.filter_map(|r| r.ok().and_then(|s| serde_json::from_str(&s).ok())).collect())
     }
 
-    pub fn outbox_done(&self, id: &str) -> Result<()> {
-        self.db.execute("DELETE FROM outbox WHERE id = ?1", [id])?;
+    fn give_up(&self, cutoff: i64, now: i64) -> Result<usize> {
+        let tx = self.db.unchecked_transaction()?;
+        let mut n = 0;
+        {
+            let mut st = tx.prepare("SELECT msg FROM outbox WHERE created_at < ?1")?;
+            let rows = st.query_map([cutoff], |r| r.get::<_, String>(0))?;
+            for s in rows.flatten() {
+                if let Ok(m) = serde_json::from_str::<Message>(&s) {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO receipts (id, to_addr, state, at_ms) VALUES (?1, ?2, 'abandoned', ?3)",
+                        params![m.id, m.to, now],
+                    )?;
+                    n += 1;
+                }
+            }
+        }
+        tx.execute("DELETE FROM outbox WHERE created_at < ?1", [cutoff])?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    /// Settles one outbox row and keeps the receipt **in the same transaction**: the ack was a bare `DELETE`,
+    /// which is why "delivered" and "given up on" were one observation — the row was simply gone.
+    pub fn outbox_settle(&self, id: &str, state: &str, now: i64) -> Result<()> {
+        let tx = self.db.unchecked_transaction()?;
+        let row: Option<String> =
+            tx.query_row("SELECT msg FROM outbox WHERE id = ?1", [id], |r| r.get(0)).optional()?;
+        if let Some(m) = row.and_then(|s| serde_json::from_str::<Message>(&s).ok()) {
+            tx.execute(
+                "INSERT OR REPLACE INTO receipts (id, to_addr, state, at_ms) VALUES (?1, ?2, ?3, ?4)",
+                params![m.id, m.to, state, now],
+            )?;
+        }
+        tx.execute("DELETE FROM outbox WHERE id = ?1", [id])?;
+        tx.commit()?;
         Ok(())
+    }
+
+    /// What happened to the mail this machine sent, newest first: the only place an ack, a refusal or a message
+    /// given up on can still be read.
+    pub fn receipts(&self, id: Option<&str>, to: Option<&str>, since: Option<i64>) -> Result<Vec<Receipt>> {
+        let mut st = self.db.prepare_cached(
+            "SELECT id, to_addr, state, at_ms FROM receipts
+             WHERE (?1 IS NULL OR id = ?1) AND (?2 IS NULL OR to_addr = ?2) AND (?3 IS NULL OR at_ms >= ?3)
+             ORDER BY at_ms DESC, id LIMIT 500",
+        )?;
+        let rows = st.query_map(params![id, to, since], |r| {
+            Ok(Receipt { id: r.get(0)?, to: r.get(1)?, state: r.get(2)?, at_ms: r.get(3)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Forgets receipts past the age horizon and any beyond `max_rows`, oldest first.
+    pub fn prune_receipts(&self, now: i64, age: i64, max_rows: i64) -> Result<usize> {
+        let mut n = self.db.execute("DELETE FROM receipts WHERE at_ms < ?1", [now - age])?;
+        n += self.db.execute(
+            "DELETE FROM receipts WHERE id NOT IN (SELECT id FROM receipts ORDER BY at_ms DESC, id LIMIT ?1)",
+            [max_rows],
+        )?;
+        Ok(n)
     }
 
     pub fn get(&self, key: &str) -> Result<Option<String>> {
@@ -394,6 +470,43 @@ mod tests {
         let store = Store::open(&path).unwrap();
         assert_eq!(version_of(&store.db), SCHEMA_VERSION);
         assert_eq!(store.unread_count("me/x").unwrap(), 1);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_receipt_survives_the_ack() {
+        let path = fresh("receipts");
+        let store = Store::open(&path).unwrap();
+        store.outbox_add("peer", &msg("m1", "them/bot", 1)).unwrap();
+        store.outbox_settle("m1", "delivered", 9).unwrap();
+        assert!(store.outbox_for("peer", 9).unwrap().is_empty(), "the acked row is gone from the outbox");
+        let r = store.receipts(None, None, None).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(
+            (r[0].id.as_str(), r[0].to.as_str(), r[0].state.as_str(), r[0].at_ms),
+            ("m1", "them/bot", "delivered", 9)
+        );
+        // Bounded by rows as well as by age: a busy machine sends more than a person ever reads back.
+        store.outbox_add("peer", &msg("m1b", "them/bot", 2)).unwrap();
+        store.outbox_settle("m1b", "delivered", 10).unwrap();
+        assert_eq!(store.prune_receipts(10, 30 * 86_400_000, 1).unwrap(), 1);
+        let r = store.receipts(None, None, None).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "m1b", "the oldest receipt is the one that goes");
+        // Bounded by age: a month on, the ring forgets it like everything else.
+        assert_eq!(store.prune_receipts(10 + 31 * 86_400_000, 30 * 86_400_000, 5_000).unwrap(), 1);
+        assert!(store.receipts(None, None, None).unwrap().is_empty());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn giving_up_on_an_undelivered_message_is_recorded_not_absent() {
+        let path = fresh("giveup");
+        let store = Store::open(&path).unwrap();
+        store.outbox_add("peer", &msg("m2", "them/bot", 1)).unwrap();
+        assert!(store.outbox_for("peer", 1 + 8 * 86_400_000).unwrap().is_empty());
+        let r = store.receipts(None, None, None).unwrap();
+        assert_eq!((r.len(), r[0].id.as_str(), r[0].state.as_str()), (1, "m2", "abandoned"));
         cleanup(&path);
     }
 

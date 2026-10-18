@@ -136,6 +136,9 @@ check("the inbox reads by address", s == 200 and "check the flaky test" in t, f"
 s, _, t = http("GET", "/api/inbox?address=alex%2Fnobody", {"Cookie": f"rn={TOKEN}"})
 check("an inbox for a session that is not there fails visibly, not with a 500", s == 404 and "no live session" in t, f"{s} {t}")
 
+s, _, t = http("GET", "/api/receipts", {"Cookie": f"rn={TOKEN}"})
+check("the receipt ring reads back, newest first", s == 200 and t.rstrip().endswith("[]"), f"{s} {t}")
+
 daemon.terminate()
 subprocess.run([BIN, "stop"], env=env, capture_output=True, timeout=30)
 print(f"\n{sum(results)}/{len(results)} web checks passed")

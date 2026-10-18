@@ -150,6 +150,15 @@ async fn handle(
             let msgs = daemon.inner_held();
             write_json(&mut wr, 200, &msgs).await?;
         }
+        ("GET", "/api/receipts") => {
+            let id = query_param(&req.path, "id");
+            let to = query_param(&req.path, "to");
+            let since = query_param(&req.path, "since").and_then(|s| s.parse::<i64>().ok());
+            match daemon.receipts_json(id.as_deref(), to.as_deref(), since) {
+                Ok(v) => write_json(&mut wr, 200, &v).await?,
+                Err(e) => write_response(&mut wr, 500, "application/json", &format!(r#"{{"error":"{e}"}}"#)).await?,
+            }
+        }
         ("GET", "/api/inbox") => {
             let address = query_param(&req.path, "address").unwrap_or_default();
             match daemon.inbox_json(&address).await {

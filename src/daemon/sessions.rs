@@ -14,6 +14,9 @@ const HOOK_TTL_MS: i64 = 6 * 3_600_000;
 const MAIL_TTL_MS: i64 = 30 * 86_400_000;
 const SESSION_TTL_MS: i64 = 180 * 86_400_000;
 const RETENTION_EVERY_MS: i64 = 3_600_000;
+/// Receipts are bounded by age **and** rows: a busy machine sends more than a person ever reads back.
+const RECEIPT_TTL_MS: i64 = 30 * 86_400_000;
+const MAX_RECEIPTS: i64 = 5_000;
 
 impl Daemon {
     /// How fast hooks let us reach an agent's session (`push_failed`: its push channel didn't work).
@@ -290,8 +293,9 @@ impl Daemon {
             let _ = g.store.set("prune:last", &now.to_string());
             let m = g.store.prune_messages(now, MAIL_TTL_MS).unwrap_or(0);
             let s = g.store.prune_sessions(now, SESSION_TTL_MS, &self.person).unwrap_or(0);
-            if m > 0 || s > 0 {
-                log(&format!("retention: forgot {m} read messages, {s} stale sessions"));
+            let r = g.store.prune_receipts(now, RECEIPT_TTL_MS, MAX_RECEIPTS).unwrap_or(0);
+            if m > 0 || s > 0 || r > 0 {
+                log(&format!("retention: forgot {m} read messages, {s} stale sessions, {r} receipts"));
             }
         }
     }

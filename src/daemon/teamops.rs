@@ -98,8 +98,13 @@ impl Daemon {
         self.inner.lock().unwrap().store.outbox_for(&id.to_string(), util::now_ms()).unwrap_or_default()
     }
 
-    pub fn outbox_done(&self, id: &str) {
-        let _ = self.inner.lock().unwrap().store.outbox_done(id);
+    pub fn outbox_settle(&self, id: &str, state: &str) {
+        let _ = self.inner.lock().unwrap().store.outbox_settle(id, state, util::now_ms());
+    }
+
+    pub fn receipts_json(&self, id: Option<&str>, to: Option<&str>, since: Option<i64>) -> Result<serde_json::Value> {
+        let r = self.inner.lock().unwrap().store.receipts(id, to, since)?;
+        Ok(serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
     }
 
     /// Takes in a teammate's copy of the team state, passing it on if it taught us something.
